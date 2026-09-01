@@ -18,31 +18,33 @@ export default function Table({ columns, rows = [], loading, emptyTitle, emptyMe
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-lg border border-ink-100">
-        <table className="min-w-full divide-y divide-ink-100 text-sm">
-          <thead className="bg-gradient-to-r from-brand-50 via-white to-info-50/40">
+      <div className="overflow-x-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)]">
+        <table className="min-w-full divide-y divide-[var(--border-subtle)] text-sm">
+          <thead className="bg-[var(--surface-strong)]">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className={`whitespace-nowrap px-3 py-3 text-left font-semibold text-ink-700 sm:px-6 sm:py-4 ${col.className || ''}`}>
+                <th key={col.key} className={`whitespace-nowrap px-3 py-3 text-left font-semibold text-[var(--text-secondary)] sm:px-6 sm:py-4 ${col.className || ''}`}>
                   {col.header}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100 bg-white">
-            {paged.map((row, idx) => (
-              <tr
-                key={row[rowKey]}
-                className={`transition-colors ${idx % 2 === 0 ? 'hover:bg-brand-50/60' : 'bg-ink-50/30 hover:bg-brand-50/60'
-                  }`}
-              >
-                {columns.map((col) => (
-                  <td key={col.key} className={`whitespace-nowrap px-3 py-3 text-ink-700 sm:px-6 sm:py-4 ${col.className || ''}`}>
-                    {col.render ? col.render(row) : row[col.key]}
-                  </td>
-                ))}
-              </tr>
-            ))}
+          <tbody className="divide-y divide-[var(--border-subtle)] bg-[var(--surface)]">
+            {paged.map((row, idx) => {
+              const rowClassName = idx % 2 === 0
+                ? 'bg-transparent hover:bg-[var(--surface-subtle)]'
+                : 'bg-[var(--surface-subtle)] hover:bg-[var(--surface-contrast)]'
+
+              return (
+                <tr key={row[rowKey]} className={`transition-colors ${rowClassName}`}>
+                  {columns.map((col) => (
+                    <td key={col.key} className={`whitespace-nowrap px-3 py-3 text-[var(--text-primary)] sm:px-6 sm:py-4 ${col.className || ''}`}>
+                      {col.render ? col.render(row) : row[col.key]}
+                    </td>
+                  ))}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
