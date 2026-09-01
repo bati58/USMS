@@ -56,6 +56,43 @@ test('goods receipt submission routes approval to the receiving store head for t
     assert.equal(chemUser[0].name, chemStore[0].head_of_store);
 });
 
+test('stock clerk notifications only appear for the assigned clerk, not every clerk', async () => {
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+
+    const assigned = buildNotifications(
+        { role: 'Stock Clerk', name: 'Kaleb Mulugeta' },
+        {
+            items: [],
+            grns: [],
+            reqs: [],
+            returns: [],
+            transfers: [],
+            disposals: [],
+            vouchers: [],
+            stockTaking: [{ id: 1, status: 'Submitted', sessionRef: 'STK-2026-0002', store: 'Main Store', countDate: '2026-09-01', assignedTo: 'Kaleb Mulugeta', createdBy: 'Yonas Bekele' }]
+        }
+    );
+
+    const notAssigned = buildNotifications(
+        { role: 'Stock Clerk', name: 'Kaleb Mulugeta' },
+        {
+            items: [],
+            grns: [],
+            reqs: [],
+            returns: [],
+            transfers: [],
+            disposals: [],
+            vouchers: [],
+            stockTaking: [{ id: 2, status: 'Submitted', sessionRef: 'STK-2026-0003', store: 'Main Store', countDate: '2026-09-01', assignedTo: 'Jane Doe', createdBy: 'Yonas Bekele' }]
+        }
+    );
+
+    assert.ok(assigned.some((n) => n.title === 'Stock Count Submitted' && n.message.includes('STK-2026-0002')));
+    assert.equal(notAssigned.some((n) => n.message.includes('STK-2026-0003')), false);
+});
+
 test('requires an approved transfer to be dispatched', () => {
     assert.throws(
         () => assertTransition('materialTransfer', 'Pending Approval', 'Dispatched'),
@@ -98,11 +135,19 @@ test('a pending-approval transfer can be approved, rejected, or returned', () =>
     assert.doesNotThrow(() => assertTransition('materialTransfer', 'Returned for Correction', 'Pending Approval'));
 });
 
-test('stock-taking follows submit -> approve -> post -> close', () => {
-    assert.doesNotThrow(() => assertTransition('stockTaking', 'Submitted', 'Approved'));
+test('stock-taking follows the amended operational review flow', () => {
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Draft', 'Scheduled'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Scheduled', 'In Progress'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'In Progress', 'Submitted'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Submitted', 'Under Review'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Under Review', 'Variance Detected'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Variance Detected', 'Investigation'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Investigation', 'Adjustment Proposed'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Adjustment Proposed', 'Approved'));
     assert.doesNotThrow(() => assertTransition('stockTaking', 'Approved', 'Posted'));
     assert.doesNotThrow(() => assertTransition('stockTaking', 'Posted', 'Closed'));
-    // Cannot skip approval and post a merely-submitted count.
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Submitted', 'Recount Required'));
+    assert.doesNotThrow(() => assertTransition('stockTaking', 'Recount Required', 'Submitted'));
     assert.throws(
         () => assertTransition('stockTaking', 'Submitted', 'Posted'),
         (error) => error.statusCode === 409
@@ -151,7 +196,7 @@ test('TEC evaluation workflow distinguishes pending work from completed history'
     );
 });
 
-test('store head is a supervisor with read access and no direct operational mutation authority', () => {
+test('store head is the primary stock-taking owner and may create, approve, and post sessions', () => {
     assert.equal(canRead('stores', 'Store Head'), true);
     assert.equal(canRead('categories', 'Store Head'), true);
     assert.equal(canRead('items', 'Store Head'), true);
@@ -162,10 +207,11 @@ test('store head is a supervisor with read access and no direct operational muta
     assert.equal(canWrite('items', 'Store Head'), false);
     assert.equal(canWrite('locations', 'Store Head'), false);
     assert.equal(canWrite('goods-receipts', 'Store Head'), false);
+    assert.equal(canWrite('stock-taking', 'Store Head'), true);
     assert.equal(canAct('goods-receipts-notify-tec', 'Store Head'), true);
     assert.equal(canAct('goods-receipts-post', 'Store Head'), false);
     assert.equal(canAct('issue-voucher-post', 'Store Head'), false);
-    assert.equal(canAct('stock-taking-post', 'Store Head'), false);
+    assert.equal(canAct('stock-taking-post', 'Store Head'), true);
 });
 
 test('security officer can view supporting gate documents but cannot create or modify stock records', () => {
@@ -216,9 +262,10 @@ test('department head can create but cannot approve or delete transfers', () => 
     assert.equal(canRead('user-cards', 'Department Head'), true);
 });
 
-test('stock clerk is limited to stock control and cannot execute inventory transfers', () => {
+test('stock clerk is limited to counting and cannot execute inventory transfers', () => {
     assert.equal(canRead('stock-taking', 'Stock Clerk'), true);
     assert.equal(canWrite('stock-taking', 'Stock Clerk'), true);
+    assert.equal(canWrite('stock-taking', 'Storekeeper'), false);
     assert.equal(canWrite('bin-transfers', 'Stock Clerk'), false);
     assert.equal(canAct('material-transfers-execute', 'Stock Clerk'), false);
     assert.equal(canAct('stock-taking-post', 'Stock Clerk'), false);

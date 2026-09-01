@@ -14,7 +14,10 @@ export const binCardService = {
 export const requisitionService = createEntityService('requisitions')
 export const issueVoucherService = createEntityService('issueVouchers')
 export const fixedAssetService = createEntityService('fixedAssets')
-export const userService = createEntityService('users')
+export const userService = {
+    ...createEntityService('users'),
+    listStockClerks: () => api.raw('/users/stock-clerks')
+}
 export const materialReturnService = createEntityService('materialReturns')
 export const materialTransferService = createEntityService('materialTransfers')
 export const disposalService = createEntityService('disposals')

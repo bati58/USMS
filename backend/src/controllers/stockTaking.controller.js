@@ -63,6 +63,9 @@ const list = asyncHandler(async (req, res) => {
     if (req.user.role === 'Store Head' && req.user.store) {
         scope = 'WHERE s.name = $1';
         params = [req.user.store];
+    } else if (req.user.role === 'Stock Clerk') {
+        scope = 'WHERE st.assigned_to = $1 OR st.created_by = $1';
+        params = [req.user.name];
     }
 
     const { rows } = await query(`${SELECT} ${scope} ORDER BY st.id DESC`, params);
@@ -78,6 +81,9 @@ const getOne = asyncHandler(async (req, res) => {
     if (req.user.role === 'Store Head' && req.user.store) {
         scope = ' AND s.name = $2';
         params.push(req.user.store);
+    } else if (req.user.role === 'Stock Clerk') {
+        scope = ' AND (st.assigned_to = $2 OR st.created_by = $2)';
+        params.push(req.user.name);
     }
 
     const { rows } = await query(`${SELECT} WHERE st.id = $1${scope}`, params);
@@ -140,9 +146,11 @@ const submit = asyncHandler(async (req, res) => {
             [req.params.id]
         );
         if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
-        if (!['Draft', 'Recount Required'].includes(rows[0].status)) throw new AppError(`Cannot submit session in status: ${rows[0].status}`, 400);
-        await client.query('UPDATE stock_taking_sessions SET status = $1, updated_at = NOW() WHERE id = $2', ['Submitted', req.params.id]);
-        await logAudit(client, { userName: req.user.name, action: `Submitted stock-taking session ${rows[0].session_ref}`, module: 'Stock Taking' });
+        if (!['Draft', 'Scheduled', 'In Progress', 'Recount Required', 'Submitted'].includes(rows[0].status)) throw new AppError(`Cannot submit session in status: ${rows[0].status}`, 400);
+
+        const nextStatus = rows[0].status === 'Submitted' ? 'Under Review' : 'Submitted';
+        await client.query('UPDATE stock_taking_sessions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
+        await logAudit(client, { userName: req.user.name, action: `Submitted stock-taking session ${rows[0].session_ref} to ${nextStatus}`, module: 'Stock Taking' });
         await notify(client, {
             userId: rows[0].store_head_id || undefined,
             role: rows[0].store_head_id ? undefined : 'Store Head',
@@ -165,7 +173,7 @@ const update = asyncHandler(async (req, res) => {
         const { rows: sessions } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [req.params.id]);
         const session = sessions[0];
         if (!session) throw new AppError('Stock-taking session not found.', 404);
-        if (!['Draft', 'Recount Required'].includes(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
+        if (!['Draft', 'Recount Required', 'Approved'].includes(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
         if (req.user.role === 'Stock Clerk' && session.created_by !== req.user.name && session.assigned_to !== req.user.name) {
             throw new AppError('You are not assigned to this stock-taking session.', 403);
         }
@@ -189,6 +197,11 @@ const update = asyncHandler(async (req, res) => {
                 await client.query('UPDATE stock_taking_items SET physical_qty = $1, variance = $2, reason = $3 WHERE id = $4', [physicalQty, variance, line.reason || null, current[0].id]);
             }
         }
+
+        if (['Draft', 'Scheduled'].includes(session.status)) {
+            await client.query("UPDATE stock_taking_sessions SET status = 'In Progress', updated_at = NOW() WHERE id = $1", [req.params.id]);
+        }
+
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Saved stock-taking counts for ${session.session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: req.params.id, entityReference: session.session_ref });
     });
     res.json(await fetchSession(req.params.id));
@@ -209,7 +222,10 @@ const requestRecount = asyncHandler(async (req, res) => {
         if (rows[0].status !== 'Submitted') throw new AppError(`Cannot request recount in status: ${rows[0].status}`, 409);
         await client.query("UPDATE stock_taking_sessions SET status = 'Recount Required', updated_at = NOW() WHERE id = $1", [req.params.id]);
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Requested recount for ${rows[0].session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: req.params.id, entityReference: rows[0].session_ref, metadata: { reason } });
-        await notify(client, { userId: rows[0].assigned_user_id || undefined, role: rows[0].assigned_user_id ? undefined : 'Stock Clerk', title: 'Stock recount required', message: `${rows[0].session_ref} requires a recount. Reason: ${reason}`, type: 'warning', route: '/stock-taking', entityType: 'stock_taking_session', entityId: req.params.id });
+        if (!rows[0].assigned_user_id) {
+            throw new AppError('This session is not assigned to any Stock Clerk. Assign a clerk before requesting a recount.', 400);
+        }
+        await notify(client, { userId: rows[0].assigned_user_id, title: 'Stock recount required', message: `${rows[0].session_ref} requires a recount. Reason: ${reason}`, type: 'warning', route: '/stock-taking', entityType: 'stock_taking_session', entityId: req.params.id });
     });
     res.json(await fetchSession(req.params.id));
 });

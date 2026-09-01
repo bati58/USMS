@@ -297,14 +297,25 @@ export function buildNotifications(user, data) {
 
     case ROLES.STOCK_CLERK:
       stockTaking
-        .filter((s) => ['Draft', 'Submitted', 'Approved'].includes(s.status))
+        .filter((s) => ['Draft', 'Scheduled', 'In Progress', 'Submitted', 'Under Review', 'Approved', 'Recount Required'].includes(s.status))
+        .filter((session) => session.assignedTo === user.name || session.createdBy === user.name)
         .slice(0, 6)
         .forEach((session) => {
+          const title = session.status === 'Recount Required'
+            ? 'Stock recount required'
+            : session.status === 'Under Review'
+              ? 'Stock count under review'
+              : session.status === 'Submitted'
+                ? 'Stock Count Submitted'
+                : session.status === 'Approved'
+                  ? 'Stock count approved'
+                  : 'Stock Count In Progress'
+
           push(
             `stock-taking-${session.id}`,
-            session.status === 'Draft' ? 'Stock Count In Progress' : session.status === 'Submitted' ? 'Stock Count Submitted' : 'Stock Count Approved',
+            title,
             `${session.sessionRef} at ${session.store} requires stock-control attention.`,
-            session.status === 'Submitted' ? 'warning' : 'info',
+            session.status === 'Recount Required' || session.status === 'Under Review' ? 'warning' : 'info',
             '/stock-taking',
             session.countDate
           )

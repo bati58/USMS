@@ -64,6 +64,7 @@ router.post('/gate-pass/:resource/:id/verify', requireRole('gate-pass', 'action'
 // Users — Administrator only (Backend-SRS §4.1/§4.2)
 // ---------------------------------------------------------------------------
 router.get('/users', requireRole('users'), usersController.list);
+router.get('/users/stock-clerks', requireRole('stock-clerks'), usersController.listStockClerks);
 router.get('/users/:id', requireRole('users'), usersController.getOne);
 router.post('/users', requireRole('users'), usersController.create);
 router.put('/users/:id', requireRole('users'), usersController.update);

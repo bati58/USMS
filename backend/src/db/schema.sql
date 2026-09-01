@@ -484,7 +484,11 @@ CREATE TABLE IF NOT EXISTS stock_taking_sessions (
   store_id     INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
   count_date   DATE NOT NULL DEFAULT CURRENT_DATE,
   status       TEXT NOT NULL DEFAULT 'Draft'
-                 CHECK (status IN ('Draft','Submitted','Pending Approval','Approved','Posted','Closed','Rejected','Recount Required')),
+                 CHECK (status IN (
+                   'Draft','Scheduled','In Progress','Submitted','Under Review','Recount Required',
+                   'Variance Detected','Investigation','Adjustment Proposed','Pending Approval',
+                   'Approved','Posted','Closed','Rejected'
+                 )),
   created_by   TEXT NOT NULL,
   assigned_to  TEXT,
   approved_by  TEXT,

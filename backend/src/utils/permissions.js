@@ -52,7 +52,8 @@ const READ_PERMISSIONS = {
   'audit-logs': [ADMIN, PAO, ACCOUNTANT, SECURITY],
   reports: [...REPORT_READERS, STOREKEEPER, SECURITY],
   'gate-pass': [ADMIN, SECURITY],
-  'user-cards': [...REPORT_READERS, STOREKEEPER]
+  'user-cards': [...REPORT_READERS, STOREKEEPER],
+  'stock-clerks': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK]
 };
 
 const ACTION_PERMISSIONS = {
@@ -79,8 +80,8 @@ ACTION_PERMISSIONS['goods-receipts-notify-tec'] = [STORE_HEAD];
 ACTION_PERMISSIONS['goods-receipts-post'] = [STOREKEEPER];
 ACTION_PERMISSIONS['material-returns-receive'] = [STOREKEEPER];
 ACTION_PERMISSIONS['material-transfers-execute'] = [STORE_HEAD, STOREKEEPER]; // dispatch/receive: the store operators, not the approver
-ACTION_PERMISSIONS['stock-taking'] = [PAO, STORE_HEAD];
-ACTION_PERMISSIONS['stock-taking-post'] = [PAO]; // Store Head may recommend, but PAO/authorized approver performs the actual stock adjustment
+ACTION_PERMISSIONS['stock-taking'] = [STORE_HEAD, PAO]; // Store Head owns the session; PAO retains oversight/authorization
+ACTION_PERMISSIONS['stock-taking-post'] = [STORE_HEAD, PAO]; // Store Head closes the cycle; PAO remains a valid authorized reviewer
 ACTION_PERMISSIONS['stock-taking-recount'] = [STORE_HEAD];
 
 ACTION_PERMISSIONS['business-rules'] = [ADMIN];
@@ -96,7 +97,7 @@ const WRITE_PERMISSIONS = {
   locations: [ADMIN],
   suppliers: [ADMIN, PAO],
   departments: [ADMIN, PAO],
-  'stock-taking': [STORE_HEAD, STOREKEEPER, STOCK_CLERK],
+  'stock-taking': [STORE_HEAD, STOCK_CLERK],
   reconciliation: [],
   'goods-receipts': [STOREKEEPER],
   'stock-transactions': [], // system-generated only

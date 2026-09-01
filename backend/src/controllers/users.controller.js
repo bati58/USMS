@@ -10,6 +10,14 @@ const list = asyncHandler(async (req, res) => {
   res.json(rows.map(mapUser));
 });
 
+const listStockClerks = asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT * FROM users WHERE role = $1 AND active = TRUE ORDER BY name`,
+    ['Stock Clerk']
+  );
+  res.json(rows.map(mapUser));
+});
+
 const getOne = asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!rows[0]) throw new AppError('User not found.', 404);
@@ -71,4 +79,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, remove };
+module.exports = { list, listStockClerks, getOne, create, update, remove };

@@ -117,7 +117,7 @@ export const ROLE_PERMISSIONS = {
             '/reconciliation',
             '/user-cards'
         ],
-        canCreate: ['issueVouchers', 'materialTransfers', 'fixedAssets', 'userCards'],
+        canCreate: ['stockTaking', 'issueVouchers', 'materialTransfers', 'fixedAssets', 'userCards'],
         canEdit: ['fixedAssets', 'userCards'],
         canDelete: [],
         canApprove: ['materialReturns', 'materialTransfers', 'stockTaking'],

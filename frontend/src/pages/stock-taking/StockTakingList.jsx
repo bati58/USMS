@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import Table from '../../components/ui/Table'
-import { stockTakingService, storeService, itemService } from '../../services/index'
+import { stockTakingService, storeService, itemService, userService } from '../../services/index'
 import Badge from '../../components/ui/Badge'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
@@ -18,6 +18,7 @@ export default function StockTakingList() {
     const [loading, setLoading] = useState(false)
     const [stores, setStores] = useState([])
     const [items, setItems] = useState([])
+    const [clerks, setClerks] = useState([])
     const [showCreateModal, setShowCreateModal] = useState(false)
     const [showDetailModal, setShowDetailModal] = useState(false)
     const [selectedSession, setSelectedSession] = useState(null)
@@ -28,12 +29,14 @@ export default function StockTakingList() {
     const [createForm, setCreateForm] = useState({
         storeId: '',
         countDate: new Date().toISOString().split('T')[0],
+        assignedTo: '',
         items: []
     })
 
     useEffect(() => {
         loadSessions()
         loadStoresAndItems()
+        loadStockClerks()
     }, [])
 
     const loadSessions = async () => {
@@ -61,6 +64,15 @@ export default function StockTakingList() {
         }
     }
 
+    const loadStockClerks = async () => {
+        try {
+            const users = await userService.listStockClerks()
+            setClerks(users.filter((entry) => entry.active !== false))
+        } catch (error) {
+            push(error.message || 'Failed to load stock clerks', 'error')
+        }
+    }
+
     const updateItemField = (itemId, field, value) =>
         setCreateForm((prev) => ({
             ...prev,
@@ -68,8 +80,8 @@ export default function StockTakingList() {
         }))
 
     const handleCreateSession = async () => {
-        if (!createForm.storeId || createForm.items.length === 0) {
-            push('Select a store and at least one item', 'error')
+        if (!createForm.storeId || !createForm.assignedTo || createForm.items.length === 0) {
+            push('Select a store, assign a stock clerk, and add at least one item', 'error')
             return
         }
         const missingQty = createForm.items.some((i) => i.physicalQty === '' || i.physicalQty === null || i.physicalQty === undefined)
@@ -82,6 +94,7 @@ export default function StockTakingList() {
             await stockTakingService.create({
                 store: stores.find((store) => String(store.id) === String(createForm.storeId))?.name,
                 countDate: createForm.countDate,
+                assignedTo: createForm.assignedTo,
                 items: createForm.items.map(item => ({
                     item: items.find((catalogItem) => catalogItem.id === item.itemId)?.name,
                     physicalQty: Number(item.physicalQty),
@@ -90,7 +103,7 @@ export default function StockTakingList() {
             })
             push('Stock-taking session created successfully', 'success')
             setShowCreateModal(false)
-            setCreateForm({ storeId: '', countDate: new Date().toISOString().split('T')[0], items: [] })
+            setCreateForm({ storeId: '', countDate: new Date().toISOString().split('T')[0], assignedTo: '', items: [] })
             loadSessions()
         } catch (error) {
             push(error.message || 'Failed to create session', 'error')
@@ -170,19 +183,27 @@ export default function StockTakingList() {
     const getStockStatus = (session) => {
         const variant = {
             'Draft': 'default',
+            'Scheduled': 'default',
+            'In Progress': 'info',
             'Submitted': 'warning',
+            'Under Review': 'warning',
             'Recount Required': 'warning',
-            'Approved': 'info',
+            'Variance Detected': 'warning',
+            'Investigation': 'info',
+            'Adjustment Proposed': 'info',
+            'Approved': 'success',
+            'Rejected': 'danger',
+            'Posted': 'success',
             'Closed': 'success'
         }[session.status] || 'default'
         return <Badge variant={variant}>{session.status}</Badge>
     }
 
-    const canSubmit = ['Draft', 'Recount Required'].includes(selectedSession?.status) &&
-        [ROLES.STORE_HEAD, ROLES.STOREKEEPER, ROLES.STOCK_CLERK].includes(user?.role)
-    const canEditCount = selectedSession && ['Draft', 'Recount Required'].includes(selectedSession.status) && user?.role === ROLES.STOCK_CLERK
-    const canRequestRecount = selectedSession?.status === 'Submitted' && user?.role === ROLES.STORE_HEAD
-    const canApprove = selectedSession?.status === 'Submitted' &&
+    const canSubmit = ['Draft', 'Scheduled', 'In Progress', 'Recount Required'].includes(selectedSession?.status) &&
+        [ROLES.STOCK_CLERK, ROLES.STORE_HEAD].includes(user?.role)
+    const canEditCount = selectedSession && ['Draft', 'Scheduled', 'In Progress', 'Recount Required', 'Submitted', 'Approved'].includes(selectedSession.status) && user?.role === ROLES.STOCK_CLERK && (selectedSession.assignedTo === user?.name || selectedSession.createdBy === user?.name)
+    const canRequestRecount = ['Submitted', 'Under Review'].includes(selectedSession?.status) && user?.role === ROLES.STORE_HEAD
+    const canApprove = ['Submitted', 'Under Review', 'Pending Approval'].includes(selectedSession?.status) &&
         [ROLES.PAO, ROLES.STORE_HEAD].includes(user?.role)
     const canPost = selectedSession?.status === 'Approved' &&
         [ROLES.PAO, ROLES.STORE_HEAD].includes(user?.role)
@@ -216,7 +237,7 @@ export default function StockTakingList() {
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Stock Taking Sessions</h1>
-                {[ROLES.STORE_HEAD, ROLES.STOREKEEPER, ROLES.STOCK_CLERK].includes(user?.role) && (
+                {user?.role === ROLES.STORE_HEAD && (
                     <Button onClick={() => setShowCreateModal(true)} size="sm">
                         <Plus className="w-4 h-4 mr-2" />
                         New Session
@@ -402,6 +423,22 @@ export default function StockTakingList() {
                                     onChange={(e) => setCreateForm({ ...createForm, countDate: e.target.value })}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Assign to Stock Clerk</label>
+                                <select
+                                    value={createForm.assignedTo}
+                                    onChange={(e) => setCreateForm({ ...createForm, assignedTo: e.target.value })}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="">Select a stock clerk</option>
+                                    {clerks.map((clerk) => (
+                                        <option key={clerk.id} value={clerk.name}>
+                                            {clerk.name}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             <div>

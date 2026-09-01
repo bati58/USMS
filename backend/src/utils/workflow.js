@@ -43,12 +43,20 @@ const TRANSITIONS = {
         Dispatched: ['Received']
     },
     stockTaking: {
-        Draft: ['Submitted'],
-        Submitted: ['Pending Approval', 'Approved', 'Rejected', 'Recount Required'],
-        'Recount Required': ['Submitted'],
-        'Pending Approval': ['Approved', 'Rejected'],
+        Draft: ['Scheduled', 'Submitted'],
+        Scheduled: ['In Progress', 'Submitted'],
+        'In Progress': ['Submitted', 'Recount Required'],
+        Submitted: ['Under Review', 'Pending Approval', 'Approved', 'Rejected', 'Recount Required'],
+        'Under Review': ['Approved', 'Rejected', 'Recount Required', 'Variance Detected'],
+        'Recount Required': ['Submitted', 'In Progress'],
+        'Variance Detected': ['Investigation', 'Rejected'],
+        Investigation: ['Adjustment Proposed', 'Rejected'],
+        'Adjustment Proposed': ['Approved', 'Rejected'],
+        'Pending Approval': ['Approved', 'Rejected', 'Variance Detected'],
         Approved: ['Posted'],
-        Posted: ['Closed']
+        Rejected: [],
+        Posted: ['Closed'],
+        Closed: []
     },
     disposal: {
         Flagged: ['Requested', 'Pending Review', 'Approved', 'Rejected'],

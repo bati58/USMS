@@ -637,7 +637,7 @@ async function approveStockTaking(client, { sessionId, actorName }) {
   const { rows } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
   const session = rows[0];
   if (!session) throw new AppError('Stock-taking session not found.', 404);
-  if (session.status !== 'Submitted') throw new AppError(`Only a submitted stock-taking session can be approved; current status is ${session.status}.`, 409);
+  if (!['Submitted', 'Under Review', 'Pending Approval'].includes(session.status)) throw new AppError(`Only a submitted or under-review stock-taking session can be approved; current status is ${session.status}.`, 409);
   await client.query("UPDATE stock_taking_sessions SET status = 'Approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, sessionId]);
   await logAudit(client, { userName: actorName, action: `Approved stock-taking ${session.session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: sessionId, entityReference: session.session_ref });
 }
