@@ -330,7 +330,7 @@ test('storekeeper is notified when TEC accepts a receipt for GRN generation', as
     assert.ok(notifications.some((n) => n.title === 'Goods Receipt Accepted' && n.message.includes('GRN-2026-0005')));
 });
 
-test('PAO gets approval alerts for submitted requisitions and pending transfer approvals', async () => {
+test('PAO gets approval alerts for endorsed requisitions and pending transfer approvals', async () => {
     const { pathToFileURL } = require('node:url');
     const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
     const { buildNotifications } = await import(frontendUrl);
@@ -340,16 +340,71 @@ test('PAO gets approval alerts for submitted requisitions and pending transfer a
         {
             items: [],
             grns: [],
-            reqs: [{ id: 1, status: 'Submitted', srRef: 'SR-1001', department: 'Operations', date: '2025-01-01' }],
+            reqs: [{ id: 1, status: 'Pending Approval', srRef: 'SR-1001', department: 'Operations', date: '2025-01-01' }],
             returns: [],
             transfers: [{ id: 2, status: 'Pending Approval', transferRef: 'TRF-2001', fromStore: 'Store A', toStore: 'Store B', date: '2025-01-01' }],
+            disposals: [],
+            vouchers: [{ id: 9, status: 'Preliminary', sivRef: 'SIV-2026-0009', srRef: 'SR-1001', date: '2025-01-02' }]
+        }
+    );
+
+    assert.ok(notifications.some((n) => n.title === 'Approval Required' && n.message.includes('SR-1001')));
+    assert.ok(notifications.some((n) => n.title === 'Authorize Issue Voucher' && n.message.includes('SIV-2026-0009')));
+    assert.ok(notifications.some((n) => n.title === 'Transfer Pending' && n.message.includes('TRF-2001')));
+});
+
+test('Department Head is alerted to endorse a submitted requisition from their own department', async () => {
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+
+    const notifications = buildNotifications(
+        { role: 'Department Head', name: 'Dawit Bekele', department: 'Operations' },
+        {
+            items: [],
+            grns: [],
+            reqs: [
+                { id: 1, status: 'Submitted', srRef: 'SR-1001', department: 'Operations', requestedBy: 'Sara Tesfaye', date: '2025-01-01' },
+                // Own request — a Department Head may not endorse their own requisition.
+                { id: 2, status: 'Submitted', srRef: 'SR-1002', department: 'Operations', requestedBy: 'Dawit Bekele', date: '2025-01-01' },
+                // Another department — outside this Department Head's scope.
+                { id: 3, status: 'Submitted', srRef: 'SR-1003', department: 'Finance', requestedBy: 'Helen Girma', date: '2025-01-01' }
+            ],
+            returns: [],
+            transfers: [],
             disposals: [],
             vouchers: []
         }
     );
 
-    assert.ok(notifications.some((n) => n.title === 'Approval Required' && n.message.includes('SR-1001')));
-    assert.ok(notifications.some((n) => n.title === 'Transfer Pending' && n.message.includes('TRF-2001')));
+    assert.ok(notifications.some((n) => n.title === 'Department Approval' && n.message.includes('SR-1001')));
+    assert.ok(!notifications.some((n) => n.message.includes('SR-1002')));
+    assert.ok(!notifications.some((n) => n.message.includes('SR-1003')));
+});
+
+test('store-requisition and issue-voucher permissions enforce segregation of duties', () => {
+    // Two-stage requisition approval: Department Head endorses, then PAO approves.
+    // The Store Head no longer approves requisitions.
+    assert.equal(canAct('requisitions', 'Department Head'), true);
+    assert.equal(canAct('requisitions', 'Property Administration Officer'), true);
+    assert.equal(canAct('requisitions', 'Store Head'), false);
+
+    // Store Head PREPARES the issue voucher (write); the Storekeeper does not generate one.
+    assert.equal(canWrite('issue-vouchers', 'Store Head'), true);
+    assert.equal(canWrite('issue-vouchers', 'Storekeeper'), false);
+
+    // AUTHORIZED REVIEW: only the PAO authorizes a prepared voucher.
+    assert.equal(canAct('issue-vouchers', 'Property Administration Officer'), true);
+    assert.equal(canAct('issue-vouchers', 'Store Head'), false);
+
+    // The preparer (Store Head) revises via the dedicated amend action, not the PAO approve key.
+    assert.equal(canAct('issue-voucher-amend', 'Store Head'), true);
+    assert.equal(canAct('issue-voucher-amend', 'Property Administration Officer'), false);
+
+    // ISSUE MATERIAL: only the Storekeeper posts an authorized voucher — preparer != authorizer != issuer.
+    assert.equal(canAct('issue-voucher-post', 'Storekeeper'), true);
+    assert.equal(canAct('issue-voucher-post', 'Store Head'), false);
+    assert.equal(canAct('issue-voucher-post', 'Property Administration Officer'), false);
 });
 
 test('accountant is read-only financial observer with no operational permissions', () => {

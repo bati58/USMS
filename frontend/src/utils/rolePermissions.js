@@ -81,8 +81,8 @@ export const ROLE_PERMISSIONS = {
         canCreate: ['stores', 'categories', 'suppliers', 'departments', 'fixedAssets', 'userCards'],
         canEdit: ['stores', 'categories', 'suppliers', 'departments', 'fixedAssets', 'userCards'],
         canDelete: [],
-        canApprove: ['requisitions', 'materialReturns', 'materialTransfers', 'disposals', 'stockTaking'],
-        canReject: ['requisitions', 'materialReturns', 'materialTransfers', 'disposals'],
+        canApprove: ['requisitions', 'issueVouchers', 'materialReturns', 'materialTransfers', 'disposals', 'stockTaking'],
+        canReject: ['requisitions', 'issueVouchers', 'materialReturns', 'materialTransfers', 'disposals'],
         canEvaluate: [],
         canVerifyGatePass: false,
         canAddUsers: false,
@@ -117,11 +117,11 @@ export const ROLE_PERMISSIONS = {
             '/reconciliation',
             '/user-cards'
         ],
-        canCreate: ['materialTransfers', 'fixedAssets', 'userCards'],
+        canCreate: ['issueVouchers', 'materialTransfers', 'fixedAssets', 'userCards'],
         canEdit: ['stores', 'fixedAssets', 'userCards'],
         canDelete: [],
-        canApprove: ['issueVouchers', 'requisitions', 'materialReturns', 'materialTransfers', 'stockTaking'],
-        canReject: ['issueVouchers', 'requisitions', 'materialReturns', 'materialTransfers', 'stockTaking'],
+        canApprove: ['materialReturns', 'materialTransfers', 'stockTaking'],
+        canReject: ['materialReturns', 'materialTransfers', 'stockTaking'],
         canEvaluate: [],
         canVerifyGatePass: false,
         canAddUsers: false,
@@ -135,8 +135,9 @@ export const ROLE_PERMISSIONS = {
         name: 'Storekeeper',
         // SRS: receives and issues stock, updates inventory records (bin cards)
         canAccessPages: ['/', '/settings', '/items', '/locations', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/stock-taking', '/reports'],
-        canCreate: ['goodsReceipts', 'issueVouchers', 'stockTransfer', 'materialTransfers', 'userCards'],
+        canCreate: ['goodsReceipts', 'stockTransfer', 'materialTransfers', 'userCards'],
         canEdit: ['goodsReceipts', 'userCards'],
+        canPostIssueVoucher: true, // ISSUE MATERIAL: posts a PAO-authorized voucher (mirrors backend issue-voucher-post)
         canDelete: [],
         canApprove: [],
         canReject: [],
@@ -257,6 +258,9 @@ export function canPerformAction(userRole, action, entityType) {
             return perms.canApprove.includes(entityType)
         case 'reject':
             return perms.canReject.includes(entityType)
+        case 'postIssueVoucher':
+            // ISSUE MATERIAL — mirrors backend ACTION issue-voucher-post = [Storekeeper]
+            return Boolean(perms.canPostIssueVoucher)
         case 'evaluate':
             return perms.canEvaluate.includes(entityType)
         case 'verifyGatePass':
@@ -311,32 +315,35 @@ export function getSidebarType(userRole) {
 }
 
 /**
- * Department heads may only approve requisitions raised for their department.
- * A requisition awaits a decision in status 'Submitted' (the status the backend
- * actually sets on submit); 'Pending' is accepted too for any legacy record.
+ * Two-stage requisition approval — mirrors the backend `decide` controller so the UI
+ * only ever offers a control the API will actually honour:
+ *   Stage 1 — Department Head decides only while the requisition is 'Submitted'
+ *             (own department, never their own request).
+ *   Stage 2 — PAO decides only while the requisition is 'Pending Approval'.
+ * Any other role, or the wrong stage for the role, cannot decide.
  */
-const REQUISITION_AWAITING_DECISION = [REQUISITION_STATUS.SUBMITTED, REQUISITION_STATUS.PENDING]
+function requisitionStageAllows(user, requisition) {
+    if (user.role === ROLES.DEPT_HEAD) {
+        if (requisition.status !== REQUISITION_STATUS.SUBMITTED) return false
+        const dept = user.department || ''
+        return requisition.department === dept && requisition.requestedBy !== user.name
+    }
+    if (user.role === ROLES.PAO) {
+        return requisition.status === REQUISITION_STATUS.PENDING_APPROVAL
+    }
+    return false
+}
 
 export function canApproveRequisition(user, requisition) {
     if (!user || !requisition) return false
     if (!canPerformAction(user.role, 'approve', 'requisitions')) return false
-    if (!REQUISITION_AWAITING_DECISION.includes(requisition.status)) return false
-    if (user.role === ROLES.DEPT_HEAD) {
-        const dept = user.department || ''
-        return requisition.department === dept && requisition.requestedBy !== user.name
-    }
-    return true
+    return requisitionStageAllows(user, requisition)
 }
 
 export function canRejectRequisition(user, requisition) {
     if (!user || !requisition) return false
     if (!canPerformAction(user.role, 'reject', 'requisitions')) return false
-    if (!REQUISITION_AWAITING_DECISION.includes(requisition.status)) return false
-    if (user.role === ROLES.DEPT_HEAD) {
-        const dept = user.department || ''
-        return requisition.department === dept && requisition.requestedBy !== user.name
-    }
-    return true
+    return requisitionStageAllows(user, requisition)
 }
 
 

@@ -69,10 +69,21 @@ const create = asyncHandler(async (req, res) => {
   if (!srRef) throw new AppError('srRef (the approved requisition reference) is required.', 400);
 
   const result = await withTransaction(async (client) => {
-    const { id } = await stockService.createPreliminaryIssueVoucher(client, {
+    // The Store Head prepares the preliminary voucher from an approved requisition.
+    const { id, sivRef } = await stockService.createPreliminaryIssueVoucher(client, {
       srRef,
       issuedBy: req.user.name,
       actorName: req.user.name
+    });
+    // AUTHORIZED REVIEW: the PAO must authorize the voucher before the Storekeeper issues it.
+    await notify(client, {
+      role: 'Property Administration Officer',
+      title: 'Issue Voucher Awaiting Authorization',
+      message: `Issue voucher ${sivRef} (from requisition ${srRef}) was prepared and needs your authorization.`,
+      type: 'info',
+      route: `/issue-vouchers/${id}`,
+      entityType: 'issue_voucher',
+      entityId: String(id)
     });
     return fetchWithLines(id, client);
   });
@@ -100,16 +111,38 @@ const approve = asyncHandler(async (req, res) => {
 const post = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
     await stockService.postIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
-    const { rows } = await client.query('SELECT siv_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
+    const { rows } = await client.query('SELECT siv_ref, sr_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
+    const sivRef = rows[0]?.siv_ref;
+    const srRef = rows[0]?.sr_ref;
     await notify(client, {
       role: 'Security Officer',
       title: 'Issue Voucher Posted',
-      message: `SIV ${rows[0]?.siv_ref} has been posted and stock movement is complete.`,
+      message: `SIV ${sivRef} has been posted and stock movement is complete.`,
       type: 'success',
       route: `/issue-vouchers/${req.params.id}`,
       entityType: 'issue_voucher',
       entityId: req.params.id
     });
+
+    // FULFILLED / COMPLETE: notify the original requester that their requisition was issued.
+    if (srRef) {
+      const { rows: reqRows } = await client.query('SELECT requested_by FROM requisitions WHERE sr_ref = $1', [srRef]);
+      const requestedBy = reqRows[0]?.requested_by;
+      if (requestedBy) {
+        const { rows: userRows } = await client.query('SELECT id FROM users WHERE name = $1 AND active = true LIMIT 1', [requestedBy]);
+        if (userRows[0]) {
+          await notify(client, {
+            userId: userRows[0].id,
+            title: 'Requisition Fulfilled',
+            message: `Your requisition ${srRef} has been issued (voucher ${sivRef}) and is now fulfilled.`,
+            type: 'success',
+            route: '/requisitions',
+            entityType: 'requisition',
+            entityId: srRef
+          });
+        }
+      }
+    }
   });
   res.json(await fetchWithLines(req.params.id));
 });
@@ -118,13 +151,13 @@ const amend = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     await stockService.amendIssueVoucher(client, { voucherId: req.params.id, items: req.body.items, reason: req.body.reason, actorName: req.user.name });
 
-    // Amend is the storekeeper's submit-for-approval step (status -> 'Pending Approval').
-    // Persist a notification for the approver so the event does not live only in the browser (Phase 5).
+    // Amend is the Store Head's revise-and-resubmit step (status -> 'Pending Approval').
+    // Persist a notification for the PAO (the authorizer) so the event does not live only in the browser (Phase 5).
     const { rows } = await client.query('SELECT siv_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     await notify(client, {
-      role: 'Store Head',
-      title: 'Issue Voucher Awaiting Approval',
-      message: `Issue voucher ${rows[0]?.siv_ref} is pending your approval.`,
+      role: 'Property Administration Officer',
+      title: 'Issue Voucher Awaiting Authorization',
+      message: `Issue voucher ${rows[0]?.siv_ref} was amended and is pending your authorization.`,
       type: 'info',
       route: `/issue-vouchers/${req.params.id}`,
       entityType: 'issue_voucher',

@@ -57,16 +57,23 @@ const READ_PERMISSIONS = {
 
 const ACTION_PERMISSIONS = {
   'goods-receipts': [STORE_HEAD, STOREKEEPER, TEC], // Admin is monitoring-only for goods receipts; operational actions stay with store/TEC roles.
-  requisitions: [PAO, STORE_HEAD, DEPT_HEAD],
+  // Two-stage store-requisition approval: Department Head endorses (Submitted -> Pending
+  // Approval), then PAO approves (Pending Approval -> Approved). Store Head no longer
+  // approves requisitions — its duty is preparing the issue voucher (WRITE 'issue-vouchers').
+  requisitions: [DEPT_HEAD, PAO],
   'material-returns': [STORE_HEAD],
   // Approve/Reject/Return only. Storekeeper is intentionally excluded so it cannot
   // approve its own transfer; it dispatches/receives via 'material-transfers-execute'.
   'material-transfers': [PAO, STORE_HEAD],
-  'issue-vouchers': [STORE_HEAD],
+  // AUTHORIZED REVIEW of the issue voucher: PAO authorizes what the Store Head prepared
+  // (Preliminary -> Approved) before the Storekeeper posts it. Separation of duties:
+  // preparer (Store Head) != authorizer (PAO) != issuer (Storekeeper).
+  'issue-vouchers': [PAO],
   disposals: [PAO, STORE_HEAD],
   'gate-pass': [SECURITY]
 };
 ACTION_PERMISSIONS['issue-voucher-post'] = [STOREKEEPER];
+ACTION_PERMISSIONS['issue-voucher-amend'] = [STORE_HEAD]; // the preparer revises its own preliminary voucher, then re-submits for PAO authorization
 ACTION_PERMISSIONS['goods-receipts-evaluate'] = [TEC];
 ACTION_PERMISSIONS['goods-receipts-notify-tec'] = [STORE_HEAD];
 ACTION_PERMISSIONS['goods-receipts-post'] = [STOREKEEPER];
@@ -96,7 +103,7 @@ const WRITE_PERMISSIONS = {
   'bin-cards': [STOREKEEPER, STOCK_CLERK],
   'bin-transfers': [STORE_HEAD, STOREKEEPER],
   requisitions: [PAO, STORE_HEAD, DEPT_HEAD],
-  'issue-vouchers': [STOREKEEPER],
+  'issue-vouchers': [STORE_HEAD], // Store Head prepares (generates) the preliminary voucher from an approved requisition
   'material-returns': [STORE_HEAD, DEPT_HEAD],
   'material-transfers': [PAO, STORE_HEAD, STOREKEEPER, DEPT_HEAD],
   'fixed-assets': [PAO, STORE_HEAD],

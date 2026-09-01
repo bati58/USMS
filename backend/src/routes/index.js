@@ -155,7 +155,7 @@ router.get('/issue-vouchers', requireRole('issue-vouchers'), issueVouchersContro
 router.get('/issue-vouchers/:id', requireRole('issue-vouchers'), issueVouchersController.getOne);
 router.post('/issue-vouchers', requireRole('issue-vouchers'), issueVouchersController.create);
 router.post('/issue-vouchers/:id/approve', requireRole('issue-vouchers', 'action'), issueVouchersController.approve);
-router.post('/issue-vouchers/:id/amend', requireRole('issue-vouchers', 'action'), issueVouchersController.amend);
+router.post('/issue-vouchers/:id/amend', requireRole('issue-voucher-amend', 'action'), issueVouchersController.amend);
 router.post('/issue-vouchers/:id/post', requireRole('issue-voucher-post', 'action'), issueVouchersController.post);
 
 // ---------------------------------------------------------------------------

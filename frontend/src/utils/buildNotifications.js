@@ -33,7 +33,7 @@ export function buildNotifications(user, data) {
   const pendingDisposals = disposals.filter((d) => [STATUS.PENDING, STATUS.APPROVED].includes(d.status))
   const pendingTransfers = transfers.filter((t) => ![STATUS.COMPLETED, STATUS.CANCELLED, STATUS.REJECTED].includes(t.status))
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
-  const approvedAwaitingIssue = reqs.filter((r) => r.status === STATUS.APPROVED)
+  const approvedAwaitingIssue = reqs.filter((r) => [STATUS.APPROVED, 'Partially Approved'].includes(r.status))
   const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
 
   function push(id, title, message, type, route, timestamp) {
@@ -103,16 +103,18 @@ export function buildNotifications(user, data) {
           )
         })
 
-      pendingReqs
+      // The Store Head no longer approves requisitions — once the PAO approves one, the
+      // Store Head's job is to generate the issue voucher for it.
+      approvedAwaitingIssue
         .filter((r) => !userStore || r.store === userStore)
         .slice(0, 6)
         .forEach((r) => {
           push(
-            `req-${r.id}`,
-            'Approval Required',
-            `${r.srRef} from ${r.department} needs store review`,
-            'warning',
-            '/requisitions',
+            `req-generate-${r.id}`,
+            'Generate Issue Voucher',
+            `${r.srRef} from ${r.department} is approved — generate the issue voucher`,
+            'success',
+            '/issue-vouchers',
             r.date
           )
         })
@@ -160,17 +162,36 @@ export function buildNotifications(user, data) {
         })
       break
 
-    case ROLES.PAO:
-      pendingReqs.slice(0, 8).forEach((r) => {
-        push(
-          `req-${r.id}`,
-          'Approval Required',
-          `${r.srRef} from ${r.department} needs your approval`,
-          'warning',
-          '/requisitions',
-          r.date
-        )
-      })
+    case ROLES.PAO: {
+      // Stage 2 of the two-stage approval: the PAO acts on requisitions that a Department
+      // Head has already endorsed (status 'Pending Approval').
+      reqs
+        .filter((r) => r.status === 'Pending Approval')
+        .slice(0, 8)
+        .forEach((r) => {
+          push(
+            `req-${r.id}`,
+            'Approval Required',
+            `${r.srRef} from ${r.department} needs your approval`,
+            'warning',
+            '/requisitions',
+            r.date
+          )
+        })
+      // AUTHORIZED REVIEW: the PAO authorizes the Store Head's prepared voucher before issue.
+      vouchers
+        .filter((v) => ['Preliminary', 'Pending Approval'].includes(v.status))
+        .slice(0, 6)
+        .forEach((v) => {
+          push(
+            `voucher-authorize-${v.id}`,
+            'Authorize Issue Voucher',
+            `${v.sivRef} from ${v.srRef || 'a requisition'} is awaiting your authorization`,
+            'warning',
+            '/issue-vouchers',
+            v.date
+          )
+        })
       pendingTransfers.slice(0, 5).forEach((t) => {
         push(
           `transfer-${t.id}`,
@@ -192,6 +213,7 @@ export function buildNotifications(user, data) {
         )
       })
       break
+    }
 
     case ROLES.STOREKEEPER:
       pendingGrns.slice(0, 6).forEach((g) => {
@@ -233,16 +255,21 @@ export function buildNotifications(user, data) {
             t.date
           )
         })
-      approvedAwaitingIssue.slice(0, 6).forEach((r) => {
-        push(
-          `issue-${r.id}`,
-          'Issue Approved Requisition',
-          `${r.srRef} approved — generate issue voucher`,
-          'success',
-          '/issue-vouchers',
-          r.date
-        )
-      })
+      // The Storekeeper no longer generates vouchers — they issue the ones the PAO has
+      // authorized (voucher status 'Approved'); posting fulfils the requisition.
+      vouchers
+        .filter((v) => v.status === 'Approved')
+        .slice(0, 6)
+        .forEach((v) => {
+          push(
+            `voucher-issue-${v.id}`,
+            'Issue Authorized Voucher',
+            `${v.sivRef} was authorized — issue the materials and post stock`,
+            'success',
+            '/issue-vouchers',
+            v.date
+          )
+        })
       pendingReturns.slice(0, 6).forEach((r) => {
         push(
           `eval-return-${r.id}`,

@@ -279,10 +279,12 @@ const dashboardSummary = asyncHandler(async (req, res) => {
   }
 
   if (role === ROLES.DEPT_HEAD) {
-    const mine = await query('SELECT COUNT(*) AS count FROM requisitions WHERE requested_by = $1 AND status = $2', [
-      req.user.name,
-      'Pending'
-    ]);
+    // Stage-1 approval queue: requisitions from my department awaiting my endorsement
+    // (Submitted), excluding ones I raised myself (I can't approve my own).
+    const mine = await query(
+      "SELECT COUNT(*) AS count FROM requisitions WHERE department = $1 AND status = 'Submitted' AND requested_by <> $2",
+      [req.user.department || req.user.name, req.user.name]
+    );
     summary.pendingRequisitions = Number(mine.rows[0].count);
     const myReturns = await query(
       `SELECT COUNT(*) AS count FROM material_returns mr
@@ -291,7 +293,8 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     );
     summary.pendingReturns = Number(myReturns.rows[0].count);
   } else {
-    const pendingReqQ = await query("SELECT COUNT(*) AS count FROM requisitions WHERE status = 'Pending'");
+    // Stage-2 approval queue (PAO/Admin): requisitions endorsed and awaiting final approval.
+    const pendingReqQ = await query("SELECT COUNT(*) AS count FROM requisitions WHERE status = 'Pending Approval'");
     summary.pendingRequisitions = Number(pendingReqQ.rows[0].count);
   }
 

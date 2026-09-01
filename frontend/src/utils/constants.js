@@ -47,8 +47,10 @@ export const REQUISITION_STATUS = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   PENDING: 'Pending',
+  PENDING_APPROVAL: 'Pending Approval',
   PARTIALLY_APPROVED: 'Partially Approved',
   APPROVED: 'Approved',
+  FULFILLED: 'Fulfilled',
   REJECTED: 'Rejected',
   RETURNED: 'Returned for Correction'
 }
@@ -135,6 +137,7 @@ export const STATUS_COLOR = {
 
   // Requisition
   [REQUISITION_STATUS.PARTIALLY_APPROVED]: 'bg-info-50 text-info-700',
+  [REQUISITION_STATUS.FULFILLED]: 'bg-success-50 text-success-700',
 
   // Shared correction state (Requisition + Transfer + Disposal all use this string)
   [REQUISITION_STATUS.RETURNED]: 'bg-warning-50 text-warning-700',

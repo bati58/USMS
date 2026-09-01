@@ -49,6 +49,9 @@ export default function RequisitionList() {
   const canDelete = canPerformAction(user?.role, 'delete', 'requisitions')
   const isPao = user?.role === ROLES.PAO
   const isDeptHead = user?.role === ROLES.DEPT_HEAD
+  // Only the PAO (stage 2) sets the final approved quantities. The Department Head (stage 1)
+  // only endorses and forwards, so the Approved-Qty inputs stay read-only for them.
+  const canEditApprovedQty = isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL
 
   async function load() {
     setLoading(true)
@@ -174,20 +177,42 @@ export default function RequisitionList() {
       return
     }
 
-    // Check if it's partially approved
+    // Partial approval is a PAO-stage concept. A Department-Head endorsement only forwards
+    // the requisition to the PAO unchanged; the PAO sets the final issue quantities.
     let finalStatus = status
-    if (status === REQUISITION_STATUS.APPROVED) {
+    if (status === REQUISITION_STATUS.APPROVED && isPao) {
       const isPartial = approveLines.some(l => Number(l.qtyApproved) < Number(l.qty) && Number(l.qtyApproved) >= 0)
       if (isPartial) finalStatus = REQUISITION_STATUS.PARTIALLY_APPROVED
     }
 
-    await api.action('requisitions', viewing.id, 'approve', {
-      decision: finalStatus,
-      items: approveLines
-    })
-    push(finalStatus === REQUISITION_STATUS.REJECTED ? `${viewing.srRef} rejected.` : `${viewing.srRef} approved. Storekeeper can now create the issue voucher.`, finalStatus === REQUISITION_STATUS.REJECTED ? 'info' : 'success')
-    setViewing(null)
-    await load()
+    setSaving(true)
+    try {
+      await api.action('requisitions', viewing.id, 'approve', {
+        decision: finalStatus,
+        items: approveLines
+      })
+
+      let message
+      let tone = 'success'
+      if (finalStatus === REQUISITION_STATUS.REJECTED) {
+        message = `${viewing.srRef} rejected.`
+        tone = 'info'
+      } else if (finalStatus === REQUISITION_STATUS.RETURNED) {
+        message = `${viewing.srRef} returned for correction.`
+        tone = 'info'
+      } else if (isDeptHead) {
+        message = `${viewing.srRef} endorsed and forwarded to the Property Administration Officer.`
+      } else {
+        message = `${viewing.srRef} approved. The Store Head can now generate the issue voucher.`
+      }
+      push(message, tone)
+      setViewing(null)
+      await load()
+    } catch (err) {
+      push(err.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function submitRequisition() {
@@ -341,8 +366,7 @@ export default function RequisitionList() {
                 Submit for Approval
               </Button>
             )}
-            {viewing?.status === REQUISITION_STATUS.SUBMITTED &&
-              (canApproveRequisition(user, viewing) || canRejectRequisition(user, viewing)) && (
+            {(canApproveRequisition(user, viewing) || canRejectRequisition(user, viewing)) && (
                 <>
                   {canRejectRequisition(user, viewing) && (
                     <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(REQUISITION_STATUS.REJECTED)}>
@@ -355,7 +379,7 @@ export default function RequisitionList() {
                         Return for Correction
                       </Button>
                       <Button icon={CheckCircle2} loading={saving} onClick={() => decide(REQUISITION_STATUS.APPROVED)}>
-                        Approve (Full/Partial)
+                        {isDeptHead ? 'Endorse & Forward to PAO' : 'Approve (Full/Partial)'}
                       </Button>
                     </>
                   )}
@@ -388,7 +412,7 @@ export default function RequisitionList() {
                       <td className="py-2 font-medium">{l.item}</td>
                       <td className="py-2">{l.qty}</td>
                       <td className="py-2">
-                        {viewing.status === REQUISITION_STATUS.SUBMITTED && canApproveRequisition(user, viewing) ? (
+                        {canEditApprovedQty ? (
                           <input
                             type="number"
                             className="w-20 rounded border border-ink-200 px-2 py-1 text-sm focus:border-brand-500 focus:outline-none"
@@ -405,7 +429,7 @@ export default function RequisitionList() {
                   ))}
                 </tbody>
               </table>
-              {viewing.status === REQUISITION_STATUS.SUBMITTED && canApproveRequisition(user, viewing) && (
+              {canEditApprovedQty && (
                 <p className="mt-2 text-xs text-ink-500">
                   You can adjust the Approved Qty to issue a partial approval.
                 </p>

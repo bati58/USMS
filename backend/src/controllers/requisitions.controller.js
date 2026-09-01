@@ -127,26 +127,45 @@ const submit = asyncHandler(async (req, res) => {
     if (!['Draft', 'Pending', 'Returned for Correction'].includes(reqDoc.status)) {
       throw new AppError(`Cannot submit requisition in status: ${reqDoc.status}`, 400);
     }
-    await client.query('UPDATE requisitions SET status = $1, updated_at = NOW() WHERE id = $2', ['Submitted', req.params.id]);
+
+    // Two-stage approval routing. Stage 1 is the Department Head — but a Department Head
+    // cannot approve their own department's requisition, and seeded departments frequently
+    // have no Department Head user at all. In either case we skip stage 1 and route
+    // straight to the PAO (stage 2, status 'Pending Approval') so the flow never dead-ends.
+    const routeToDeptHead = Boolean(reqDoc.department_head_id) && req.user.role !== 'Department Head';
+    const nextStatus = routeToDeptHead ? 'Submitted' : 'Pending Approval';
+
+    await client.query('UPDATE requisitions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
     await logAudit(client, { userName: req.user.name, action: `Submitted requisition ${reqDoc.sr_ref}`, module: 'Store Requisition' });
 
-    await notify(client, {
-      userId: req.user.role === 'Department Head' ? undefined : (reqDoc.department_head_id || undefined),
-      role: req.user.role === 'Department Head' || !reqDoc.department_head_id ? 'Property Administration Officer' : undefined,
-      title: 'Requisition Submitted',
-      message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} has been submitted and requires approval.`,
-      type: 'info',
-      route: `/requisitions/${req.params.id}`,
-      entityType: 'requisition',
-      entityId: req.params.id
-    });
+    await notify(client, routeToDeptHead
+      ? {
+          userId: reqDoc.department_head_id,
+          title: 'Requisition Awaiting Your Approval',
+          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} was submitted and needs your department approval.`,
+          type: 'info',
+          route: `/requisitions/${req.params.id}`,
+          entityType: 'requisition',
+          entityId: req.params.id
+        }
+      : {
+          role: 'Property Administration Officer',
+          title: 'Requisition Awaiting Approval',
+          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval.`,
+          type: 'info',
+          route: `/requisitions/${req.params.id}`,
+          entityType: 'requisition',
+          entityId: req.params.id
+        });
 
     return fetchWithLines(req.params.id, client);
   });
   res.json(result);
 });
 
-// POST /api/requisitions/:id/approve — Backend-SRS §6.2 step 2 (no stock change)
+// POST /api/requisitions/:id/approve — two-stage approval (Backend-SRS §6.2 step 2, no stock change)
+//   Stage 1 (Department Head): Submitted -> Pending Approval (endorse) | Rejected | Returned for Correction
+//   Stage 2 (PAO):             Pending Approval -> Approved / Partially Approved | Rejected | Returned for Correction
 const decide = asyncHandler(async (req, res) => {
   const { decision, items, comments } = req.body;
   if (!['Approved', 'Partially Approved', 'Rejected', 'Returned for Correction'].includes(decision)) {
@@ -154,25 +173,46 @@ const decide = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
-    if (req.user.role === 'Department Head') {
-      const { rows } = await client.query('SELECT department, requested_by FROM requisitions WHERE id = $1 FOR UPDATE', [req.params.id]);
-      if (!rows[0]) throw new AppError('Requisition not found.', 404);
-      if (rows[0].department !== req.user.department) {
-        throw new AppError('You can only approve requisitions from your department.', 403);
+    const { rows } = await client.query('SELECT status, department, requested_by, sr_ref FROM requisitions WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!rows[0]) throw new AppError('Requisition not found.', 404);
+    const { status, department, requested_by: requestedBy, sr_ref: srRef } = rows[0];
+    const role = req.user.role;
+    const isApproval = decision === 'Approved' || decision === 'Partially Approved';
+
+    if (role === 'Department Head') {
+      // Stage 1 — own department only, never one's own requisition.
+      if (status !== 'Submitted') throw new AppError('This requisition is not awaiting department approval.', 409);
+      if (department !== req.user.department) throw new AppError('You can only approve requisitions from your department.', 403);
+      if (requestedBy === req.user.name) throw new AppError('You cannot approve a requisition that you created yourself.', 403);
+
+      if (isApproval) {
+        // Endorse only — forward to the PAO. Final quantities are set by the PAO at stage 2.
+        await stockService.endorseRequisition(client, { requisitionId: req.params.id, comments, actorName: req.user.name });
+        await notify(client, {
+          role: 'Property Administration Officer',
+          title: 'Requisition Awaiting Approval',
+          message: `Requisition ${srRef} was endorsed by the Department Head and needs your approval.`,
+          type: 'info',
+          route: `/requisitions/${req.params.id}`,
+          entityType: 'requisition',
+          entityId: req.params.id
+        });
+        return;
       }
-      if (rows[0].requested_by === req.user.name) {
-        throw new AppError('You cannot approve a requisition that you created yourself.', 403);
-      }
+    } else if (role === 'Property Administration Officer') {
+      // Stage 2 — final approval.
+      if (status !== 'Pending Approval') throw new AppError('This requisition is not awaiting your approval.', 409);
+    } else {
+      throw new AppError('You are not authorized to decide on this requisition.', 403);
     }
+
+    // Stage-2 approval, or a rejection/return from either stage — all four are CHECK-valid decisions.
     await stockService.decideRequisition(client, { requisitionId: req.params.id, decision, items, comments, actorName: req.user.name });
 
-    const { rows } = await client.query('SELECT sr_ref FROM requisitions WHERE id = $1', [req.params.id]);
-    const srRef = rows[0]?.sr_ref;
-
-    // Phase 5: the approval outcome must be persisted, not derived only in the browser.
-    if (decision === 'Approved' || decision === 'Partially Approved') {
+    if (isApproval) {
+      // Approved by the PAO -> the Store Head prepares the issue voucher.
       await notify(client, {
-        role: 'Storekeeper',
+        role: 'Store Head',
         title: 'Requisition Approved',
         message: `Requisition ${srRef} was ${decision.toLowerCase()}. Generate the issue voucher to fulfil it.`,
         type: 'success',
@@ -180,11 +220,17 @@ const decide = asyncHandler(async (req, res) => {
         entityType: 'requisition',
         entityId: req.params.id
       });
-    } else if (decision === 'Returned for Correction') {
+    } else {
+      // Rejected or Returned for Correction -> notify the requester directly (fall back to
+      // the Department Head role if the requester has no user account).
+      const { rows: requester } = await client.query('SELECT id FROM users WHERE name = $1 AND active = true LIMIT 1', [requestedBy]);
       await notify(client, {
-        role: 'Department Head',
-        title: 'Requisition Returned for Correction',
-        message: `Requisition ${srRef} was returned for correction. Update and resubmit it.`,
+        userId: requester[0]?.id,
+        role: requester[0] ? undefined : 'Department Head',
+        title: `Requisition ${decision}`,
+        message: decision === 'Returned for Correction'
+          ? `Requisition ${srRef} was returned for correction. Update and resubmit it.`
+          : `Requisition ${srRef} was rejected.`,
         type: 'warning',
         route: `/requisitions/${req.params.id}`,
         entityType: 'requisition',

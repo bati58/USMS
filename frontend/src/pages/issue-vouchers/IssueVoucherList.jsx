@@ -30,6 +30,7 @@ export default function IssueVoucherList() {
   const [amendLines, setAmendLines] = useState([])
   const canGenerate = canPerformAction(user?.role, 'create', 'issueVouchers')
   const canApprove = canPerformAction(user?.role, 'approve', 'issueVouchers')
+  const canPost = canPerformAction(user?.role, 'postIssueVoucher', 'issueVouchers')
 
   const selectedReq = useMemo(
     () => approvedReqs.find((r) => r.srRef === selectedSr) || null,
@@ -44,7 +45,14 @@ export default function IssueVoucherList() {
   async function load() {
     setLoading(true)
     try {
-      const requests = [issueVoucherService.list(), canGenerate ? requisitionService.list() : Promise.resolve([]), canGenerate ? itemService.list() : Promise.resolve([])]
+      // The Store Head needs the approved-requisition list to generate vouchers; both the
+      // Store Head and the Storekeeper need the item catalog for the client-side stock check
+      // (the Storekeeper's pre-post guard would otherwise read an empty catalog and block).
+      const requests = [
+        issueVoucherService.list(),
+        canGenerate ? requisitionService.list() : Promise.resolve([]),
+        (canGenerate || canPost) ? itemService.list() : Promise.resolve([])
+      ]
       const [vouchers, reqs, allItems] = await Promise.all(requests)
       setRows(vouchers)
       setApprovedReqs(reqs.filter((r) => r.status === REQUISITION_STATUS.APPROVED || r.status === REQUISITION_STATUS.PARTIALLY_APPROVED))
@@ -169,7 +177,7 @@ export default function IssueVoucherList() {
       render: (row) => (
         <div className="flex justify-end gap-1">
           {canApprove && [SIV_STATUS.PRELIMINARY, SIV_STATUS.PENDING_APPROVAL].includes(row.status) && <Button variant="secondary" onClick={() => handleApprove(row)}>Approve</Button>}
-          {canGenerate && row.status === SIV_STATUS.APPROVED && <Button onClick={() => handlePost(row)}>Post</Button>}
+          {canPost && row.status === SIV_STATUS.APPROVED && <Button onClick={() => handlePost(row)}>Post</Button>}
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>

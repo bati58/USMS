@@ -80,6 +80,7 @@ const DASHBOARD_DATA_BY_ROLE = {
     items: itemService,
     grns: goodsReceiptService,
     reqs: requisitionService,
+    vouchers: issueVoucherService,
     transfers: materialTransferService,
     disposals: disposalService,
     assets: fixedAssetService,
@@ -319,12 +320,24 @@ export default function Dashboard() {
     () => reqs.filter((r) => r.status === REQUISITION_STATUS.PENDING),
     [reqs]
   )
+  // Stage 2 of the two-stage approval: requisitions a Department Head has endorsed are the
+  // PAO's queue (status 'Pending Approval').
+  const pendingApprovalReqs = useMemo(
+    () => reqs.filter((r) => r.status === REQUISITION_STATUS.PENDING_APPROVAL),
+    [reqs]
+  )
   const approvedReqs = useMemo(
     () => reqs.filter((r) => r.status === REQUISITION_STATUS.APPROVED),
     [reqs]
   )
   const partiallyApprovedReqs = useMemo(
     () => reqs.filter((r) => r.status === REQUISITION_STATUS.PARTIALLY_APPROVED),
+    [reqs]
+  )
+  // Approved / partially-approved requisitions the Store Head still needs to turn into a
+  // voucher (requisitions carry no voucher ref today, so this is an upper bound).
+  const approvedAwaitingVoucher = useMemo(
+    () => reqs.filter((r) => [REQUISITION_STATUS.APPROVED, REQUISITION_STATUS.PARTIALLY_APPROVED].includes(r.status) && (!r.issueVoucherRef || !r.issueVoucherRef.trim())),
     [reqs]
   )
 
@@ -353,9 +366,14 @@ export default function Dashboard() {
     [disposals]
   )
 
-  // Issue vouchers awaiting Store Head approval/posting (two-stage: stage 2).
+  // Issue vouchers the Store Head prepared, awaiting the PAO's authorization (AUTHORIZED REVIEW).
   const pendingSivApprovals = useMemo(
     () => vouchers.filter((v) => [SIV_STATUS.PRELIMINARY, SIV_STATUS.PENDING_APPROVAL].includes(v.status)),
+    [vouchers]
+  )
+  // Vouchers the PAO has authorized (status 'Approved') — the Storekeeper's queue to issue/post.
+  const sivsReadyToIssue = useMemo(
+    () => vouchers.filter((v) => v.status === SIV_STATUS.APPROVED),
     [vouchers]
   )
 
@@ -517,28 +535,41 @@ export default function Dashboard() {
       meta: g.store || 'Store'
     }))
 
-    const issueTasks = approvedReqsAwaitingIssue.map((r) => ({
-      id: `sr-${r.id}`,
-      ref: r.srRef,
-      type: 'Requisition',
-      label: 'Generate voucher',
+    // The Storekeeper issues vouchers the PAO has authorized (status 'Approved'); posting
+    // fulfils the requisition. Generating the voucher is the Store Head's job now.
+    const issueTasks = sivsReadyToIssue.map((v) => ({
+      id: `siv-${v.id}`,
+      ref: v.sivRef,
+      type: 'Issue Voucher',
+      label: 'Issue material',
       route: '/issue-vouchers',
-      date: r.date,
-      meta: r.department || 'Department'
+      date: v.date,
+      meta: v.issuedTo || 'Requisition'
     }))
 
     return [...receipts, ...issueTasks].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-  }, [pendingGrns, approvedReqsAwaitingIssue])
+  }, [pendingGrns, sivsReadyToIssue])
 
   const approvalRows = useMemo(() => {
-    const reqRows = pendingReqs.map((r) => ({
+    const reqRows = pendingApprovalReqs.map((r) => ({
       id: `req-${r.id}`,
       type: 'Requisition',
       ref: r.srRef,
       date: r.date,
       dept: r.department,
       route: '/requisitions',
-      badge: REQUISITION_STATUS.PENDING
+      badge: REQUISITION_STATUS.PENDING_APPROVAL
+    }))
+
+    // AUTHORIZED REVIEW: vouchers the Store Head prepared await the PAO's authorization.
+    const voucherRows = pendingSivApprovals.map((v) => ({
+      id: `siv-${v.id}`,
+      type: 'Issue Voucher',
+      ref: v.sivRef,
+      date: v.date,
+      dept: v.issuedTo || 'Store',
+      route: '/issue-vouchers',
+      badge: v.status
     }))
 
     const transferRows = pendingTransfersForApproval.map((t) => ({
@@ -551,10 +582,10 @@ export default function Dashboard() {
       badge: TRANSFER_STATUS.PENDING_APPROVAL
     }))
 
-    return sortNewestFirst([...reqRows, ...transferRows]).slice(0, MAX_APPROVAL_ROWS)
-  }, [pendingReqs, pendingTransfersForApproval])
+    return sortNewestFirst([...reqRows, ...voucherRows, ...transferRows]).slice(0, MAX_APPROVAL_ROWS)
+  }, [pendingApprovalReqs, pendingSivApprovals, pendingTransfersForApproval])
 
-  const paoPendingApprovals = pendingReqs.length + pendingTransfersForApproval.length + pendingDisposals.length
+  const paoPendingApprovals = pendingApprovalReqs.length + pendingSivApprovals.length + pendingTransfersForApproval.length + pendingDisposals.length
 
   // ---- PAO Comprehensive KPI Calculations (Receiving) ----
   const grnsPendingTecEval = useMemo(
@@ -872,7 +903,7 @@ export default function Dashboard() {
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {renderStatCardLink('/goods-receipt', 'Receipts Awaiting Review', loading ? '—' : storeFilteredGrns.filter((g) => g.status === GRN_STATUS.SUBMITTED).length, PackageCheck, 'warning', 'Needs store-head decision')}
         {renderStatCardLink('/goods-receipt/evaluation', 'Receipts Awaiting TEC', loading ? '—' : storeFilteredGrns.filter((g) => [GRN_STATUS.PENDING_EVAL, GRN_STATUS.UNDER_EVAL].includes(g.status)).length, ClipboardCheck, 'info', 'Technical evaluation queue')}
-        {renderStatCardLink('/requisitions', 'Pending Requisitions', loading ? '—' : pendingReqs.filter((r) => (isStoreScoped ? r.store === userStore : true)).length, FileText, 'brand', isStoreScoped ? 'Targeting your store' : 'Current overview')}
+        {renderStatCardLink('/issue-vouchers', 'Approved → Generate Voucher', loading ? '—' : approvedAwaitingVoucher.filter((r) => (isStoreScoped ? r.store === userStore : true)).length, FileText, 'brand', 'Approved requisitions awaiting a voucher')}
         {renderStatCardLink('/material-transfer', 'Transfers Pending Approval', loading ? '—' : transfers.filter((t) => [TRANSFER_STATUS.SUBMITTED, TRANSFER_STATUS.PENDING_APPROVAL].includes(t.status) && (isStoreScoped ? [t.fromStore, t.toStore].includes(userStore) : true)).length, Repeat, 'info', 'Store-to-store review queue')}
       </div>
 
@@ -956,12 +987,12 @@ export default function Dashboard() {
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label="Stock on Hand" value={loading ? '—' : formatNumber(stockOnHandQty)} icon={Boxes} tone="brand" hint="Total units across catalog" />
         {renderStatCardLink('/goods-receipt', 'Pending Receipts', loading ? '—' : pendingGrns.length, PackageCheck, 'info', 'Needs action')}
-        {renderStatCardLink('/issue-vouchers', 'Pending Issues', loading ? '—' : pendingSivApprovals.length, Send, 'warning', 'Issue vouchers in progress')}
+        {renderStatCardLink('/issue-vouchers', 'Authorized to Issue', loading ? '—' : sivsReadyToIssue.length, Send, 'warning', 'Vouchers ready to post')}
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {renderStatCardLink('/goods-receipt', 'Goods Receipt', loading ? '—' : pendingGrns.length, PackageCheck, 'info', 'Record and review receipts')}
-        {renderStatCardLink('/issue-vouchers', 'Issue Vouchers', loading ? '—' : pendingSivApprovals.length, Send, 'warning', 'Issue approved requests')}
+        {renderStatCardLink('/issue-vouchers', 'Issue Vouchers', loading ? '—' : sivsReadyToIssue.length, Send, 'warning', 'Issue authorized vouchers')}
         {renderStatCardLink('/material-transfer', 'Store Transfers', loading ? '—' : readyForDispatchTransfers.length, Repeat, 'success', 'Dispatch/receive approved transfers')}
         {renderStatCardLink('/stock-cards', 'Stock Cards', loading ? '—' : items.length, Archive, 'brand', 'Inventory history and balances')}
         {renderStatCardLink('/stock-taking', 'Stock Taking', loading ? '—' : '—', ClipboardCheck, 'brand', 'Count and reconcile stock')}
@@ -1150,7 +1181,7 @@ export default function Dashboard() {
     <>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {renderStatCardLink('/requisitions', 'Awaiting Your Approval', loading ? '—' : pendingDeptApprovals.length, FileText, 'warning', 'Department requisitions')}
-        <StatCard label="My Pending Requisitions" value={loading ? '—' : myDeptReqs.filter((r) => [REQUISITION_STATUS.SUBMITTED, REQUISITION_STATUS.PENDING].includes(r.status)).length} icon={ClipboardCheck} tone="info" hint="Submitted, awaiting outcome" />
+        <StatCard label="My Pending Requisitions" value={loading ? '—' : myDeptReqs.filter((r) => [REQUISITION_STATUS.SUBMITTED, REQUISITION_STATUS.PENDING_APPROVAL, REQUISITION_STATUS.PENDING].includes(r.status)).length} icon={ClipboardCheck} tone="info" hint="Submitted, awaiting outcome" />
         {renderStatCardLink('/material-return', 'Pending Returns', loading ? '—' : myDeptReturns.filter((r) => [RETURN_STATUS.DRAFT, RETURN_STATUS.SUBMITTED, RETURN_STATUS.PENDING_REVIEW].includes(r.status)).length, Undo2, 'warning', 'Submitted by your team')}
         {renderStatCardLink('/user-cards', 'Assigned User Materials', loading ? '—' : userCards.filter((card) => card.status !== 'Returned').length, Boxes, 'brand', 'Materials assigned in your department')}
       </div>

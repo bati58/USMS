@@ -314,6 +314,29 @@ async function decideRequisition(client, { requisitionId, decision, items = [], 
   });
 }
 
+// Department-Head endorsement — two-stage approval, stage 1. Forwards a Submitted
+// requisition to the PAO for final approval (Submitted -> Pending Approval). It records
+// ONLY to audit_logs: a requisition_approvals row is written only for a decision in the
+// schema CHECK set (Approved/Partially Approved/Rejected/Returned for Correction), which
+// for this stage happens on reject/return via decideRequisition — never for the endorse.
+async function endorseRequisition(client, { requisitionId, comments, actorName }) {
+  const { rows } = await client.query('SELECT * FROM requisitions WHERE id = $1 FOR UPDATE', [requisitionId]);
+  const req = rows[0];
+  if (!req) throw new AppError('Requisition not found.', 404);
+  assertTransition('requisition', req.status, 'Pending Approval');
+  await client.query("UPDATE requisitions SET status = 'Pending Approval', updated_at = NOW() WHERE id = $1", [requisitionId]);
+  await logAudit(client, {
+    userName: actorName,
+    action: `Endorsed requisition ${req.sr_ref} — forwarded to Property Administration Officer`,
+    module: 'Store Requisition',
+    entityType: 'requisition',
+    entityId: String(requisitionId),
+    entityReference: req.sr_ref,
+    metadata: comments ? { comments } : {}
+  });
+  return req;
+}
+
 
 // ---------------------------------------------------------------------------
 // §6.3 Material Return approval -> stock increases
@@ -675,6 +698,7 @@ module.exports = {
   generateGrn,
   postGrn,
   decideRequisition,
+  endorseRequisition,
 
   decideMaterialReturn,
   receiveMaterialReturn,
