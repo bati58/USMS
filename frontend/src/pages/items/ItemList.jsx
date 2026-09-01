@@ -174,39 +174,42 @@ export default function ItemList() {
         </div>
       )
     },
-    { key: 'unitPrice', header: 'Unit Price', render: (r) => formatCurrency(r.unitPrice) },
-    {
-      key: '__actions',
-      header: 'Actions',
-      className: 'text-right',
-      render: (row) => {
-        if (!canEdit && !canDelete) return null
+    { key: 'unitPrice', header: 'Unit Price', render: (r) => formatCurrency(r.unitPrice) }
+  ].concat(
+    !(user?.role === 'Storekeeper' && ['items'].includes('items')) && (canEdit || canDelete)
+      ? [{
+        key: '__actions',
+        header: 'Actions',
+        className: 'text-right',
+        render: (row) => {
+          if (!canEdit && !canDelete) return null
 
-        return (
-          <div className="flex justify-end gap-1">
-            {canEdit && (
-              <button
-                onClick={() => openEdit(row)}
-                className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600 transition-colors"
-                title="Edit"
-              >
-                <Pencil size={15} />
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={() => setDeleteTarget(row)}
-                className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700 transition-colors"
-                title="Delete"
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
-          </div>
-        )
-      }
-    }
-  ]
+          return (
+            <div className="flex justify-end gap-1">
+              {canEdit && (
+                <button
+                  onClick={() => openEdit(row)}
+                  className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600 transition-colors"
+                  title="Edit"
+                >
+                  <Pencil size={15} />
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => setDeleteTarget(row)}
+                  className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+          )
+        }
+      }]
+      : []
+  )
 
   return (
     <div>

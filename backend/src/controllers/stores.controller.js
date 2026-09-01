@@ -16,13 +16,13 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { name, code, type, location, headOfStore, description, contactInfo, active } = req.body;
+  const { name, code, type, department, location, headOfStore, description, contactInfo, active } = req.body;
   if (!name || !code || !type) throw new AppError('name, code, and type are required.', 400);
 
   const { rows } = await query(
-    `INSERT INTO stores (name, code, type, location, head_of_store, description, contact_info, active)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [name, code, type, location || null, headOfStore || null, description || null, contactInfo || null, active !== undefined ? active : true]
+    `INSERT INTO stores (name, code, type, department, location, head_of_store, description, contact_info, active)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [name, code, type, department || null, location || null, headOfStore || null, description || null, contactInfo || null, active !== undefined ? active : true]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created store ${name}`, module: 'Store Management' });
@@ -30,15 +30,15 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { name, code, type, location, headOfStore, description, contactInfo, active } = req.body;
+  const { name, code, type, department, location, headOfStore, description, contactInfo, active } = req.body;
   const { rows } = await query(
     `UPDATE stores SET
        name = COALESCE($1, name), code = COALESCE($2, code), type = COALESCE($3, type),
-       location = COALESCE($4, location), head_of_store = COALESCE($5, head_of_store),
-       description = COALESCE($6, description), contact_info = COALESCE($7, contact_info),
-       active = COALESCE($8, active), updated_at = NOW()
-     WHERE id = $9 RETURNING *`,
-    [name, code, type, location, headOfStore, description, contactInfo, active, req.params.id]
+       department = COALESCE($4, department), location = COALESCE($5, location),
+       head_of_store = COALESCE($6, head_of_store), description = COALESCE($7, description),
+       contact_info = COALESCE($8, contact_info), active = COALESCE($9, active), updated_at = NOW()
+     WHERE id = $10 RETURNING *`,
+    [name, code, type, department, location, headOfStore, description, contactInfo, active, req.params.id]
   );
   if (!rows[0]) throw new AppError('Store not found.', 404);
 

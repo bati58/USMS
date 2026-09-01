@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS stores (
   name           TEXT NOT NULL,
   code           TEXT NOT NULL UNIQUE,
   type           TEXT NOT NULL,
+  department     TEXT,
   location       TEXT,
   head_of_store  TEXT,
   description    TEXT,
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS stores (
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS department TEXT;
 
 -- ---------- categories (§5.3) ----------
 CREATE TABLE IF NOT EXISTS categories (

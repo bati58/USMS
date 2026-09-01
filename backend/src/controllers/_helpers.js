@@ -78,6 +78,7 @@ function mapStore(row) {
     name: row.name,
     code: row.code,
     type: row.type,
+    department: row.department || null,
     location: row.location,
     headOfStore: row.head_of_store,
     description: row.description,

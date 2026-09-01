@@ -163,9 +163,11 @@ export default function CrudPage({
     }
   }
 
+  const shouldShowActionColumn = !(user?.role === 'Storekeeper' && ['items', 'locations'].includes(entityType)) && (canEdit || canDelete)
+
   const tableColumns = [
     ...columns,
-    {
+    ...(shouldShowActionColumn ? [{
       key: '__actions',
       header: 'Actions',
       className: 'text-right',
@@ -195,7 +197,7 @@ export default function CrudPage({
           </div>
         )
       }
-    }
+    }] : [])
   ]
 
   return (
