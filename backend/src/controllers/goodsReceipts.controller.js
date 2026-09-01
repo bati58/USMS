@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { mapGoodsReceipt, resolveStoreId, resolveItemId, resolveSupplierId } = require('./_helpers');
+const { mapGoodsReceipt, resolveStoreId, resolveStoreHeadForStore, resolveItemId, resolveSupplierId } = require('./_helpers');
 const stockService = require('../services/stockService');
 const { assertTransition } = require('../utils/workflow');
 const { notify } = require('../utils/notify');
@@ -149,17 +149,17 @@ const evaluate = asyncHandler(async (req, res) => {
       actorName: req.user.name
     });
     const { rows } = await client.query(
-      `SELECT g.grn_ref, s.head_of_store, u.id AS store_head_id
+      `SELECT g.grn_ref, g.store_id, s.head_of_store
        FROM goods_receipts g
        LEFT JOIN stores s ON s.id = g.store_id
-       LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
        WHERE g.id = $1`,
       [req.params.id]
     );
+    const storeHeadId = rows[0]?.store_id ? await resolveStoreHeadForStore(rows[0].store_id, client) : null;
     const isAccepted = decision === 'Approved' || decision === 'Partially Approved';
     await notify(client, {
-      userId: isAccepted ? undefined : rows[0]?.store_head_id,
-      role: isAccepted ? 'Storekeeper' : rows[0]?.store_head_id ? undefined : 'Property Administration Officer',
+      userId: isAccepted ? undefined : storeHeadId || undefined,
+      role: isAccepted ? 'Storekeeper' : storeHeadId ? undefined : 'Property Administration Officer',
       title: isAccepted ? 'Goods receipt accepted' : 'Goods receipt rejected',
       message: isAccepted
         ? `${rows[0]?.grn_ref || `Receipt ${req.params.id}`} was ${decision.toLowerCase()}. Generate the official GRN and post the accepted stock.`
@@ -214,15 +214,15 @@ const setStatus = asyncHandler(async (req, res) => {
   }
   await withTransaction(async (client) => {
     const { rows: currentRows } = await client.query(
-      `SELECT g.status, g.grn_ref, g.store_id, s.name AS store_name, u.id AS store_head_id
+      `SELECT g.status, g.grn_ref, g.store_id, s.name AS store_name
        FROM goods_receipts g
        LEFT JOIN stores s ON s.id = g.store_id
-       LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
-      WHERE g.id = $1 FOR UPDATE OF g`,
+       WHERE g.id = $1 FOR UPDATE OF g`,
       [req.params.id]
     );
     if (!currentRows[0]) throw new AppError('Goods receipt not found.', 404);
     assertTransition('goodsReceipt', currentRows[0].status, req.body.status);
+    const storeHeadId = currentRows[0]?.store_id ? await resolveStoreHeadForStore(currentRows[0].store_id, client) : null;
     await client.query(
       `UPDATE goods_receipts SET status = $1, updated_at = NOW() WHERE id = $2`,
       [req.body.status, req.params.id]
@@ -241,7 +241,7 @@ const setStatus = asyncHandler(async (req, res) => {
     });
     if (req.body.status === 'Submitted') {
       await notify(client, {
-        userId: currentRows[0].store_head_id,
+        userId: storeHeadId || undefined,
         title: 'Goods receipt submitted for review',
         message: `${currentRows[0].grn_ref} for ${currentRows[0].store_name || 'your store'} was submitted by the Storekeeper and requires your review before technical evaluation.`,
         type: 'info',

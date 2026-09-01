@@ -36,6 +36,14 @@ const create = asyncHandler(async (req, res) => {
         `INSERT INTO departments (code, name, head_user_id, active) VALUES ($1, $2, $3, $4) RETURNING id`,
         [code, name, headUserId || null, active !== undefined ? active : true]
     );
+
+    if (headUserId) {
+        await query(
+            `UPDATE users SET department = $1, updated_at = NOW() WHERE id = $2`,
+            [name, headUserId]
+        );
+    }
+
     await logAudit(query, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Created department ${name}`, module: 'Departments', entityType: 'department', entityId: rows[0].id });
     const { rows: full } = await query(`${SELECT} WHERE d.id = $1`, [rows[0].id]);
     res.status(201).json(mapDepartment(full[0]));
@@ -43,13 +51,33 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
     const { code, name, headUserId, active } = req.body;
+    const existing = await query(`${SELECT} WHERE d.id = $1`, [req.params.id]);
+    if (!existing.rows[0]) throw new AppError('Department not found.', 404);
+
+    const previousHeadUserId = existing.rows[0].head_user_id;
+    const nextDepartmentName = name || existing.rows[0].name;
+
     const { rows } = await query(
         `UPDATE departments SET code = COALESCE($1, code), name = COALESCE($2, name),
        head_user_id = COALESCE($3, head_user_id), active = COALESCE($4, active), updated_at = NOW()
      WHERE id = $5 RETURNING id`,
         [code, name, headUserId, active, req.params.id]
     );
-    if (!rows[0]) throw new AppError('Department not found.', 404);
+
+    if (headUserId) {
+        await query(
+            `UPDATE users SET department = $1, updated_at = NOW() WHERE id = $2`,
+            [nextDepartmentName, headUserId]
+        );
+    }
+
+    if (previousHeadUserId && previousHeadUserId !== headUserId) {
+        await query(
+            `UPDATE users SET department = NULL, updated_at = NOW() WHERE id = $1 AND department = $2`,
+            [previousHeadUserId, existing.rows[0].name]
+        );
+    }
+
     await logAudit(query, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Updated department ${req.params.id}`, module: 'Departments', entityType: 'department', entityId: rows[0].id });
     const { rows: full } = await query(`${SELECT} WHERE d.id = $1`, [rows[0].id]);
     res.json(mapDepartment(full[0]));

@@ -342,88 +342,129 @@ async function endorseRequisition(client, { requisitionId, comments, actorName }
 // §6.3 Material Return approval -> stock increases
 // ---------------------------------------------------------------------------
 
-async function decideMaterialReturn(client, { returnId, decision, qtyApproved, findings, recommendation, actorName }) {
+async function decideMaterialReturn(client, { returnId, decision, qtyApproved, findings, recommendation, reason, actorName }) {
   const { rows } = await client.query('SELECT * FROM material_returns WHERE id = $1 FOR UPDATE', [returnId]);
   const ret = rows[0];
   if (!ret) throw new AppError('Material return not found.', 404);
-  assertTransition('materialReturn', ret.status, decision);
+
+  if (decision === 'Submitted') {
+    if (!['Returned for Correction'].includes(ret.status)) {
+      throw new AppError('Only a return sent for correction can be resubmitted.', 409);
+    }
+    await client.query(
+      `UPDATE material_returns SET status = 'Submitted', evaluated_by = $1, evaluated_at = NOW(),
+       evaluation_findings = $2, evaluation_recommendation = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [actorName, findings || null, recommendation || null, returnId]
+    );
+    await logAudit(client, { userName: actorName, action: `Resubmitted return ${ret.srn_ref}`, module: 'Material Return' });
+    return;
+  }
+
+  const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Returned for Correction' ? 'Returned for Correction' : 'Rejected';
+  assertTransition('materialReturn', ret.status, nextStatus);
+
+  const approvedQty = decision === 'Approved' ? (qtyApproved == null ? Number(ret.qty) : Number(qtyApproved)) : 0;
+  if (decision === 'Approved' && (!Number.isFinite(approvedQty) || approvedQty <= 0 || approvedQty > Number(ret.qty))) {
+    throw new AppError('Approved return quantity must be a valid positive amount not exceeding the requested quantity.', 400);
+  }
+  if (decision === 'Rejected' && !reason) {
+    throw new AppError('A rejection reason is required.', 400);
+  }
+  if (decision === 'Returned for Correction' && !reason) {
+    throw new AppError('A correction reason is required.', 400);
+  }
+
   await client.query(
     `UPDATE material_returns SET status = $1, qty_approved = $2, evaluated_by = $3,
-       evaluated_at = NOW(), evaluation_findings = $4, evaluation_recommendation = $5, updated_at = NOW()
-     WHERE id = $6`,
-    [decision, decision === 'Approved' ? (qtyApproved == null ? ret.qty : qtyApproved) : 0, actorName, findings || null, recommendation || null, returnId]
+       evaluated_at = NOW(), evaluation_findings = $4, evaluation_recommendation = $5,
+       rejection_reason = $6, updated_at = NOW()
+     WHERE id = $7`,
+    [nextStatus, decision === 'Approved' ? approvedQty : 0, actorName, findings || null, recommendation || null, decision === 'Rejected' || decision === 'Returned for Correction' ? (reason || null) : null, returnId]
   );
   await logAudit(client, { userName: actorName, action: `${decision} return ${ret.srn_ref}`, module: 'Material Return' });
 }
 
-async function receiveMaterialReturn(client, { returnId, actorName }) {
+async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty, rejectedQty, condition, remarks, rejectionReason, actorName }) {
   const { rows } = await client.query('SELECT * FROM material_returns WHERE id = $1 FOR UPDATE', [returnId]);
   const ret = rows[0];
   if (!ret) throw new AppError('Material return not found.', 404);
-  assertTransition('materialReturn', ret.status, 'Returned to Stock');
 
-  const reusableCondition = ['good', 'usable', 'reusable'].includes(String(ret.condition || '').trim().toLowerCase());
-
-  if (!reusableCondition) {
-    throw new AppError('Only good, usable, or reusable returns can be received into stock.', 400);
+  const approvedQty = Number(ret.qty_approved ?? ret.qty ?? 0);
+  if (!Number.isFinite(approvedQty) || approvedQty <= 0) {
+    throw new AppError('This return has not yet been approved for receiving.', 400);
   }
 
-  if (reusableCondition) {
-    const item = await getItemForUpdate(client, ret.item_id);
-    const requestedQty = Number(ret.qty);
-    const approvedQty = qtyApproved == null ? requestedQty : Number(qtyApproved);
-    if (!Number.isFinite(approvedQty) || approvedQty <= 0 || approvedQty > requestedQty) {
-      throw new AppError('Approved return quantity must be positive and no greater than the requested quantity.', 400);
-    }
-    const issuedQuery = `
-      SELECT COALESCE(SUM(ivi.qty), 0) AS issued_qty
-      FROM issue_voucher_items ivi
-      JOIN issue_vouchers iv ON iv.id = ivi.issue_voucher_id
-      WHERE ivi.item_id = $1 AND iv.issued_to = $2 AND iv.status IN ('Posted', 'Issued')
-        AND ($3::text IS NULL OR iv.siv_ref = $3)
-    `;
-    const { rows: issuedRows } = await client.query(issuedQuery, [ret.item_id, ret.department, ret.original_issue_ref || null]);
-    if (approvedQty > Number(issuedRows[0].issued_qty)) {
-      throw new AppError('Returned quantity cannot exceed the quantity previously issued to this department.', 400);
-    }
-    const newQty = Number(item.qty_on_hand) + approvedQty;
+  const actualReceived = actualQty == null ? approvedQty : Number(actualQty);
+  const accepted = acceptedQty == null ? actualReceived : Number(acceptedQty);
+  const rejected = rejectedQty == null ? Math.max(0, actualReceived - accepted) : Number(rejectedQty);
 
+  if (!Number.isFinite(actualReceived) || actualReceived < 0 || actualReceived > approvedQty) {
+    throw new AppError('Received quantity cannot exceed the approved quantity.', 400);
+  }
+  if (!Number.isFinite(accepted) || accepted < 0 || accepted > actualReceived) {
+    throw new AppError('Accepted quantity cannot exceed the actual received quantity.', 400);
+  }
+  if (!Number.isFinite(rejected) || rejected < 0 || rejected > actualReceived) {
+    throw new AppError('Rejected quantity cannot exceed the actual received quantity.', 400);
+  }
+  if (Math.abs((accepted + rejected) - actualReceived) > 0.0001) {
+    throw new AppError('Accepted and rejected quantities must total the actual received quantity.', 400);
+  }
+
+  const nextStatus = accepted <= 0 ? 'Return Rejected' : rejected > 0 && accepted > 0 ? 'Partially Accepted' : 'Fully Accepted';
+  assertTransition('materialReturn', ret.status, 'Under Receiving');
+
+  const item = await getItemForUpdate(client, ret.item_id);
+  const newQty = Number(item.qty_on_hand) + accepted;
+
+  if (accepted > 0) {
     await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
-
     await addStockLot(client, {
       itemId: item.id,
       receivedDate: ret.date,
-      unitPrice: item.unit_price, // returns re-enter stock at the item's current cost
-      qty: approvedQty,
+      unitPrice: item.unit_price,
+      qty: accepted,
       sourceRef: ret.srn_ref
     });
-
     await insertStockTransaction(client, {
       itemId: item.id,
       date: ret.date,
-      type: 'Return',
+      type: 'Material Return',
       ref: ret.srn_ref,
-      qtyIn: approvedQty,
+      qtyIn: accepted,
       unitPrice: item.unit_price,
-      balance: newQty
+      balance: newQty,
+      actorName,
+      storeId: item.store_id,
+      bin: item.bin,
+      sourceType: 'Material Return',
+      sourceId: String(ret.id)
     });
-
     await upsertBinCard(client, {
       bin: item.bin,
       storeId: item.store_id,
       itemId: item.id,
-      delta: approvedQty,
-      date: ret.date
+      delta: accepted,
+      date: ret.date,
+      reference: ret.srn_ref,
+      type: 'Material Return',
+      actorName,
+      reason: remarks || rejectionReason || ret.reason
     });
   }
 
+  const finalStatus = nextStatus === 'Return Rejected' ? 'Return Rejected' : (nextStatus === 'Fully Accepted' ? 'Returned to Stock' : 'Returned to Stock');
+
   await client.query(
-    `UPDATE material_returns SET status = $1, qty_approved = $2, evaluated_by = $3,
-       evaluated_at = NOW(), evaluation_findings = $4, evaluation_recommendation = $5, updated_at = NOW()
-     WHERE id = $6`,
-    ['Returned to Stock', ret.qty_approved == null ? ret.qty : ret.qty_approved, actorName, ret.evaluation_findings || null, ret.evaluation_recommendation || null, returnId]
+    `UPDATE material_returns SET status = $1, qty_received = $2, qty_accepted = $3, qty_rejected = $4,
+       receiving_by = $5, receiving_at = NOW(), receiving_condition = $6, receiving_remarks = $7,
+       rejection_reason = $8, updated_at = NOW()
+     WHERE id = $9`,
+    [finalStatus, actualReceived, accepted, rejected, actorName, condition || null, remarks || null, rejectionReason || null, returnId]
   );
-  await logAudit(client, { userName: actorName, action: `Received return ${ret.srn_ref} into stock`, module: 'Material Return' });
+
+  await logAudit(client, { userName: actorName, action: `Completed receiving for ${ret.srn_ref}`, module: 'Material Return' });
 }
 
 // ---------------------------------------------------------------------------

@@ -77,7 +77,7 @@ const create = asyncHandler(async (req, res) => {
       title: 'Store transfer awaiting approval',
       message: `Transfer ${transferRef} from ${fromStore} to ${toStore} is awaiting review.`,
       type: 'info',
-      route: `/material-transfers/${rows[0].id}`,
+      route: '/material-transfer',
       entityType: 'material-transfer',
       entityId: rows[0].id
     });
@@ -113,7 +113,7 @@ const decide = asyncHandler(async (req, res) => {
             ? `Transfer ${transfer.transfer_ref} was rejected and requires attention before resubmission.`
             : `Transfer ${transfer.transfer_ref} was returned for correction. Update and resubmit it for approval.`,
         type: decision === 'Approved' ? 'success' : decision === 'Rejected' ? 'danger' : 'warning',
-        route: `/material-transfers/${req.params.id}`,
+        route: '/material-transfer',
         entityType: 'material-transfer',
         entityId: req.params.id
       });

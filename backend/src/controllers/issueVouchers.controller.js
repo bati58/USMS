@@ -81,7 +81,7 @@ const create = asyncHandler(async (req, res) => {
       title: 'Issue Voucher Awaiting Authorization',
       message: `Issue voucher ${sivRef} (from requisition ${srRef}) was prepared and needs your authorization.`,
       type: 'info',
-      route: `/issue-vouchers/${id}`,
+      route: '/issue-vouchers',
       entityType: 'issue_voucher',
       entityId: String(id)
     });
@@ -100,7 +100,7 @@ const approve = asyncHandler(async (req, res) => {
       title: 'Issue Voucher Approved',
       message: `SIV ${rows[0]?.siv_ref} has been approved and is ready for posting.`,
       type: 'success',
-      route: `/issue-vouchers/${req.params.id}`,
+      route: '/issue-vouchers',
       entityType: 'issue_voucher',
       entityId: req.params.id
     });
@@ -159,7 +159,7 @@ const amend = asyncHandler(async (req, res) => {
       title: 'Issue Voucher Awaiting Authorization',
       message: `Issue voucher ${rows[0]?.siv_ref} was amended and is pending your authorization.`,
       type: 'info',
-      route: `/issue-vouchers/${req.params.id}`,
+      route: '/issue-vouchers',
       entityType: 'issue_voucher',
       entityId: req.params.id
     });

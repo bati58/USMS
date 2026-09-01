@@ -16,6 +16,19 @@ async function resolveStoreId(storeName, client = { query }) {
   return rows[0].id;
 }
 
+async function resolveStoreHeadForStore(storeId, client = { query }) {
+  if (!storeId) return null;
+  const { rows } = await client.query(
+    `SELECT u.id
+     FROM stores s
+     LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
+     WHERE s.id = $1 AND s.active = TRUE
+     LIMIT 1`,
+    [storeId]
+  );
+  return rows[0]?.id || null;
+}
+
 async function resolveSupplierId(supplierName, client = { query }) {
   if (!supplierName) return null;
   const { rows } = await client.query('SELECT id FROM suppliers WHERE name = $1 OR code = $1', [supplierName]);
@@ -322,6 +335,7 @@ function mapAuditLog(row) {
 
 module.exports = {
   resolveStoreId,
+  resolveStoreHeadForStore,
   resolveSupplierId,
   resolveCategoryId,
   resolveItemId,

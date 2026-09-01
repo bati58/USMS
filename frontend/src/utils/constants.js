@@ -79,7 +79,12 @@ export const RETURN_STATUS = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   PENDING_REVIEW: 'Pending Review',
+  RETURNED_FOR_CORRECTION: 'Returned for Correction',
   APPROVED: 'Approved',
+  UNDER_RECEIVING: 'Under Receiving',
+  FULLY_ACCEPTED: 'Fully Accepted',
+  PARTIALLY_ACCEPTED: 'Partially Accepted',
+  RETURN_REJECTED: 'Return Rejected',
   REJECTED: 'Rejected',
   RETURNED_TO_STOCK: 'Returned to Stock'
 }
@@ -149,6 +154,12 @@ export const STATUS_COLOR = {
 
   // Return
   [RETURN_STATUS.PENDING_REVIEW]: 'bg-warning-50 text-warning-700',
+  [RETURN_STATUS.RETURNED_FOR_CORRECTION]: 'bg-warning-50 text-warning-700',
+  [RETURN_STATUS.APPROVED]: 'bg-info-50 text-info-700',
+  [RETURN_STATUS.UNDER_RECEIVING]: 'bg-info-50 text-info-700',
+  [RETURN_STATUS.FULLY_ACCEPTED]: 'bg-success-50 text-success-700',
+  [RETURN_STATUS.PARTIALLY_ACCEPTED]: 'bg-success-50 text-success-700',
+  [RETURN_STATUS.RETURN_REJECTED]: 'bg-danger-50 text-danger-700',
   [RETURN_STATUS.RETURNED_TO_STOCK]: 'bg-success-50 text-success-700',
 
   // Disposal

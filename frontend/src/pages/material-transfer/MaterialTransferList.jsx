@@ -164,6 +164,12 @@ export default function MaterialTransferList() {
     await load()
   }
 
+  const hasAnyAction = filtered.some((row) => {
+    const canView = true
+    const canDelete = [TRANSFER_STATUS.PENDING_APPROVAL, TRANSFER_STATUS.RETURNED].includes(row.status) && canCreate
+    return canView || canDelete
+  })
+
   const columns = [
     { key: 'transferRef', header: 'Transfer Ref' },
     { key: 'fromStore', header: 'From' },
@@ -171,7 +177,7 @@ export default function MaterialTransferList() {
     { key: 'requestedBy', header: 'Requested By' },
     { key: 'date', header: 'Date', render: (r) => formatDate(r.date) },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    {
+    ...(hasAnyAction ? [{
       key: '__actions',
       header: 'Actions',
       className: 'text-right',
@@ -180,14 +186,14 @@ export default function MaterialTransferList() {
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>
-          {[TRANSFER_STATUS.PENDING_APPROVAL, TRANSFER_STATUS.RETURNED].includes(row.status) && (
+          {[TRANSFER_STATUS.PENDING_APPROVAL, TRANSFER_STATUS.RETURNED].includes(row.status) && canCreate && (
             <button onClick={() => setDeleteTarget(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700">
               <Trash2 size={15} />
             </button>
           )}
         </div>
       )
-    }
+    }] : [])
   ]
 
   return (

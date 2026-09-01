@@ -13,9 +13,10 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const { rows } = await query(
-    `SELECT u.*, s.name AS store
+    `SELECT u.*, s.name AS store, d.name AS department_name
      FROM users u
      LEFT JOIN stores s ON s.head_of_store = u.name AND s.active = TRUE
+     LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
      WHERE u.username = $1`,
     [username.trim()]
   );
@@ -59,13 +60,15 @@ const login = asyncHandler(async (req, res) => {
     metadata: { ip, userAgent }
   });
 
+  const resolvedDepartment = user.department || user.department_name || null;
+
   const token = jwt.sign(
     {
       id: user.id,
       role: user.role,
       name: user.name,
       username: user.username,
-      department: user.department,
+      department: resolvedDepartment,
       store: user.store
     },
     process.env.JWT_SECRET,
@@ -80,7 +83,7 @@ const login = asyncHandler(async (req, res) => {
       username: user.username,
       role: user.role,
       email: user.email,
-      department: user.department,
+      department: resolvedDepartment,
       store: user.store,
       active: user.active
     }
@@ -91,15 +94,21 @@ const login = asyncHandler(async (req, res) => {
 // the session on page load using only the stored token.
 const me = asyncHandler(async (req, res) => {
   const { rows } = await query(
-    `SELECT u.id, u.name, u.username, u.role, u.email, u.department, u.active, s.name AS store
+    `SELECT u.id, u.name, u.username, u.role, u.email, COALESCE(u.department, d.name) AS department, u.active, s.name AS store
      FROM users u
      LEFT JOIN stores s ON s.head_of_store = u.name AND s.active = TRUE
+     LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
      WHERE u.id = $1`,
     [req.user.id]
   );
 
   if (!rows[0]) throw new AppError('User not found.', 404);
-  res.json(rows[0]);
+
+  const resolvedDepartment = rows[0].department || rows[0].department_name || null;
+  res.json({
+    ...rows[0],
+    department: resolvedDepartment
+  });
 });
 
 const logout = asyncHandler(async (req, res) => {
@@ -157,9 +166,16 @@ const refreshToken = asyncHandler(async (req, res) => {
     throw new AppError('Invalid token', 401);
   }
 
-  const { rows } = await query(`SELECT * FROM users WHERE id = $1 AND active = TRUE`, [decoded.id]);
+  const { rows } = await query(`
+    SELECT u.*, d.name AS department_name
+    FROM users u
+    LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
+    WHERE u.id = $1 AND u.active = TRUE
+  `, [decoded.id]);
   const user = rows[0];
   if (!user) throw new AppError('User not found or deactivated', 401);
+
+  const resolvedDepartment = user.department || user.department_name || null;
 
   const token = jwt.sign(
     {
@@ -167,7 +183,7 @@ const refreshToken = asyncHandler(async (req, res) => {
       role: user.role,
       name: user.name,
       username: user.username,
-      department: user.department,
+      department: resolvedDepartment,
       store: user.store
     },
     process.env.JWT_SECRET,

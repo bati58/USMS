@@ -20,11 +20,18 @@ const TRANSITIONS = {
         'Returned for Correction': ['Submitted', 'Pending']
     },
     materialReturn: {
-        Draft: ['Submitted', 'Pending Review', 'Approved', 'Rejected'],
-        Submitted: ['Pending Review', 'Approved', 'Rejected'],
-        Pending: ['Approved', 'Rejected'],
-        'Pending Review': ['Approved', 'Rejected'],
-        Approved: ['Returned to Stock']
+        Draft: ['Submitted'],
+        Submitted: ['Approved', 'Rejected', 'Returned for Correction', 'Pending Review'],
+        Pending: ['Approved', 'Rejected', 'Returned for Correction'],
+        'Pending Review': ['Approved', 'Rejected', 'Returned for Correction'],
+        'Returned for Correction': ['Submitted'],
+        Approved: ['Under Receiving', 'Rejected'],
+        'Under Receiving': ['Fully Accepted', 'Partially Accepted', 'Return Rejected'],
+        'Fully Accepted': ['Returned to Stock'],
+        'Partially Accepted': ['Returned to Stock'],
+        'Return Rejected': [],
+        Rejected: [],
+        'Returned to Stock': []
     },
     materialTransfer: {
         Draft: ['Submitted', 'Pending', 'Pending Approval', 'Approved', 'Rejected'],

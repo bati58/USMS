@@ -368,17 +368,33 @@ CREATE TABLE IF NOT EXISTS material_returns (
   original_issue_ref           TEXT,
   date                         DATE NOT NULL DEFAULT CURRENT_DATE,
   status                       TEXT NOT NULL DEFAULT 'Pending'
-                                 CHECK (status IN ('Draft','Submitted','Pending','Pending Review','Approved','Rejected','Returned to Stock')),
+                                 CHECK (status IN ('Draft','Submitted','Pending','Pending Review','Returned for Correction','Approved','Under Receiving','Fully Accepted','Partially Accepted','Return Rejected','Rejected','Returned to Stock')),
   qty_approved                 NUMERIC(14,2),
+  qty_received                 NUMERIC(14,2),
+  qty_accepted                 NUMERIC(14,2),
+  qty_rejected                 NUMERIC(14,2),
   evaluated_by                 TEXT,
   evaluated_at                 TIMESTAMP,
   evaluation_findings          TEXT,
   evaluation_recommendation    TEXT,
+  receiving_by                 TEXT,
+  receiving_at                 TIMESTAMP,
+  receiving_condition          TEXT,
+  receiving_remarks            TEXT,
+  rejection_reason             TEXT,
   created_at                   TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at                   TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT;
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_received NUMERIC(14,2);
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_accepted NUMERIC(14,2);
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_rejected NUMERIC(14,2);
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_by TEXT;
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_at TIMESTAMP;
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_condition TEXT;
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_remarks TEXT;
+ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_material_returns_store ON material_returns(store_id);
 
 -- ---------- material_transfers — store to store (§5.14) ----------

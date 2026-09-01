@@ -307,16 +307,26 @@ export default function RequisitionList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select
-              label="Requesting Department"
-              required
-              error={fieldErrors.department}
-              options={isDeptHead ? [user?.department].filter(Boolean) : departments.map((department) => department.name)}
-              value={header.department}
-              disabled={isDeptHead}
-              onChange={(e) => { setHeader((h) => ({ ...h, department: e.target.value })); setFieldErrors((prev) => ({ ...prev, department: '' })) }}
-              placeholder="Select a department..."
-            />
+            {isDeptHead ? (
+              <Input
+                label="Requesting Department"
+                required
+                value={header.department || user?.department || ''}
+                disabled
+                readOnly
+                error={fieldErrors.department}
+              />
+            ) : (
+              <Select
+                label="Requesting Department"
+                required
+                error={fieldErrors.department}
+                options={departments.map((department) => department.name)}
+                value={header.department}
+                onChange={(e) => { setHeader((h) => ({ ...h, department: e.target.value })); setFieldErrors((prev) => ({ ...prev, department: '' })) }}
+                placeholder="Select a department..."
+              />
+            )}
             <Select label="Issuing Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
             <Input label="Date" type="date" required error={fieldErrors.date} value={header.date} onChange={(e) => { setHeader((h) => ({ ...h, date: e.target.value })); setFieldErrors((prev) => ({ ...prev, date: '' })) }} />
           </div>
@@ -367,24 +377,24 @@ export default function RequisitionList() {
               </Button>
             )}
             {(canApproveRequisition(user, viewing) || canRejectRequisition(user, viewing)) && (
-                <>
-                  {canRejectRequisition(user, viewing) && (
-                    <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(REQUISITION_STATUS.REJECTED)}>
-                      Reject
+              <>
+                {canRejectRequisition(user, viewing) && (
+                  <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(REQUISITION_STATUS.REJECTED)}>
+                    Reject
+                  </Button>
+                )}
+                {canApproveRequisition(user, viewing) && (
+                  <>
+                    <Button variant="secondary" icon={RotateCcw} loading={saving} onClick={() => decide(REQUISITION_STATUS.RETURNED)}>
+                      Return for Correction
                     </Button>
-                  )}
-                  {canApproveRequisition(user, viewing) && (
-                    <>
-                      <Button variant="secondary" icon={RotateCcw} loading={saving} onClick={() => decide(REQUISITION_STATUS.RETURNED)}>
-                        Return for Correction
-                      </Button>
-                      <Button icon={CheckCircle2} loading={saving} onClick={() => decide(REQUISITION_STATUS.APPROVED)}>
-                        {isDeptHead ? 'Endorse & Forward to PAO' : 'Approve (Full/Partial)'}
-                      </Button>
-                    </>
-                  )}
-                </>
-              )}
+                    <Button icon={CheckCircle2} loading={saving} onClick={() => decide(REQUISITION_STATUS.APPROVED)}>
+                      {isDeptHead ? 'Endorse & Forward to PAO' : 'Approve (Full/Partial)'}
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
           </>
         }
       >

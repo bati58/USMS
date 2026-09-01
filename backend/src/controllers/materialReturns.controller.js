@@ -22,9 +22,16 @@ const list = asyncHandler(async (req, res) => {
   if (req.user.role === 'Department Head') {
     scope = 'WHERE mr.department = $1 OR mr.created_by = $2';
     params = [req.user.department || '', req.user.name];
-  } else if (req.user.role === 'Store Head' && req.user.store) {
-    scope = 'WHERE COALESCE(rs.name, s.name) = $1';
-    params = [req.user.store];
+  } else if (req.user.role === 'Store Head') {
+    const storeName = req.user.store || '';
+    scope = storeName
+      ? `WHERE EXISTS (
+          SELECT 1 FROM stores sh_store
+          WHERE sh_store.name = $1
+            AND (sh_store.id = mr.store_id OR sh_store.id = i.store_id)
+        )`
+      : '';
+    params = storeName ? [storeName] : [];
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY mr.id DESC`, params);
@@ -39,7 +46,11 @@ const getOne = asyncHandler(async (req, res) => {
     scope = ' AND (mr.department = $2 OR mr.created_by = $3)';
     params.push(req.user.department || '', req.user.name);
   } else if (req.user.role === 'Store Head' && req.user.store) {
-    scope = ' AND COALESCE(rs.name, s.name) = $2';
+    scope = ` AND EXISTS (
+      SELECT 1 FROM stores sh_store
+      WHERE sh_store.name = $2
+        AND (sh_store.id = mr.store_id OR sh_store.id = i.store_id)
+    )`;
     params.push(req.user.store);
   }
 
@@ -50,9 +61,11 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/material-returns — Backend-SRS §6.3 step 1 (Draft, no stock change)
 const create = asyncHandler(async (req, res) => {
-  const { department, store, item, qty, reason, date, condition, originalIssueRef } = req.body;
+  const { department, store, item, qty, reason, date, condition, originalIssueRef, status } = req.body;
   const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
   if (!effectiveDepartment || !store || !item || !qty) throw new AppError('department, store, item, and qty are required.', 400);
+
+  const requestedStatus = status === 'Submitted' ? 'Submitted' : 'Draft';
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
@@ -62,11 +75,23 @@ const create = asyncHandler(async (req, res) => {
 
     const { rows } = await client.query(
       `INSERT INTO material_returns (srn_ref, department, created_by, store_id, item_id, qty, reason, date, status, condition, original_issue_ref)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, CURRENT_DATE),'Draft',$9,$10) RETURNING id`,
-      [srnRef, effectiveDepartment, req.user.name, storeId, itemId, qty, reason || null, date || null, condition || null, originalIssueRef || null]
+      VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, CURRENT_DATE),$9,$10,$11) RETURNING id`,
+      [srnRef, effectiveDepartment, req.user.name, storeId, itemId, qty, reason || null, date || null, requestedStatus, condition || null, originalIssueRef || null]
     );
 
-    await logAudit(client, { userName: req.user.name, action: `Created return ${srnRef}`, module: 'Material Return' });
+    await logAudit(client, { userName: req.user.name, action: `Created return ${srnRef} (${requestedStatus})`, module: 'Material Return' });
+
+    if (requestedStatus === 'Submitted') {
+      await notify(client, {
+        role: 'Store Head',
+        title: 'Material return awaiting inspection',
+        message: `${srnRef} for ${store} is ready for Store Head review.`,
+        type: 'warning',
+        route: '/material-return',
+        entityType: 'material_return',
+        entityId: rows[0].id
+      });
+    }
 
     const { rows: full } = await client.query(`${SELECT} WHERE mr.id = $1`, [rows[0].id]);
     return mapMaterialReturn(full[0]);
@@ -119,11 +144,22 @@ const submit = asyncHandler(async (req, res) => {
 
 // POST /api/material-returns/:id/approve — Backend-SRS §6.3 steps 2-3
 const decide = asyncHandler(async (req, res) => {
-  const { decision, qtyApproved, findings, recommendation } = req.body;
-  if (!['Approved', 'Rejected'].includes(decision)) throw new AppError('decision must be "Approved" or "Rejected".', 400);
+  const { decision, qtyApproved, findings, recommendation, reason } = req.body;
+  if (!['Approved', 'Rejected', 'Returned for Correction'].includes(decision)) {
+    throw new AppError('decision must be "Approved", "Rejected", or "Returned for Correction".', 400);
+  }
 
   await withTransaction(async (client) => {
-    await stockService.decideMaterialReturn(client, { returnId: req.params.id, decision, qtyApproved, findings, recommendation, actorName: req.user.name });
+    await stockService.decideMaterialReturn(client, {
+      returnId: req.params.id,
+      decision,
+      qtyApproved,
+      findings,
+      recommendation,
+      reason,
+      actorName: req.user.name
+    });
+
     if (decision === 'Approved') {
       const { rows } = await client.query(
         `SELECT mr.srn_ref, COALESCE(rs.head_of_store, source_store.head_of_store) AS receiving_operator
@@ -158,9 +194,34 @@ const decide = asyncHandler(async (req, res) => {
 });
 
 const receive = asyncHandler(async (req, res) => {
+  const { actualQty, acceptedQty, rejectedQty, condition, remarks, rejectionReason } = req.body;
+
   await withTransaction((client) =>
-    stockService.receiveMaterialReturn(client, { returnId: req.params.id, actorName: req.user.name })
+    stockService.receiveMaterialReturn(client, {
+      returnId: req.params.id,
+      actualQty,
+      acceptedQty,
+      rejectedQty,
+      condition,
+      remarks,
+      rejectionReason,
+      actorName: req.user.name
+    })
   );
+
+  const { rows } = await query(`${SELECT} WHERE mr.id = $1`, [req.params.id]);
+  res.json(mapMaterialReturn(rows[0]));
+});
+
+const resubmit = asyncHandler(async (req, res) => {
+  await withTransaction((client) =>
+    stockService.decideMaterialReturn(client, {
+      returnId: req.params.id,
+      decision: 'Submitted',
+      actorName: req.user.name
+    })
+  );
+
   const { rows } = await query(`${SELECT} WHERE mr.id = $1`, [req.params.id]);
   res.json(mapMaterialReturn(rows[0]));
 });
@@ -179,4 +240,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, submit, decide, receive, remove };
+module.exports = { list, getOne, create, submit, decide, receive, resubmit, remove };

@@ -167,6 +167,7 @@ router.post('/material-returns', requireRole('material-returns'), materialReturn
 router.post('/material-returns/:id/submit', requireRole('material-returns'), materialReturnsController.submit);
 router.post('/material-returns/:id/approve', requireRole('material-returns', 'action'), materialReturnsController.decide);
 router.post('/material-returns/:id/receive', requireRole('material-returns-receive', 'action'), materialReturnsController.receive);
+router.post('/material-returns/:id/resubmit', requireRole('material-returns'), materialReturnsController.resubmit);
 router.delete('/material-returns/:id', requireRole('material-returns'), materialReturnsController.remove);
 
 // ---------------------------------------------------------------------------

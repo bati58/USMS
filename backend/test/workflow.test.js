@@ -37,6 +37,25 @@ test('goods receipt workflow must follow storekeeper -> store head -> TEC -> pos
     );
 });
 
+test('goods receipt submission routes approval to the receiving store head for that store', async () => {
+    const { query } = require('../src/config/db');
+    const { resolveStoreHeadForStore } = require('../src/controllers/_helpers');
+
+    const { rows: mainStore } = await query("SELECT id, head_of_store FROM stores WHERE name = 'Main Store' LIMIT 1");
+    const mainHeadId = await resolveStoreHeadForStore(mainStore[0].id);
+    const { rows: mainUser } = await query('SELECT name FROM users WHERE id = $1 AND role = $2', [mainHeadId, 'Store Head']);
+
+    assert.ok(mainHeadId, 'Main Store must resolve to a store head');
+    assert.equal(mainUser[0].name, mainStore[0].head_of_store);
+
+    const { rows: chemStore } = await query("SELECT id, head_of_store FROM stores WHERE name = 'Chemical Engineering Dept. Store' LIMIT 1");
+    const chemHeadId = await resolveStoreHeadForStore(chemStore[0].id);
+    const { rows: chemUser } = await query('SELECT name FROM users WHERE id = $1 AND role = $2', [chemHeadId, 'Store Head']);
+
+    assert.ok(chemHeadId, 'Chemical Engineering Dept. Store must resolve to a store head');
+    assert.equal(chemUser[0].name, chemStore[0].head_of_store);
+});
+
 test('requires an approved transfer to be dispatched', () => {
     assert.throws(
         () => assertTransition('materialTransfer', 'Pending Approval', 'Dispatched'),
@@ -53,9 +72,16 @@ test('a submitted requisition can be approved or returned for correction', () =>
     assert.doesNotThrow(() => assertTransition('requisition', 'Returned for Correction', 'Submitted'));
 });
 
-test('material returns require Store Head approval before Storekeeper stock receipt', () => {
+test('material returns follow the real return lifecycle with review, receiving, and stock posting', () => {
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Draft', 'Submitted'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Submitted', 'Returned for Correction'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Returned for Correction', 'Submitted'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Submitted', 'Approved'));
-    assert.doesNotThrow(() => assertTransition('materialReturn', 'Approved', 'Returned to Stock'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Approved', 'Under Receiving'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Under Receiving', 'Fully Accepted'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Fully Accepted', 'Returned to Stock'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Under Receiving', 'Partially Accepted'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Under Receiving', 'Return Rejected'));
     assert.throws(
         () => assertTransition('materialReturn', 'Submitted', 'Returned to Stock'),
         (error) => error.statusCode === 409

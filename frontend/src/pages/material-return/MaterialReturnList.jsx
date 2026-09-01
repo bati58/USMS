@@ -35,6 +35,7 @@ export default function MaterialReturnList() {
 
   const [header, setHeader] = useState({ department: '', store: '', date: '', originalIssueRef: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
+  const [rejectReason, setRejectReason] = useState('')
 
   const canReview = canPerformAction(user?.role, 'approve', 'materialReturns')
   const canReceive = user?.role === ROLES.STOREKEEPER
@@ -134,13 +135,20 @@ export default function MaterialReturnList() {
       return
     }
 
+    const isReject = status !== RETURN_STATUS.RETURNED_TO_STOCK
+    if (isReject && !rejectReason.trim()) {
+      push('A rejection reason is required before rejecting this return.', 'error')
+      return
+    }
+
     setSaving(true)
     try {
       await api.action('materialReturns', viewing.id, 'approve', {
         decision: status === RETURN_STATUS.RETURNED_TO_STOCK ? 'Approved' : 'Rejected',
         qtyApproved: status === RETURN_STATUS.RETURNED_TO_STOCK ? (viewing.qtyApprovedInput ?? viewing.qty) : 0,
         findings: viewing.findingsInput,
-        recommendation: viewing.recommendationInput
+        recommendation: viewing.recommendationInput,
+        reason: isReject ? rejectReason.trim() : undefined
       })
 
       if (status === RETURN_STATUS.RETURNED_TO_STOCK) {
@@ -149,6 +157,7 @@ export default function MaterialReturnList() {
         push(`${viewing.srnRef} rejected.`, 'info')
       }
 
+      setRejectReason('')
       setViewing(null)
       await load()
     } catch (err) {
@@ -179,6 +188,13 @@ export default function MaterialReturnList() {
     await load()
   }
 
+  const hasAnyAction = filtered.some((row) => {
+    const canView = true
+    const canSubmit = row.status === RETURN_STATUS.DRAFT && canCreate
+    const canRemove = row.status === RETURN_STATUS.SUBMITTED && canDelete
+    return canView || canSubmit || canRemove
+  })
+
   const columns = [
     { key: 'srnRef', header: 'SRN Ref' },
     { key: 'department', header: 'Department' },
@@ -186,7 +202,7 @@ export default function MaterialReturnList() {
     { key: 'returnedBy', header: 'Returned By' },
     { key: 'date', header: 'Date', render: (r) => formatDate(r.date) },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-    {
+    ...(hasAnyAction ? [{
       key: '__actions',
       header: 'Actions',
       className: 'text-right',
@@ -207,7 +223,7 @@ export default function MaterialReturnList() {
           )}
         </div>
       )
-    }
+    }] : [])
   ]
 
   return (
@@ -243,15 +259,24 @@ export default function MaterialReturnList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Select
-              label="Returning Department"
-              required
-              options={user?.role === ROLES.DEPT_HEAD ? [user?.department].filter(Boolean) : departments.map((department) => department.name)}
-              value={header.department}
-              disabled={user?.role === ROLES.DEPT_HEAD}
-              onChange={(e) => setHeader((h) => ({ ...h, department: e.target.value }))}
-              placeholder="Select a department..."
-            />
+            {user?.role === ROLES.DEPT_HEAD ? (
+              <Input
+                label="Returning Department"
+                required
+                value={header.department || user?.department || ''}
+                disabled
+                readOnly
+              />
+            ) : (
+              <Select
+                label="Returning Department"
+                required
+                options={departments.map((department) => department.name)}
+                value={header.department}
+                onChange={(e) => setHeader((h) => ({ ...h, department: e.target.value }))}
+                placeholder="Select a department..."
+              />
+            )}
             <Select label="Returning To Store" required options={stores.map((s) => s.name)} value={header.store} onChange={(e) => setHeader((h) => ({ ...h, store: e.target.value }))} />
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
             <Input label="Original SIV Reference" placeholder="e.g. SIV-2026-0001" value={header.originalIssueRef} onChange={(e) => setHeader((h) => ({ ...h, originalIssueRef: e.target.value }))} />
@@ -276,7 +301,10 @@ export default function MaterialReturnList() {
 
       <Modal
         open={Boolean(viewing)}
-        onClose={() => setViewing(null)}
+        onClose={() => {
+          setViewing(null)
+          setRejectReason('')
+        }}
         title={viewing?.srnRef}
         size="lg"
         footer={
@@ -338,6 +366,13 @@ export default function MaterialReturnList() {
                     <Input label="Evaluation Recommendation" placeholder="Return to stock, repair, or disposal" value={viewing.recommendationInput || ''} onChange={(e) => setViewing((current) => ({ ...current, recommendationInput: e.target.value }))} />
                   </div>
                   <Input label="Inspection Findings" className="mt-3" value={viewing.findingsInput || ''} onChange={(e) => setViewing((current) => ({ ...current, findingsInput: e.target.value }))} />
+                  <Input
+                    label="Rejection Reason"
+                    className="mt-3"
+                    placeholder="Required only when rejecting this return"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
                 </div>
               )}
             </div>
