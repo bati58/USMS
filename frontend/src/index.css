@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-slate-100 via-white to-blue-50 text-ink-700 antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-sm shadow-brand-700/20 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand-600/30 focus:ring-brand-500 active:translate-y-0 active:bg-brand-700;
+  }
+
+  .btn-secondary {
+    @apply btn border border-brand-200 bg-white text-brand-700 shadow-sm hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:shadow-md focus:ring-brand-300 active:translate-y-0 active:bg-brand-100;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger-500 text-white hover:bg-danger-700 hover:shadow-md hover:shadow-danger-500/30 focus:ring-danger-500 active:bg-danger-700;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-600 hover:bg-brand-50 hover:text-brand-700 focus:ring-brand-300 active:bg-brand-100;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-ink-200 bg-white/90 px-4 py-2.5 text-sm text-ink-800 placeholder:text-ink-400 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent hover:border-brand-300;
+  }
+
+  .label {
+    @apply mb-2 block text-sm font-semibold text-ink-700;
+  }
+
+  .card {
+    @apply rounded-xl border border-white/80 bg-white/95 shadow-card backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-200 px-3 py-1.5 text-xs font-semibold shadow-sm;
+  }
+}
+
+@layer utilities {
+  .shadow-card {
+    @apply shadow-sm;
+  }
+
+  .text-truncate {
+    @apply truncate;
+  }
+
+  .transition-smooth {
+    @apply transition-all duration-300 ease-in-out;
+  }
+}
+
+@media print {
+  @page {
+    margin: 0.5in;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #root>* {
+    display: none !important;
+  }
+
+  #root>.print-shell {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  .print-shell>* {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  .print-shell aside,
+  .print-shell header,
+  .print-shell footer,
+  .print-shell nav,
+  .print-shell .no-print,
+  .print-shell button,
+  .print-shell .btn,
+  .print-shell .btn-primary,
+  .print-shell .btn-secondary,
+  .print-shell .btn-danger,
+  .print-shell .btn-ghost,
+  .print-shell [role='navigation'],
+  .print-shell .fixed,
+  .print-shell .modal,
+  .print-shell [class*='Modal'],
+  .print-shell .toast,
+  .print-shell .Toast,
+  .print-shell .search-wrap,
+  .print-shell .dropdown,
+  .print-shell .cursor-pointer,
+  .print-shell .shadow-lg,
+  .print-shell .overflow-y-auto {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  .print-shell .print-content {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    overflow: visible !important;
+    visibility: visible !important;
+  }
+
+  .print-shell .print-content * {
+    visibility: visible !important;
+  }
+
+  .card,
+  .rounded-xl,
+  .rounded-lg,
+  .table-container,
+  .p-5,
+  .p-6 {
+    box-shadow: none !important;
+    border: 1px solid #d1d5db !important;
+    background: white !important;
+    break-inside: avoid;
+  }
+
+  a,
+  p,
+  span,
+  td,
+  th,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: #111827 !important;
+  }
+
+  tr,
+  thead,
+  tbody,
+  table {
+    break-inside: avoid;
+  }
+}
