@@ -1,21 +1,28 @@
 import { useEffect, useState } from 'react'
 import CrudPage from '../../components/crud/CrudPage'
+import { useAuth } from '../../context/AuthContext'
 import { binTransferService, itemService } from '../../services'
 import { formatDate } from '../../utils/formatters'
 
 export default function StockTransfer() {
+  const { user } = useAuth()
   const [itemOptions, setItemOptions] = useState([])
   const [items, setItems] = useState([])
 
   useEffect(() => {
     itemService.list().then((loadedItems) => {
-      setItems(loadedItems)
-      setItemOptions(loadedItems.map((item) => ({
+      const availableItems = loadedItems.filter((item) => {
+        if (user?.role !== 'Storekeeper') return true
+        const assignedStores = user.assignedStores?.length ? user.assignedStores : [user.store].filter(Boolean)
+        return assignedStores.includes(item.store) && Number(item.qtyOnHand) > 0
+      })
+      setItems(availableItems)
+      setItemOptions(availableItems.map((item) => ({
         value: item.name,
         label: `${item.name} (qt: ${item.qtyOnHand})`
       })))
     })
-  }, [])
+  }, [user])
 
   async function validateBinTransfer(payload) {
     const selectedItem = items.find((item) => item.name === payload.item)

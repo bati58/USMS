@@ -29,7 +29,16 @@ const create = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (client) => {
-    const itemId = await resolveItemId(item, client);
+    const visibility = await getUserStoreVisibility(req.user, client);
+    if (!visibility.canViewAllStores && !visibility.assignedStoreId) {
+      throw new AppError('Your account is not assigned to a store.', 403);
+    }
+
+    const itemId = await resolveItemId(
+      item,
+      client,
+      visibility.canViewAllStores ? null : visibility.assignedStoreId
+    );
     if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
 
     const row = await stockService.createBinTransfer(client, {
