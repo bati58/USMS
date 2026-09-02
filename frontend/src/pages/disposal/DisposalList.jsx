@@ -38,6 +38,10 @@ export default function DisposalList() {
 
   // Operational disposal approvals belong to the store leadership; admin is read-only.
   const isStoreHead = user?.role === ROLES.STORE_HEAD
+  const availableItems = useMemo(() => {
+    if (!formData.store) return items
+    return items.filter((item) => item.store === formData.store)
+  }, [items, formData.store])
 
   async function load() {
     setLoading(true)
@@ -78,6 +82,16 @@ export default function DisposalList() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    const selectedItem = availableItems.find((item) => item.name === formData.item)
+    const requestedQty = Number(formData.qty)
+    if (!selectedItem || !Number.isFinite(requestedQty) || requestedQty <= 0) {
+      push('Select a valid item and enter a positive quantity.', 'error')
+      return
+    }
+    if (requestedQty > Number(selectedItem.qtyOnHand)) {
+      push(`Insufficient stock. ${selectedItem.name} has only ${selectedItem.qtyOnHand} available in ${formData.store}.`, 'error')
+      return
+    }
     setSaving(true)
     try {
       await disposalService.create({
@@ -190,7 +204,7 @@ export default function DisposalList() {
             </Select>
             <Select label="Item" value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} required>
               <option value="">-- Select Item --</option>
-              {items.map(i => <option key={i.id} value={i.name}>{i.name}</option>)}
+              {availableItems.map(i => <option key={i.id} value={i.name}>{i.name} (qt: {i.qtyOnHand})</option>)}
             </Select>
             <Input label="Quantity" type="number" min="0.01" step="0.01" value={formData.qty} onChange={(e) => setFormData({ ...formData, qty: e.target.value })} required />
             <Input label="Date Flagged" type="date" value={formData.dateFlagged} onChange={(e) => setFormData({ ...formData, dateFlagged: e.target.value })} required />

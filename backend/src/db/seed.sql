@@ -41,12 +41,12 @@ INSERT INTO departments (code, name, active) VALUES
   ('DEPT-PH',   'Pharmacy', TRUE)
 ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, active = EXCLUDED.active, updated_at = NOW();
 
-INSERT INTO stores (name, code, type, location, head_of_store, storekeeper, active) VALUES
-  ('Main Store', 'STR-MAIN', 'Main Store', 'Central Warehouse', 'Yonas Bekele', 'Sara Alemu', TRUE),
-  ('Electrical Engineering Dept. Store', 'STR-EEE', 'Department Store', 'EEE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
-  ('Mechanical Engineering Dept. Store', 'STR-MEE', 'Department Store', 'MEE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
-  ('Chemical Engineering Dept. Store', 'STR-CHE', 'Department Store', 'CHE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
-  ('Cafeteria Store', 'STR-CAF', 'Cafe Store', 'Student Cafeteria', 'Yonas Bekele', 'Sara Alemu', TRUE)
+INSERT INTO stores (name, code, type, department, location, head_of_store, storekeeper, active) VALUES
+  ('Main Store', 'STR-MAIN', 'Main Store', 'Main Department', 'Central Warehouse', 'Yonas Bekele', 'Sara Alemu', TRUE),
+  ('Electrical Engineering Dept. Store', 'STR-EEE', 'Department Store', 'Electronics and Communication Engineering', 'EEE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
+  ('Mechanical Engineering Dept. Store', 'STR-MEE', 'Department Store', 'Mechanical Engineering', 'MEE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
+  ('Chemical Engineering Dept. Store', 'STR-CHE', 'Department Store', 'Chemical Engineering', 'CHE Building', 'Yonas Bekele', 'Sara Alemu', TRUE),
+  ('Cafeteria Store', 'STR-CAF', 'Cafe Store', 'Student Cafe', 'Student Cafeteria', 'Yonas Bekele', 'Sara Alemu', TRUE)
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO categories (code, name, store_id, description)

@@ -74,15 +74,29 @@ const create = asyncHandler(async (req, res) => {
     throw new AppError('fromStore, toStore, item, and qty are required.', 400);
   }
 
-  if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-    if (fromStore !== req.user.store) {
-      throw new AppError(`You can only create transfer requests from your assigned store: ${req.user.store}.`, 403);
+  if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
+    if (assignedStores.length && !assignedStores.includes(fromStore)) {
+      throw new AppError('You can only create transfer requests from one of your assigned stores.', 403);
     }
   }
 
   const result = await withTransaction(async (client) => {
     const fromStoreId = await resolveStoreId(fromStore, client);
     const toStoreId = await resolveStoreId(toStore, client);
+    if (req.user.role === 'Department Head') {
+      const { rows: sourceStoreRows } = await client.query('SELECT department FROM stores WHERE id = $1 AND active = TRUE', [fromStoreId]);
+      const sourceDepartment = sourceStoreRows[0]?.department;
+      const assignedDepartments = Array.isArray(req.user.departments) && req.user.departments.length
+        ? req.user.departments
+        : [req.user.department];
+      const canUseSourceStore = assignedDepartments.some((department) =>
+        sourceDepartment && String(sourceDepartment).trim().toLowerCase() === String(department || '').trim().toLowerCase()
+      );
+      if (!canUseSourceStore) {
+        throw new AppError('Department Heads can only create transfers from their department store.', 403);
+      }
+    }
     const itemId = await resolveItemId(item, client, fromStoreId);
     if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
     const { rows: sourceItems } = await client.query('SELECT id FROM items WHERE id = $1 AND store_id = $2', [itemId, fromStoreId]);
@@ -127,11 +141,12 @@ const decide = asyncHandler(async (req, res) => {
     const transfer = transferRows[0];
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
-    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
       const userStoreId = userStoreRows[0]?.id;
-      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
-        throw new AppError(`You can only act on transfers from your assigned store: ${req.user.store}.`, 403);
+      if (assignedStores.length && !userStoreRows.some((row) => Number(transfer.from_store_id) === Number(row.id))) {
+        throw new AppError('You can only act on transfers from one of your assigned stores.', 403);
       }
     }
 
@@ -177,11 +192,13 @@ const execute = asyncHandler(async (req, res) => {
     const transfer = transferRows[0];
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
-    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
-      const userStoreId = userStoreRows[0]?.id;
-      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
-        throw new AppError(`You can only execute transfers from your assigned store: ${req.user.store}.`, 403);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
+      const requiredStoreId = decision === 'Received' ? transfer.to_store_id : transfer.from_store_id;
+      if (assignedStores.length && !userStoreRows.some((row) => Number(requiredStoreId) === Number(row.id))) {
+        const actionStore = decision === 'Received' ? 'destination' : 'source';
+        throw new AppError(`You can only ${decision === 'Received' ? 'receive transfers at' : 'execute transfers from'} one of your assigned ${actionStore} stores.`, 403);
       }
     }
 
@@ -192,10 +209,42 @@ const execute = asyncHandler(async (req, res) => {
     if (decision === 'Dispatched') {
       await notify(client, {
         role: 'Storekeeper',
+        storeId: executeTransfer.from_store_id,
+        title: 'Transfer Dispatched',
+        message: `Transfer ${executeTransfer.transfer_ref} has been dispatched from ${executeTransfer.from_store_name} to ${executeTransfer.to_store_name}.`,
+        type: 'success',
+        route: '/material-transfer',
+        entityType: 'material-transfer',
+        entityId: req.params.id
+      });
+      await notify(client, {
+        role: 'Storekeeper',
         storeId: executeTransfer.to_store_id,
         title: 'Transfer Ready to Receive',
         message: `Transfer ${executeTransfer.transfer_ref} has been dispatched from ${executeTransfer.from_store_name} and is ready to receive at ${executeTransfer.to_store_name}.`,
         type: 'info',
+        route: '/material-transfer',
+        entityType: 'material-transfer',
+        entityId: req.params.id
+      });
+    }
+    if (decision === 'Received') {
+      await notify(client, {
+        role: 'Storekeeper',
+        storeId: executeTransfer.from_store_id,
+        title: 'Transfer Received',
+        message: `Transfer ${executeTransfer.transfer_ref} has been received at ${executeTransfer.to_store_name}.`,
+        type: 'success',
+        route: '/material-transfer',
+        entityType: 'material-transfer',
+        entityId: req.params.id
+      });
+      await notify(client, {
+        role: 'Storekeeper',
+        storeId: executeTransfer.to_store_id,
+        title: 'Transfer Completed',
+        message: `Transfer ${executeTransfer.transfer_ref} has been received and added to ${executeTransfer.to_store_name} stock.`,
+        type: 'success',
         route: '/material-transfer',
         entityType: 'material-transfer',
         entityId: req.params.id
@@ -215,11 +264,11 @@ const resubmit = asyncHandler(async (req, res) => {
     const transfer = transferRows[0];
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
-    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
-      const userStoreId = userStoreRows[0]?.id;
-      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
-        throw new AppError(`You can only resubmit transfers from your assigned store: ${req.user.store}.`, 403);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
+      if (assignedStores.length && !userStoreRows.some((row) => Number(transfer.from_store_id) === Number(row.id))) {
+        throw new AppError('You can only resubmit transfers from one of your assigned stores.', 403);
       }
     }
 

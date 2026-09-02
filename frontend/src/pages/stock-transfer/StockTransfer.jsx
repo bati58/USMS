@@ -5,10 +5,29 @@ import { formatDate } from '../../utils/formatters'
 
 export default function StockTransfer() {
   const [itemOptions, setItemOptions] = useState([])
+  const [items, setItems] = useState([])
 
   useEffect(() => {
-    itemService.list().then((items) => setItemOptions(items.map((i) => i.name)))
+    itemService.list().then((loadedItems) => {
+      setItems(loadedItems)
+      setItemOptions(loadedItems.map((item) => ({
+        value: item.name,
+        label: `${item.name} (qt: ${item.qtyOnHand})`
+      })))
+    })
   }, [])
+
+  async function validateBinTransfer(payload) {
+    const selectedItem = items.find((item) => item.name === payload.item)
+    const requestedQty = Number(payload.qty)
+    const availableQty = Number(selectedItem?.qtyOnHand)
+    if (!selectedItem || !Number.isFinite(requestedQty) || requestedQty <= 0) {
+      throw new Error('Select an item and enter a positive quantity.')
+    }
+    if (requestedQty > availableQty) {
+      throw new Error(`Insufficient stock. ${selectedItem.name} has only ${availableQty} available.`)
+    }
+  }
 
   return (
     <CrudPage
@@ -20,6 +39,7 @@ export default function StockTransfer() {
       searchKeys={['item', 'fromBin', 'toBin']}
       emptyTitle="No bin transfers yet"
       emptyMessage="Record a transfer when materials are moved between bins."
+      validatePayload={validateBinTransfer}
       columns={[
         { key: 'item', header: 'Item' },
         { key: 'fromBin', header: 'From Bin' },

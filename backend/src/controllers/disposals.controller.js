@@ -41,9 +41,9 @@ const create = asyncHandler(async (req, res) => {
   if (!item || !store || !qty) throw new AppError('item, store, and qty are required.', 400);
 
   const result = await withTransaction(async (client) => {
-    const itemId = await resolveItemId(item, client);
-    if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
     const storeId = await resolveStoreId(store, client);
+    const itemId = await resolveItemId(item, client, storeId);
+    if (!itemId) throw new AppError(`Unknown item: "${item}" in the selected store.`, 400);
     const disposalRef = await nextRef(client, 'DSP');
 
     const { rows } = await client.query(

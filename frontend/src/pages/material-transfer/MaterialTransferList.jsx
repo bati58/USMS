@@ -38,14 +38,24 @@ export default function MaterialTransferList() {
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
   const canCreate = canPerformAction(user?.role, 'create', 'materialTransfers')
   const userAssignedStore = user?.store || ''
-  const isScopedStoreUser = ['Storekeeper', 'Store Head'].includes(user?.role) && !!userAssignedStore
-  const isMainStoreHead = user?.role === ROLES.STORE_HEAD && !userAssignedStore
+  const assignedStoreNames = user?.assignedStores?.length ? user.assignedStores : (userAssignedStore ? [userAssignedStore] : [])
+  const isDepartmentHead = user?.role === ROLES.DEPT_HEAD
+  const isStoreOperator = ['Storekeeper', 'Store Head'].includes(user?.role)
+  const isScopedStoreUser = isStoreOperator && assignedStoreNames.length > 0
+  const isMainStoreHead = user?.role === ROLES.STORE_HEAD && !isScopedStoreUser
   // Store operators who physically move goods (backend: material-transfers-execute).
   const isStorekeeper = [ROLES.STOREKEEPER, ROLES.STORE_HEAD].includes(user?.role)
+  const canDispatchViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.fromStore))
+  const canReceiveViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.toStore))
   const allowedSourceStores = useMemo(() => {
+    if (isDepartmentHead) {
+      const departments = (user?.departments?.length ? user.departments : [user?.department])
+        .map((department) => String(department || '').trim().toLowerCase())
+      return stores.filter((store) => departments.includes(String(store.department || '').trim().toLowerCase()))
+    }
     if (!isScopedStoreUser) return stores
-    return stores.filter((store) => store.name === userAssignedStore)
-  }, [stores, isScopedStoreUser, userAssignedStore])
+    return stores.filter((store) => assignedStoreNames.includes(store.name))
+  }, [stores, isDepartmentHead, user?.departments, user?.department, isScopedStoreUser, assignedStoreNames])
 
   // Filter items to show only those from the selected source store
   const availableItems = useMemo(() => {
@@ -88,7 +98,7 @@ export default function MaterialTransferList() {
   }, [rows, query, isScopedStoreUser, userAssignedStore])
 
   function openCreate() {
-    const defaultFromStore = isScopedStoreUser ? userAssignedStore : ''
+    const defaultFromStore = isScopedStoreUser && assignedStoreNames.length === 1 ? assignedStoreNames[0] : ''
     setHeader({
       fromStore: defaultFromStore,
       toStore: '',
@@ -105,8 +115,8 @@ export default function MaterialTransferList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    if (isScopedStoreUser && header.fromStore !== userAssignedStore) {
-      push(`You can only create transfer requests from your assigned store: ${userAssignedStore}.`, 'error')
+    if (isScopedStoreUser && !assignedStoreNames.includes(header.fromStore)) {
+      push('You can only create transfer requests from one of your assigned stores.', 'error')
       return
     }
     if (header.fromStore === header.toStore) {
@@ -116,6 +126,17 @@ export default function MaterialTransferList() {
     const line = lines[0]
     if (!header.fromStore || !header.toStore || !header.date || !line.item || !line.qty || Number(line.qty) <= 0) {
       push('Source store, destination store, date, item, and a positive quantity are required.', 'error')
+      return
+    }
+    const selectedItem = availableItems.find((item) => item.name === line.item)
+    const availableQty = Number(selectedItem?.qtyOnHand)
+    const requestedQty = Number(line.qty)
+    if (!selectedItem || !Number.isFinite(availableQty)) {
+      push('The selected item is not available in the source store.', 'error')
+      return
+    }
+    if (requestedQty > availableQty) {
+      push(`Insufficient stock. ${selectedItem.name} has only ${availableQty} available in ${header.fromStore}.`, 'error')
       return
     }
     setSaving(true)
@@ -259,12 +280,9 @@ export default function MaterialTransferList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {isScopedStoreUser && !isMainStoreHead ? (
+            {isScopedStoreUser ? (
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1">Source Store</label>
-                <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
-                  {userAssignedStore}
-                </div>
+                <Select label="Source Store" required options={allowedSourceStores.map((s) => s.name)} value={header.fromStore} onChange={(e) => setHeader((h) => ({ ...h, fromStore: e.target.value }))} />
               </div>
             ) : (
               <Select
@@ -286,7 +304,12 @@ export default function MaterialTransferList() {
             <div className="space-y-2">
               {lines.map((line, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-2">
-                  <Select label="Item" options={availableItems.map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
+                  <Select
+                    label="Item"
+                    options={availableItems.map((item) => ({ value: item.name, label: `${item.name} (qt: ${item.qtyOnHand})` }))}
+                    value={line.item}
+                    onChange={(e) => updateLine(idx, { item: e.target.value })}
+                  />
                   <Input label="Quantity" type="number" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
                 </div>
               ))}
@@ -315,12 +338,12 @@ export default function MaterialTransferList() {
                 </Button>
               </>
             )}
-            {viewing?.status === TRANSFER_STATUS.APPROVED && isStorekeeper && (
+            {viewing?.status === TRANSFER_STATUS.APPROVED && canDispatchViewing && (
               <Button icon={Truck} loading={saving} onClick={() => handleDecide(TRANSFER_STATUS.DISPATCHED)}>
                 Dispatch Materials (Model 22)
               </Button>
             )}
-            {viewing?.status === TRANSFER_STATUS.DISPATCHED && isStorekeeper && (
+            {viewing?.status === TRANSFER_STATUS.DISPATCHED && canReceiveViewing && (
               <Button icon={PackageCheck} loading={saving} onClick={() => handleDecide(TRANSFER_STATUS.RECEIVED)}>
                 Receive Materials
               </Button>
@@ -363,13 +386,13 @@ export default function MaterialTransferList() {
                   <p className="text-xs text-brand-600">Approve this transfer to allow the source store to dispatch materials.</p>
                 </div>
               )}
-              {viewing.status === TRANSFER_STATUS.APPROVED && isStorekeeper && (
+              {viewing.status === TRANSFER_STATUS.APPROVED && canDispatchViewing && (
                 <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-brand-800">
                   <p className="font-medium text-sm mb-1">Source Store Action Required</p>
                   <p className="text-xs text-brand-600">Click Dispatch when materials physically leave your store. This acts as your issue voucher (Model 22).</p>
                 </div>
               )}
-              {viewing.status === TRANSFER_STATUS.DISPATCHED && isStorekeeper && (
+              {viewing.status === TRANSFER_STATUS.DISPATCHED && canReceiveViewing && (
                 <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-brand-800">
                   <p className="font-medium text-sm mb-1">Destination Store Action Required</p>
                   <p className="text-xs text-brand-600">Click Receive when materials physically arrive. This records the receipt and updates stock levels for both stores.</p>

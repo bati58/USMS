@@ -22,6 +22,32 @@ async function resolveAssignedStoreName(userName, role, db = query) {
   return rows[0]?.name || null;
 }
 
+async function resolveAssignedStoreNames(userName, role, db = query) {
+  if (!userName || !['Store Head', 'Storekeeper'].includes(role)) return [];
+  const client = typeof db === 'function' ? { query: db } : (db || { query });
+  const { rows } = await client.query(
+    `SELECT s.name
+     FROM stores s
+     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
+     ORDER BY s.id`,
+    [userName]
+  );
+  return rows.map((row) => row.name).filter(Boolean);
+}
+
+async function resolveAssignedDepartments(userId, db = query) {
+  if (!userId) return [];
+  const client = typeof db === 'function' ? { query: db } : (db || { query });
+  const { rows } = await client.query(
+    `SELECT d.name
+     FROM departments d
+     WHERE d.head_user_id = $1 AND d.active = TRUE
+     ORDER BY d.name`,
+    [userId]
+  );
+  return rows.map((row) => row.name).filter(Boolean);
+}
+
 // POST /api/auth/login — Backend-SRS §3.2
 const login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
@@ -77,6 +103,8 @@ const login = asyncHandler(async (req, res) => {
   });
 
   const resolvedDepartment = user.department || user.department_name || null;
+  const resolvedDepartments = await resolveAssignedDepartments(user.id, query);
+  const assignedStores = await resolveAssignedStoreNames(user.name, user.role, query);
   const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
 
   const token = jwt.sign(
@@ -86,6 +114,8 @@ const login = asyncHandler(async (req, res) => {
       name: user.name,
       username: user.username,
       department: resolvedDepartment,
+      departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
+      assignedStores,
       store: resolvedStore
     },
     process.env.JWT_SECRET,
@@ -101,6 +131,10 @@ const login = asyncHandler(async (req, res) => {
       role: user.role,
       email: user.email,
       department: resolvedDepartment,
+      departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
+      assignedStores,
+      assignedStores,
+      assignedStores,
       store: resolvedStore,
       active: user.active
     }
@@ -121,11 +155,15 @@ const me = asyncHandler(async (req, res) => {
   if (!rows[0]) throw new AppError('User not found.', 404);
 
   const resolvedDepartment = rows[0].department || rows[0].department_name || null;
+  const resolvedDepartments = await resolveAssignedDepartments(rows[0].id, query);
+  const assignedStores = await resolveAssignedStoreNames(rows[0].name, rows[0].role, query);
   const resolvedStore = await resolveAssignedStoreName(rows[0].name, rows[0].role, query);
 
   res.json({
     ...rows[0],
     department: resolvedDepartment,
+    departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
+    assignedStores,
     store: resolvedStore
   });
 });
@@ -195,6 +233,8 @@ const refreshToken = asyncHandler(async (req, res) => {
   if (!user) throw new AppError('User not found or deactivated', 401);
 
   const resolvedDepartment = user.department || user.department_name || null;
+  const resolvedDepartments = await resolveAssignedDepartments(user.id, query);
+  const assignedStores = await resolveAssignedStoreNames(user.name, user.role, query);
   const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
 
   const token = jwt.sign(
@@ -204,6 +244,8 @@ const refreshToken = asyncHandler(async (req, res) => {
       name: user.name,
       username: user.username,
       department: resolvedDepartment,
+      departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
+      assignedStores,
       store: resolvedStore
     },
     process.env.JWT_SECRET,
@@ -213,4 +255,4 @@ const refreshToken = asyncHandler(async (req, res) => {
   res.json({ token });
 });
 
-module.exports = { login, me, logout, changePassword, refreshToken, resolveAssignedStoreName };
+module.exports = { login, me, logout, changePassword, refreshToken, resolveAssignedStoreName, resolveAssignedStoreNames, resolveAssignedDepartments };

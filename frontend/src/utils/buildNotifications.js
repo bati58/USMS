@@ -240,7 +240,12 @@ export function buildNotifications(user, data) {
           )
         })
       pendingTransfers
-        .filter((t) => !userStore || t.fromStore === userStore || t.toStore === userStore)
+        .filter((t) => {
+          if (!userStore) return true
+          if (t.status === 'Approved') return t.fromStore === userStore
+          if (t.status === 'Dispatched') return t.toStore === userStore
+          return false
+        })
         .filter((t) => ['Approved', 'Dispatched'].includes(t.status))
         .slice(0, 6)
         .forEach((t) => {

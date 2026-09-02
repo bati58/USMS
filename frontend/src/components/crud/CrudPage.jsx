@@ -29,6 +29,7 @@ export default function CrudPage({
   emptyTitle = 'No records yet',
   emptyMessage = 'Create the first record to get started.',
   extraActions,
+  validatePayload,
   entityType // e.g., 'users', 'stores', 'categories' - used for permission checks
 }) {
   const { push } = useToast()
@@ -127,6 +128,10 @@ export default function CrudPage({
         }
 
         payload.username = normalizedUsername
+      }
+
+      if (validatePayload) {
+        await validatePayload(payload, { form, editing, rows })
       }
 
       if (editing) {

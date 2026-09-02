@@ -27,6 +27,27 @@ async function addStockLot(client, { itemId, receivedDate, unitPrice, qty, sourc
 // weighted average unit price of what was actually consumed, for recording
 // on the stock_transactions row. Throws if there isn't enough stock.
 async function consumeFifo(client, itemId, qty) {
+  const { rows: itemRows } = await client.query(
+    `SELECT i.qty_on_hand, i.unit_price,
+            COALESCE(SUM(sl.qty_remaining), 0) AS fifo_remaining
+     FROM items i
+     LEFT JOIN stock_lots sl ON sl.item_id = i.id AND sl.qty_remaining > 0
+     WHERE i.id = $1
+     GROUP BY i.id`,
+    [itemId]
+  );
+  const item = itemRows[0];
+  const untrackedQty = Math.max(0, Number(item?.qty_on_hand || 0) - Number(item?.fifo_remaining || 0));
+  if (untrackedQty > 0.0001) {
+    await addStockLot(client, {
+      itemId,
+      receivedDate: new Date(),
+      unitPrice: Number(item.unit_price || 0),
+      qty: untrackedQty,
+      sourceRef: 'SYSTEM-QUANTITY-ADJUSTMENT'
+    });
+  }
+
   const { rows: lots } = await client.query(
     `SELECT id, unit_price, qty_remaining
      FROM stock_lots

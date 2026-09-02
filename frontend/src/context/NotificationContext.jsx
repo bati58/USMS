@@ -92,8 +92,17 @@ export function NotificationProvider({ children }) {
 
   useEffect(() => {
     refreshNotifications()
-    const interval = setInterval(refreshNotifications, 60000)
-    return () => clearInterval(interval)
+    const interval = setInterval(refreshNotifications, 15000)
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshNotifications()
+    }
+    window.addEventListener('focus', refreshNotifications)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refreshNotifications)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
   }, [refreshNotifications])
 
   const markAsRead = useCallback(
