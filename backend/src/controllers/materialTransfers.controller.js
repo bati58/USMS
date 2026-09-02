@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { mapMaterialTransfer, resolveStoreId, resolveItemId } = require('./_helpers');
+const { mapMaterialTransfer, resolveStoreId, resolveItemId, getUserStoreVisibility, assertUserCanAccessStoreRecord, assertUserCanAccessDepartmentRecord } = require('./_helpers');
 const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
@@ -19,12 +19,17 @@ const list = asyncHandler(async (req, res) => {
   let scope = '';
   let params = [];
 
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = 'WHERE fs.name = $1 OR ts.name = $1';
-    params = [req.user.store];
-  } else if (req.user.role === 'Department Head') {
-    scope = 'WHERE mt.department = $1 OR mt.requested_by = $2';
-    params = [req.user.department || '', req.user.name];
+  if (req.user.role === 'Department Head') {
+    scope = 'WHERE mt.requested_by = $1';
+    params = [req.user.name];
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = 'WHERE 1 = 1';
+    } else if (visibility.assignedStoreId) {
+      scope = 'WHERE mt.from_store_id = $1 OR mt.to_store_id = $1';
+      params = [visibility.assignedStoreId];
+    }
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY mt.id DESC`, params);
@@ -35,16 +40,30 @@ const getOne = asyncHandler(async (req, res) => {
   let scope = '';
   let params = [req.params.id];
 
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = ' AND (fs.name = $2 OR ts.name = $2)';
-    params.push(req.user.store);
-  } else if (req.user.role === 'Department Head') {
-    scope = ' AND (mt.department = $2 OR mt.requested_by = $3)';
-    params.push(req.user.department || '', req.user.name);
+  if (req.user.role === 'Department Head') {
+    scope = ' AND mt.requested_by = $2';
+    params.push(req.user.name);
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = '';
+    } else if (visibility.assignedStoreId) {
+      scope = ' AND (mt.from_store_id = $2 OR mt.to_store_id = $2)';
+      params.push(visibility.assignedStoreId);
+    } else {
+      throw new AppError('You are not assigned to any store scope.', 403);
+    }
   }
 
   const { rows } = await query(`${SELECT} WHERE mt.id = $1${scope}`, params);
   if (!rows[0]) throw new AppError('Material transfer not found.', 404);
+
+  if (req.user.role === 'Department Head') {
+    await assertUserCanAccessDepartmentRecord(req.user, rows[0].department, { query });
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    await assertUserCanAccessStoreRecord(req.user, rows[0].from_store_id, { query });
+  }
+
   res.json(mapMaterialTransfer(rows[0]));
 });
 
@@ -53,6 +72,12 @@ const create = asyncHandler(async (req, res) => {
   const { fromStore, toStore, item, qty, date, destinationBin } = req.body;
   if (!fromStore || !toStore || !item || !qty) {
     throw new AppError('fromStore, toStore, item, and qty are required.', 400);
+  }
+
+  if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
+    if (fromStore !== req.user.store) {
+      throw new AppError(`You can only create transfer requests from your assigned store: ${req.user.store}.`, 403);
+    }
   }
 
   const result = await withTransaction(async (client) => {
@@ -98,20 +123,33 @@ const decide = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
+    const { rows: transferRows } = await client.query('SELECT from_store_id FROM material_transfers WHERE id = $1', [req.params.id]);
+    const transfer = transferRows[0];
+    if (!transfer) throw new AppError('Material transfer not found.', 404);
+
+    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
+      const userStoreId = userStoreRows[0]?.id;
+      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
+        throw new AppError(`You can only act on transfers from your assigned store: ${req.user.store}.`, 403);
+      }
+    }
+
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
 
     // Keep the workflow decision and its handoff notification atomic.
     if (decision === 'Approved' || decision === 'Returned for Correction' || decision === 'Rejected') {
-      const { rows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
-      const transfer = rows[0];
+      const { rows: transferDetailRows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
+      const transferDetail = transferDetailRows[0];
       await notify(client, {
         role: decision === 'Approved' ? 'Storekeeper' : 'Store Head',
+        storeId: transferDetail.from_store_id,
         title: decision === 'Approved' ? 'Transfer Approved' : decision === 'Rejected' ? 'Transfer Rejected' : 'Transfer Returned for Correction',
         message: decision === 'Approved'
-          ? `Transfer ${transfer.transfer_ref} (${transfer.from_store_name} -> ${transfer.to_store_name}) is approved and ready to dispatch.`
+          ? `Transfer ${transferDetail.transfer_ref} (${transferDetail.from_store_name} -> ${transferDetail.to_store_name}) is approved and ready to dispatch.`
           : decision === 'Rejected'
-            ? `Transfer ${transfer.transfer_ref} was rejected and requires attention before resubmission.`
-            : `Transfer ${transfer.transfer_ref} was returned for correction. Update and resubmit it for approval.`,
+            ? `Transfer ${transferDetail.transfer_ref} was rejected and requires attention before resubmission.`
+            : `Transfer ${transferDetail.transfer_ref} was returned for correction. Update and resubmit it for approval.`,
         type: decision === 'Approved' ? 'success' : decision === 'Rejected' ? 'danger' : 'warning',
         route: '/material-transfer',
         entityType: 'material-transfer',
@@ -135,15 +173,28 @@ const execute = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
+    const { rows: transferRows } = await client.query('SELECT from_store_id, to_store_id FROM material_transfers WHERE id = $1', [req.params.id]);
+    const transfer = transferRows[0];
+    if (!transfer) throw new AppError('Material transfer not found.', 404);
+
+    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
+      const userStoreId = userStoreRows[0]?.id;
+      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
+        throw new AppError(`You can only execute transfers from your assigned store: ${req.user.store}.`, 403);
+      }
+    }
+
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
 
-    const { rows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
-    const transfer = rows[0];
+    const { rows: executeTransferRows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
+    const executeTransfer = executeTransferRows[0];
     if (decision === 'Dispatched') {
       await notify(client, {
         role: 'Storekeeper',
+        storeId: executeTransfer.to_store_id,
         title: 'Transfer Ready to Receive',
-        message: `Transfer ${transfer.transfer_ref} has been dispatched from ${transfer.from_store_name} and is ready to receive at ${transfer.to_store_name}.`,
+        message: `Transfer ${executeTransfer.transfer_ref} has been dispatched from ${executeTransfer.from_store_name} and is ready to receive at ${executeTransfer.to_store_name}.`,
         type: 'info',
         route: '/material-transfer',
         entityType: 'material-transfer',
@@ -159,9 +210,21 @@ const execute = asyncHandler(async (req, res) => {
 // POST /api/material-transfers/:id/resubmit — re-open a corrected transfer for approval,
 // closing the "Returned for Correction" loop so it is never a dead-end (§34).
 const resubmit = asyncHandler(async (req, res) => {
-  await withTransaction((client) =>
-    stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name })
-  );
+  await withTransaction(async (client) => {
+    const { rows: transferRows } = await client.query('SELECT from_store_id FROM material_transfers WHERE id = $1', [req.params.id]);
+    const transfer = transferRows[0];
+    if (!transfer) throw new AppError('Material transfer not found.', 404);
+
+    if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
+      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = $1', [req.user.store]);
+      const userStoreId = userStoreRows[0]?.id;
+      if (userStoreId && Number(transfer.from_store_id) !== Number(userStoreId)) {
+        throw new AppError(`You can only resubmit transfers from your assigned store: ${req.user.store}.`, 403);
+      }
+    }
+
+    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name });
+  });
   const { rows } = await query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
   res.json(mapMaterialTransfer(rows[0]));
 });

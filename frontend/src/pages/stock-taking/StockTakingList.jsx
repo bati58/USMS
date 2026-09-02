@@ -33,6 +33,11 @@ export default function StockTakingList() {
         items: []
     })
 
+    // Store-scoping for storekepers and store heads
+    const userAssignedStore = user?.store || ''
+    const isScopedStoreUser = ['Storekeeper', 'Store Head'].includes(user?.role) && !!userAssignedStore
+    const isMainStoreHead = user?.role === ROLES.STORE_HEAD && !userAssignedStore
+
     useEffect(() => {
         loadSessions()
         loadStoresAndItems()
@@ -238,7 +243,13 @@ export default function StockTakingList() {
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Stock Taking Sessions</h1>
                 {user?.role === ROLES.STORE_HEAD && (
-                    <Button onClick={() => setShowCreateModal(true)} size="sm">
+                    <Button onClick={() => {
+                        if (isScopedStoreUser) {
+                            const assignedStoreId = stores.find((s) => s.name === userAssignedStore)?.id || ''
+                            setCreateForm({ ...createForm, storeId: assignedStoreId })
+                        }
+                        setShowCreateModal(true)
+                    }} size="sm">
                         <Plus className="w-4 h-4 mr-2" />
                         New Session
                     </Button>
@@ -401,18 +412,24 @@ export default function StockTakingList() {
                         <div className="space-y-4 mb-4">
                             <div>
                                 <label className="block text-sm font-medium mb-1">Store</label>
-                                <select
-                                    value={createForm.storeId}
-                                    onChange={(e) => setCreateForm({ ...createForm, storeId: e.target.value })}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="">Select a store</option>
-                                    {stores.map((store) => (
-                                        <option key={store.id} value={store.id}>
-                                            {store.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                {isScopedStoreUser && !isMainStoreHead ? (
+                                    <div className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700">
+                                        {userAssignedStore}
+                                    </div>
+                                ) : (
+                                    <select
+                                        value={createForm.storeId}
+                                        onChange={(e) => setCreateForm({ ...createForm, storeId: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="">Select a store</option>
+                                        {stores.map((store) => (
+                                            <option key={store.id} value={store.id}>
+                                                {store.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
 
                             <div>

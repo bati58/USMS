@@ -37,8 +37,26 @@ export default function MaterialTransferList() {
 
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
   const canCreate = canPerformAction(user?.role, 'create', 'materialTransfers')
+  const userAssignedStore = user?.store || ''
+  const isScopedStoreUser = ['Storekeeper', 'Store Head'].includes(user?.role) && !!userAssignedStore
+  const isMainStoreHead = user?.role === ROLES.STORE_HEAD && !userAssignedStore
   // Store operators who physically move goods (backend: material-transfers-execute).
   const isStorekeeper = [ROLES.STOREKEEPER, ROLES.STORE_HEAD].includes(user?.role)
+  const allowedSourceStores = useMemo(() => {
+    if (!isScopedStoreUser) return stores
+    return stores.filter((store) => store.name === userAssignedStore)
+  }, [stores, isScopedStoreUser, userAssignedStore])
+
+  // Filter items to show only those from the selected source store
+  const availableItems = useMemo(() => {
+    if (!header.fromStore) return items
+    return items.filter((item) => item.store === header.fromStore)
+  }, [items, header.fromStore])
+
+  // Filter destination stores to exclude the source store and handle scoped user restrictions
+  const availableDestStores = useMemo(() => {
+    return stores.filter((store) => store.name !== header.fromStore)
+  }, [stores, header.fromStore])
 
   async function load() {
     setLoading(true)
@@ -59,14 +77,20 @@ export default function MaterialTransferList() {
   }, [])
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return rows
+    let list = rows
+    if (isScopedStoreUser) {
+      list = list.filter((r) => r.fromStore === userAssignedStore || r.toStore === userAssignedStore)
+    }
+
+    if (!query.trim()) return list
     const q = query.toLowerCase()
-    return rows.filter((r) => `${r.transferRef} ${r.fromStore} ${r.toStore}`.toLowerCase().includes(q))
-  }, [rows, query])
+    return list.filter((r) => `${r.transferRef} ${r.fromStore} ${r.toStore}`.toLowerCase().includes(q))
+  }, [rows, query, isScopedStoreUser, userAssignedStore])
 
   function openCreate() {
+    const defaultFromStore = isScopedStoreUser ? userAssignedStore : ''
     setHeader({
-      fromStore: '',
+      fromStore: defaultFromStore,
       toStore: '',
       date: new Date().toISOString().slice(0, 10),
       destinationBin: ''
@@ -81,6 +105,10 @@ export default function MaterialTransferList() {
 
   async function handleCreate(e) {
     e.preventDefault()
+    if (isScopedStoreUser && header.fromStore !== userAssignedStore) {
+      push(`You can only create transfer requests from your assigned store: ${userAssignedStore}.`, 'error')
+      return
+    }
     if (header.fromStore === header.toStore) {
       push('Source and destination stores must be different.', 'error')
       return
@@ -231,8 +259,23 @@ export default function MaterialTransferList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Select label="Source Store" required options={stores.map((s) => s.name)} value={header.fromStore} onChange={(e) => setHeader((h) => ({ ...h, fromStore: e.target.value }))} />
-            <Select label="Destination Store" required options={stores.map((s) => s.name)} value={header.toStore} onChange={(e) => setHeader((h) => ({ ...h, toStore: e.target.value }))} />
+            {isScopedStoreUser && !isMainStoreHead ? (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1">Source Store</label>
+                <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
+                  {userAssignedStore}
+                </div>
+              </div>
+            ) : (
+              <Select
+                label="Source Store"
+                required
+                options={allowedSourceStores.map((s) => s.name)}
+                value={header.fromStore}
+                onChange={(e) => setHeader((h) => ({ ...h, fromStore: e.target.value }))}
+              />
+            )}
+            <Select label="Destination Store" required options={availableDestStores.map((s) => s.name)} value={header.toStore} onChange={(e) => setHeader((h) => ({ ...h, toStore: e.target.value }))} />
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
             <Input label="Destination Bin" placeholder="e.g. E03-02-04" value={header.destinationBin} onChange={(e) => setHeader((h) => ({ ...h, destinationBin: e.target.value }))} />
           </div>
@@ -243,7 +286,7 @@ export default function MaterialTransferList() {
             <div className="space-y-2">
               {lines.map((line, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-2">
-                  <Select label="Item" options={items.map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
+                  <Select label="Item" options={availableItems.map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
                   <Input label="Quantity" type="number" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
                 </div>
               ))}

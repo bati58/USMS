@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { mapDisposal, resolveStoreId, resolveItemId } = require('./_helpers');
+const { mapDisposal, resolveStoreId, resolveItemId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
@@ -15,12 +15,13 @@ const SELECT = `
 `;
 
 const list = asyncHandler(async (req, res) => {
+  const visibility = await getUserStoreVisibility(req.user, { query });
   let scope = '';
   let params = [];
 
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = 'WHERE s.name = $1';
-    params = [req.user.store];
+  if (visibility.storeFilter && !visibility.canViewAllStores) {
+    scope = 'WHERE d.store_id = $1';
+    params = [visibility.storeFilter.id];
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY d.id DESC`, params);
@@ -28,16 +29,9 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const getOne = asyncHandler(async (req, res) => {
-  let scope = '';
-  let params = [req.params.id];
-
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = ' AND s.name = $2';
-    params.push(req.user.store);
-  }
-
-  const { rows } = await query(`${SELECT} WHERE d.id = $1${scope}`, params);
+  const { rows } = await query(`${SELECT} WHERE d.id = $1`, [req.params.id]);
   if (!rows[0]) throw new AppError('Disposal request not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
   res.json(mapDisposal(rows[0]));
 });
 

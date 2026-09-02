@@ -39,6 +39,9 @@ export default function GoodsReceiptList() {
 
   const isStorekeeper = user?.role === ROLES.STOREKEEPER
   const isStoreHead = user?.role === ROLES.STORE_HEAD
+  const userAssignedStore = user?.store || ''
+  const isScopedStoreUser = (isStorekeeper || isStoreHead) && !!userAssignedStore
+  const isMainStoreHead = isStoreHead && !userAssignedStore
   const canManage = isStorekeeper
   const canPost = isStorekeeper
   const canNotifyTec = isStoreHead
@@ -73,7 +76,8 @@ export default function GoodsReceiptList() {
       push('You do not have permission to record goods receipts.', 'error')
       return
     }
-    setHeader({ supplier: '', poRef: '', store: '', receivedDate: '', type: 'Consumable', docRef: '', condition: 'New' })
+    const defaultStore = isScopedStoreUser ? userAssignedStore : ''
+    setHeader({ supplier: '', poRef: '', store: defaultStore, receivedDate: '', type: 'Consumable', docRef: '', condition: 'New' })
     setLines([{ ...EMPTY_LINE }])
     setModalOpen(true)
   }
@@ -284,7 +288,17 @@ export default function GoodsReceiptList() {
             <Select label="Supplier" required error={fieldErrors.supplier} options={suppliers.filter((s) => s.active).map((s) => s.name)} value={header.supplier} onChange={(e) => { setHeader((h) => ({ ...h, supplier: e.target.value })); setFieldErrors((prev) => ({ ...prev, supplier: '' })) }} />
             <Input label="PO / Donation Ref" required error={fieldErrors.poRef} value={header.poRef} onChange={(e) => { setHeader((h) => ({ ...h, poRef: e.target.value })); setFieldErrors((prev) => ({ ...prev, poRef: '' })) }} />
             <Input label="Supporting Document Ref" placeholder="e.g. Waybill-123" value={header.docRef} onChange={(e) => setHeader((h) => ({ ...h, docRef: e.target.value }))} />
-            <Select label="Receiving Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
+            {isScopedStoreUser && !isMainStoreHead ? (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1">Receiving Store</label>
+                <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
+                  {userAssignedStore}
+                </div>
+                <input type="hidden" value={userAssignedStore} onChange={(e) => setHeader((h) => ({ ...h, store: e.target.value }))} />
+              </div>
+            ) : (
+              <Select label="Receiving Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
+            )}
             <Input label="Received Date" type="date" required error={fieldErrors.receivedDate} value={header.receivedDate} onChange={(e) => { setHeader((h) => ({ ...h, receivedDate: e.target.value })); setFieldErrors((prev) => ({ ...prev, receivedDate: '' })) }} />
             <Select label="Material Type" required error={fieldErrors.type} options={['Consumable', 'Fixed Asset']} value={header.type} onChange={(e) => { setHeader((h) => ({ ...h, type: e.target.value })); setFieldErrors((prev) => ({ ...prev, type: '' })) }} />
             <Select label="Condition on Arrival" options={['New', 'Good', 'Damaged']} value={header.condition} onChange={(e) => setHeader((h) => ({ ...h, condition: e.target.value }))} />

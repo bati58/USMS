@@ -43,6 +43,10 @@ export default function MaterialReturnList() {
   const canDelete = canPerformAction(user?.role, 'delete', 'materialReturns')
   const canReviewRow = (row) => [RETURN_STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(row.status) && canReview
 
+  const userAssignedStore = user?.store || ''
+  const isScopedStoreUser = user?.role === ROLES.STOREKEEPER && !!userAssignedStore
+  const isMainStoreKeeper = user?.role === ROLES.STOREKEEPER && !userAssignedStore
+
   async function load() {
     setLoading(true)
     try {
@@ -74,9 +78,10 @@ export default function MaterialReturnList() {
   }, [rows, query])
 
   function openCreate() {
+    const defaultStore = isScopedStoreUser ? userAssignedStore : ''
     setHeader({
       department: user?.department || '',
-      store: '',
+      store: defaultStore,
       date: new Date().toISOString().slice(0, 10)
     })
     setLines([{ ...EMPTY_LINE }])
@@ -277,7 +282,16 @@ export default function MaterialReturnList() {
                 placeholder="Select a department..."
               />
             )}
-            <Select label="Returning To Store" required options={stores.map((s) => s.name)} value={header.store} onChange={(e) => setHeader((h) => ({ ...h, store: e.target.value }))} />
+            {isScopedStoreUser && !isMainStoreKeeper ? (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1">Returning To Store</label>
+                <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
+                  {userAssignedStore}
+                </div>
+              </div>
+            ) : (
+              <Select label="Returning To Store" required options={stores.map((s) => s.name)} value={header.store} onChange={(e) => setHeader((h) => ({ ...h, store: e.target.value }))} />
+            )}
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
             <Input label="Original SIV Reference" placeholder="e.g. SIV-2026-0001" value={header.originalIssueRef} onChange={(e) => setHeader((h) => ({ ...h, originalIssueRef: e.target.value }))} />
           </div>

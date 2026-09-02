@@ -49,6 +49,12 @@ export default function RequisitionList() {
   const canDelete = canPerformAction(user?.role, 'delete', 'requisitions')
   const isPao = user?.role === ROLES.PAO
   const isDeptHead = user?.role === ROLES.DEPT_HEAD
+  const isStoreHead = user?.role === ROLES.STORE_HEAD
+
+  const userAssignedStore = user?.store || ''
+  const isScopedStoreUser = isStoreHead && !!userAssignedStore
+  const isMainStoreHead = isStoreHead && !userAssignedStore
+
   // Only the PAO (stage 2) sets the final approved quantities. The Department Head (stage 1)
   // only endorses and forwards, so the Approved-Qty inputs stay read-only for them.
   const canEditApprovedQty = isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL
@@ -94,9 +100,10 @@ export default function RequisitionList() {
       push('You do not have permission to create requisitions.', 'error')
       return
     }
+    const defaultStore = isScopedStoreUser ? userAssignedStore : ''
     setHeader({
       department: user?.department || '',
-      store: '',
+      store: defaultStore,
       date: new Date().toISOString().slice(0, 10)
     })
     setLines([{ ...EMPTY_LINE }])
@@ -327,7 +334,16 @@ export default function RequisitionList() {
                 placeholder="Select a department..."
               />
             )}
-            <Select label="Issuing Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
+            {isScopedStoreUser && !isMainStoreHead ? (
+              <div>
+                <label className="block text-sm font-medium text-ink-700 mb-1">Issuing Store</label>
+                <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
+                  {userAssignedStore}
+                </div>
+              </div>
+            ) : (
+              <Select label="Issuing Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
+            )}
             <Input label="Date" type="date" required error={fieldErrors.date} value={header.date} onChange={(e) => { setHeader((h) => ({ ...h, date: e.target.value })); setFieldErrors((prev) => ({ ...prev, date: '' })) }} />
           </div>
           <div>

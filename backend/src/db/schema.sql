@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS stores (
   department     TEXT,
   location       TEXT,
   head_of_store  TEXT,
+  storekeeper    TEXT,
   description    TEXT,
   contact_info   TEXT,
   active         BOOLEAN NOT NULL DEFAULT TRUE,
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS stores (
 );
 
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS department TEXT;
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS storekeeper TEXT;
 
 -- ---------- categories (§5.3) ----------
 CREATE TABLE IF NOT EXISTS categories (

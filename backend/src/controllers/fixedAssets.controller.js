@@ -2,7 +2,7 @@ const { query } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
-const { mapFixedAsset, resolveStoreId } = require('./_helpers');
+const { mapFixedAsset, resolveStoreId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 
 const SELECT = `
   SELECT fa.*, s.name AS store_name
@@ -11,13 +11,22 @@ const SELECT = `
 `;
 
 const list = asyncHandler(async (req, res) => {
-  const { rows } = await query(`${SELECT} ORDER BY fa.id DESC`);
+  const visibility = await getUserStoreVisibility(req.user, { query });
+  let sql = `${SELECT}`;
+  const params = [];
+  if (visibility.storeFilter && !visibility.canViewAllStores) {
+    sql += ' WHERE fa.store_id = $1';
+    params.push(visibility.storeFilter.id);
+  }
+  sql += ' ORDER BY fa.id DESC';
+  const { rows } = await query(sql, params);
   res.json(rows.map(mapFixedAsset));
 });
 
 const getOne = asyncHandler(async (req, res) => {
   const { rows } = await query(`${SELECT} WHERE fa.id = $1`, [req.params.id]);
   if (!rows[0]) throw new AppError('Fixed asset not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
   res.json(mapFixedAsset(rows[0]));
 });
 
@@ -26,6 +35,8 @@ const create = asyncHandler(async (req, res) => {
   if (!assetTag || !name) throw new AppError('assetTag and name are required.', 400);
 
   const storeId = await resolveStoreId(store);
+  await assertUserCanAccessStoreRecord(req.user, storeId, { query });
+
   const { rows } = await query(
     `INSERT INTO fixed_assets (asset_tag, name, category, store_id, assigned_to, status, acquisition_date, value)
      VALUES ($1,$2,$3,$4,$5,COALESCE($6,'In Store'),$7,COALESCE($8,0)) RETURNING id`,
@@ -40,6 +51,13 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { assetTag, name, category, store, assignedTo, status, acquisitionDate, value } = req.body;
+
+  // If trying to update store, validate access first
+  if (store !== undefined) {
+    const storeId = await resolveStoreId(store);
+    await assertUserCanAccessStoreRecord(req.user, storeId, { query });
+  }
+
   const storeId = store !== undefined ? await resolveStoreId(store) : undefined;
 
   const { rows } = await query(
@@ -52,6 +70,12 @@ const update = asyncHandler(async (req, res) => {
     [assetTag, name, category, storeId, assignedTo, status, acquisitionDate, value, req.params.id]
   );
   if (!rows[0]) throw new AppError('Fixed asset not found.', 404);
+
+  // Verify access to the retrieved record
+  const { rows: current } = await query(`${SELECT} WHERE fa.id = $1`, [rows[0].id]);
+  if (current[0]) {
+    await assertUserCanAccessStoreRecord(req.user, current[0].store_id, { query });
+  }
 
   await logAudit(query, { userName: req.user.name, action: `Updated asset ${assetTag || rows[0].id}`, module: 'Fixed Assets' });
 

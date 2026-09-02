@@ -1,7 +1,7 @@
 const { query, withTransaction } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
-const { mapIssueVoucher } = require('./_helpers');
+const { mapIssueVoucher, getUserStoreVisibility } = require('./_helpers');
 const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
@@ -26,9 +26,14 @@ const list = asyncHandler(async (req, res) => {
   let scope = '';
   let params = [];
 
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = 'WHERE s.name = $1';
-    params = [req.user.store];
+  if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = 'WHERE 1 = 1';
+    } else if (visibility.assignedStoreId) {
+      scope = 'WHERE r.store_id = $1';
+      params = [visibility.assignedStoreId];
+    }
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY iv.id DESC`, params);
@@ -47,9 +52,16 @@ const getOne = asyncHandler(async (req, res) => {
   let scope = '';
   let params = [req.params.id];
 
-  if (req.user.role === 'Store Head' && req.user.store) {
-    scope = ' AND s.name = $2';
-    params.push(req.user.store);
+  if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = '';
+    } else if (visibility.assignedStoreId) {
+      scope = ' AND r.store_id = $2';
+      params.push(visibility.assignedStoreId);
+    } else {
+      throw new AppError('You are not assigned to any store scope.', 403);
+    }
   }
 
   const v = await fetchWithLines(req.params.id, {
@@ -95,8 +107,16 @@ const approve = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
     await stockService.approveIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
     const { rows } = await client.query('SELECT siv_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
+    const { rows: voucherRows } = await client.query(
+      `SELECT iv.*, r.store_id
+       FROM issue_vouchers iv
+       LEFT JOIN requisitions r ON r.sr_ref = iv.sr_ref
+       WHERE iv.id = $1`,
+      [req.params.id]
+    );
     await notify(client, {
       role: 'Storekeeper',
+      storeId: voucherRows[0]?.store_id,
       title: 'Issue Voucher Approved',
       message: `SIV ${rows[0]?.siv_ref} has been approved and is ready for posting.`,
       type: 'success',

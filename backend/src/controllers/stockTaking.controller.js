@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { resolveStoreId, resolveItemId } = require('./_helpers');
+const { resolveStoreId, resolveItemId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 const stockService = require('../services/stockService');
 const { notify } = require('../utils/notify');
 
@@ -60,9 +60,14 @@ const list = asyncHandler(async (req, res) => {
     let scope = '';
     let params = [];
 
-    if (req.user.role === 'Store Head' && req.user.store) {
-        scope = 'WHERE s.name = $1';
-        params = [req.user.store];
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+        const visibility = await getUserStoreVisibility(req.user, { query });
+        if (visibility.canViewAllStores) {
+            scope = 'WHERE 1 = 1';
+        } else if (visibility.assignedStoreId) {
+            scope = 'WHERE st.store_id = $1';
+            params = [visibility.assignedStoreId];
+        }
     } else if (req.user.role === 'Stock Clerk') {
         scope = 'WHERE st.assigned_to = $1 OR st.created_by = $1';
         params = [req.user.name];
@@ -78,9 +83,16 @@ const getOne = asyncHandler(async (req, res) => {
     let scope = '';
     let params = [req.params.id];
 
-    if (req.user.role === 'Store Head' && req.user.store) {
-        scope = ' AND s.name = $2';
-        params.push(req.user.store);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+        const visibility = await getUserStoreVisibility(req.user, { query });
+        if (visibility.canViewAllStores) {
+            scope = '';
+        } else if (visibility.assignedStoreId) {
+            scope = ' AND st.store_id = $2';
+            params.push(visibility.assignedStoreId);
+        } else {
+            throw new AppError('You are not assigned to any store scope.', 403);
+        }
     } else if (req.user.role === 'Stock Clerk') {
         scope = ' AND (st.assigned_to = $2 OR st.created_by = $2)';
         params.push(req.user.name);
@@ -88,6 +100,11 @@ const getOne = asyncHandler(async (req, res) => {
 
     const { rows } = await query(`${SELECT} WHERE st.id = $1${scope}`, params);
     if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
+    }
+
     const session = await fetchSession(rows[0].id);
     res.json(session);
 });

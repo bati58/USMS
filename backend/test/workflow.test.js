@@ -56,6 +56,48 @@ test('goods receipt submission routes approval to the receiving store head for t
     assert.equal(chemUser[0].name, chemStore[0].head_of_store);
 });
 
+test('all-store operational users must not be artificially scoped to a single store', async () => {
+    const { query } = require('../src/config/db');
+    const { getUserStoreVisibility } = require('../src/controllers/_helpers');
+
+    const uniqueName = `Multi-Store User ${Date.now()}`;
+    await query(`
+      INSERT INTO stores (name, code, type, location, head_of_store, storekeeper, active)
+      VALUES
+        ($1, $2, 'Main Store', 'Test Hub', $3, 'Test Storekeeper 1', TRUE),
+        ($4, $5, 'Department Store', 'Test Hub 2', $3, 'Test Storekeeper 2', TRUE)
+      ON CONFLICT (code) DO NOTHING
+    `, [
+        `${uniqueName} A`, `${uniqueName.replace(/\s+/g, '-').toLowerCase()}-a`, uniqueName,
+        `${uniqueName} B`, `${uniqueName.replace(/\s+/g, '-').toLowerCase()}-b`
+    ]);
+
+    try {
+        const visibility = await getUserStoreVisibility({ role: 'Store Head', name: uniqueName }, { query });
+        assert.equal(visibility.canViewAllStores, true);
+        assert.equal(visibility.assignedStoreId, null);
+        assert.equal(visibility.assignedStoreName, null);
+        assert.equal(visibility.scope, 'ALL_STORES');
+    } finally {
+        await query('DELETE FROM stores WHERE head_of_store = $1', [uniqueName]);
+    }
+});
+
+test('auth store resolver accepts the pg query function contract used in login', async () => {
+    const { resolveAssignedStoreName } = require('../src/controllers/auth.controller');
+
+    const multiStoreResult = await resolveAssignedStoreName('Multi Store User', 'Store Head', async () => ({
+        rows: [{ name: 'Main Store' }, { name: 'Department Store' }]
+    }));
+
+    const singleStoreResult = await resolveAssignedStoreName('Sara Alemu', 'Storekeeper', async () => ({
+        rows: [{ name: 'Main Store' }]
+    }));
+
+    assert.equal(multiStoreResult, null);
+    assert.equal(singleStoreResult, 'Main Store');
+});
+
 test('stock clerk notifications only appear for the assigned clerk, not every clerk', async () => {
     const { pathToFileURL } = require('node:url');
     const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;

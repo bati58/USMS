@@ -8,9 +8,17 @@ export default function StoreList() {
 
   useEffect(() => {
     userService.list().then(users => {
-      setUserOptions(users.map(u => ({ label: `${u.name} (${u.username})`, value: u.name })))
+      const options = users.map(u => ({
+        label: `${u.name} (${u.username})`,
+        value: u.name,
+        role: u.role
+      }))
+      setUserOptions(options)
     }).catch(console.error)
   }, [])
+
+  const storeHeadOptions = userOptions.filter(u => u.role === 'Store Head')
+  const storekeeperOptions = userOptions.filter(u => u.role === 'Storekeeper')
 
   return (
     <CrudPage
@@ -27,6 +35,7 @@ export default function StoreList() {
         { key: 'department', header: 'Department' },
         { key: 'location', header: 'Location' },
         { key: 'headOfStore', header: 'Store Head' },
+        { key: 'storekeeper', header: 'Storekeeper' },
         { key: 'contactInfo', header: 'Contact' },
         { key: 'description', header: 'Description' },
         {
@@ -48,7 +57,8 @@ export default function StoreList() {
         { name: 'department', label: 'Department/Org Unit', placeholder: 'e.g. Electrical Engineering' },
         { name: 'location', label: 'Physical Location', required: true },
         { name: 'contactInfo', label: 'Contact Info', placeholder: 'Phone or Email' },
-        { name: 'headOfStore', label: 'Store Head', type: 'select', options: userOptions, required: true, placeholder: 'Select a user...' },
+        { name: 'headOfStore', label: 'Store Head', type: 'select', options: storeHeadOptions, required: true, placeholder: 'Select a store head...' },
+        { name: 'storekeeper', label: 'Storekeeper', type: 'select', options: storekeeperOptions, placeholder: 'Select storekeeper...' },
         { name: 'description', label: 'Description', type: 'textarea', fullWidth: true },
         { name: 'active', label: 'Active', type: 'checkbox' }
       ]}

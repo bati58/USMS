@@ -5,6 +5,23 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
 
+async function resolveAssignedStoreName(userName, role, db = query) {
+  if (!userName || !['Store Head', 'Storekeeper'].includes(role)) return null;
+
+  const client = typeof db === 'function' ? { query: db } : (db || { query });
+
+  const { rows } = await client.query(
+    `SELECT s.name
+     FROM stores s
+     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
+     ORDER BY s.id`,
+    [userName]
+  );
+
+  if (rows.length > 1) return null;
+  return rows[0]?.name || null;
+}
+
 // POST /api/auth/login — Backend-SRS §3.2
 const login = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
@@ -13,9 +30,8 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const { rows } = await query(
-    `SELECT u.*, s.name AS store, d.name AS department_name
+    `SELECT u.*, d.name AS department_name
      FROM users u
-     LEFT JOIN stores s ON s.head_of_store = u.name AND s.active = TRUE
      LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
      WHERE u.username = $1`,
     [username.trim()]
@@ -61,6 +77,7 @@ const login = asyncHandler(async (req, res) => {
   });
 
   const resolvedDepartment = user.department || user.department_name || null;
+  const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
 
   const token = jwt.sign(
     {
@@ -69,7 +86,7 @@ const login = asyncHandler(async (req, res) => {
       name: user.name,
       username: user.username,
       department: resolvedDepartment,
-      store: user.store
+      store: resolvedStore
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
@@ -84,7 +101,7 @@ const login = asyncHandler(async (req, res) => {
       role: user.role,
       email: user.email,
       department: resolvedDepartment,
-      store: user.store,
+      store: resolvedStore,
       active: user.active
     }
   });
@@ -94,9 +111,8 @@ const login = asyncHandler(async (req, res) => {
 // the session on page load using only the stored token.
 const me = asyncHandler(async (req, res) => {
   const { rows } = await query(
-    `SELECT u.id, u.name, u.username, u.role, u.email, COALESCE(u.department, d.name) AS department, u.active, s.name AS store
+    `SELECT u.id, u.name, u.username, u.role, u.email, COALESCE(u.department, d.name) AS department, u.active
      FROM users u
-     LEFT JOIN stores s ON s.head_of_store = u.name AND s.active = TRUE
      LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
      WHERE u.id = $1`,
     [req.user.id]
@@ -105,9 +121,12 @@ const me = asyncHandler(async (req, res) => {
   if (!rows[0]) throw new AppError('User not found.', 404);
 
   const resolvedDepartment = rows[0].department || rows[0].department_name || null;
+  const resolvedStore = await resolveAssignedStoreName(rows[0].name, rows[0].role, query);
+
   res.json({
     ...rows[0],
-    department: resolvedDepartment
+    department: resolvedDepartment,
+    store: resolvedStore
   });
 });
 
@@ -176,6 +195,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   if (!user) throw new AppError('User not found or deactivated', 401);
 
   const resolvedDepartment = user.department || user.department_name || null;
+  const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
 
   const token = jwt.sign(
     {
@@ -184,7 +204,7 @@ const refreshToken = asyncHandler(async (req, res) => {
       name: user.name,
       username: user.username,
       department: resolvedDepartment,
-      store: user.store
+      store: resolvedStore
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
@@ -193,4 +213,4 @@ const refreshToken = asyncHandler(async (req, res) => {
   res.json({ token });
 });
 
-module.exports = { login, me, logout, changePassword, refreshToken };
+module.exports = { login, me, logout, changePassword, refreshToken, resolveAssignedStoreName };

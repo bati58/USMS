@@ -1,15 +1,23 @@
 const { query, withTransaction } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
-const { mapBinTransfer, resolveItemId } = require('./_helpers');
+const { mapBinTransfer, resolveItemId, getUserStoreVisibility } = require('./_helpers');
 const stockService = require('../services/stockService');
 
 const list = asyncHandler(async (req, res) => {
-  const { rows } = await query(`
+  const visibility = await getUserStoreVisibility(req.user, { query });
+  let sql = `
     SELECT bt.*, i.name AS item_name
-    FROM bin_transfers bt JOIN items i ON i.id = bt.item_id
-    ORDER BY bt.id DESC
-  `);
+    FROM bin_transfers bt
+    JOIN items i ON i.id = bt.item_id
+  `;
+  const params = [];
+  if (visibility.storeFilter && !visibility.canViewAllStores) {
+    sql += ' WHERE i.store_id = $1';
+    params.push(visibility.storeFilter.id);
+  }
+  sql += ' ORDER BY bt.id DESC';
+  const { rows } = await query(sql, params);
   res.json(rows.map(mapBinTransfer));
 });
 

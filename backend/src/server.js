@@ -26,9 +26,21 @@ async function ensureMaterialReturnsColumns() {
   }
 }
 
+async function ensureStoreColumns() {
+  const statements = [
+    'ALTER TABLE stores ADD COLUMN IF NOT EXISTS department TEXT',
+    'ALTER TABLE stores ADD COLUMN IF NOT EXISTS storekeeper TEXT'
+  ];
+
+  for (const statement of statements) {
+    await query(statement);
+  }
+}
+
 async function startServer() {
   try {
     const { rows } = await query('SELECT NOW() AS connected_at');
+    await ensureStoreColumns();
     await ensureMaterialReturnsColumns();
     const server = app.listen(PORT, () => {
       console.log(`Stock Management System API listening on http://localhost:${PORT}`);

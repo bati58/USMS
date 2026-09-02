@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { mapRequisition, resolveStoreId, resolveItemId } = require('./_helpers');
+const { mapRequisition, resolveStoreId, resolveItemId, getUserStoreVisibility, assertUserCanAccessStoreRecord, assertUserCanAccessDepartmentRecord } = require('./_helpers');
 const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
@@ -32,11 +32,16 @@ const list = asyncHandler(async (req, res) => {
   let params = [];
 
   if (req.user.role === 'Department Head') {
-    scope = 'WHERE r.department = $1 OR r.requested_by = $2';
-    params = [req.user.department || req.user.name, req.user.name];
-  } else if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-    scope = 'WHERE s.name = $1';
-    params = [req.user.store];
+    scope = 'WHERE r.requested_by = $1';
+    params = [req.user.name];
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = 'WHERE 1 = 1';
+    } else if (visibility.assignedStoreId) {
+      scope = 'WHERE r.store_id = $1';
+      params = [visibility.assignedStoreId];
+    }
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY r.id DESC`, params);
@@ -57,15 +62,29 @@ const getOne = asyncHandler(async (req, res) => {
   let params = [req.params.id];
 
   if (req.user.role === 'Department Head') {
-    scope = ' AND (r.department = $2 OR r.requested_by = $3)';
-    params.push(req.user.department || req.user.name, req.user.name);
-  } else if (['Store Head', 'Storekeeper'].includes(req.user.role) && req.user.store) {
-    scope = ' AND s.name = $2';
-    params.push(req.user.store);
+    scope = ' AND r.requested_by = $2';
+    params.push(req.user.name);
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = '';
+    } else if (visibility.assignedStoreId) {
+      scope = ' AND r.store_id = $2';
+      params.push(visibility.assignedStoreId);
+    } else {
+      throw new AppError('You are not assigned to any store scope.', 403);
+    }
   }
 
   const { rows } = await query(`${SELECT} WHERE r.id = $1${scope}`, params);
   if (!rows[0]) throw new AppError('Requisition not found.', 404);
+
+  if (req.user.role === 'Department Head') {
+    await assertUserCanAccessDepartmentRecord(req.user, rows[0].department, { query });
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
+  }
+
   const r = await fetchWithLines(rows[0].id);
   res.json(r);
 });
@@ -140,23 +159,23 @@ const submit = asyncHandler(async (req, res) => {
 
     await notify(client, routeToDeptHead
       ? {
-          userId: reqDoc.department_head_id,
-          title: 'Requisition Awaiting Your Approval',
-          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} was submitted and needs your department approval.`,
-          type: 'info',
-          route: `/requisitions/${req.params.id}`,
-          entityType: 'requisition',
-          entityId: req.params.id
-        }
+        userId: reqDoc.department_head_id,
+        title: 'Requisition Awaiting Your Approval',
+        message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} was submitted and needs your department approval.`,
+        type: 'info',
+        route: `/requisitions/${req.params.id}`,
+        entityType: 'requisition',
+        entityId: req.params.id
+      }
       : {
-          role: 'Property Administration Officer',
-          title: 'Requisition Awaiting Approval',
-          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval.`,
-          type: 'info',
-          route: `/requisitions/${req.params.id}`,
-          entityType: 'requisition',
-          entityId: req.params.id
-        });
+        role: 'Property Administration Officer',
+        title: 'Requisition Awaiting Approval',
+        message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval.`,
+        type: 'info',
+        route: `/requisitions/${req.params.id}`,
+        entityType: 'requisition',
+        entityId: req.params.id
+      });
 
     return fetchWithLines(req.params.id, client);
   });
@@ -213,6 +232,7 @@ const decide = asyncHandler(async (req, res) => {
       // Approved by the PAO -> the Store Head prepares the issue voucher.
       await notify(client, {
         role: 'Store Head',
+        storeId: rows[0]?.store_id,
         title: 'Requisition Approved',
         message: `Requisition ${srRef} was ${decision.toLowerCase()}. Generate the issue voucher to fulfil it.`,
         type: 'success',

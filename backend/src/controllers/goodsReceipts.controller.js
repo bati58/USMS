@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { nextRef } = require('../utils/refGenerator');
 const { logAudit } = require('../utils/audit');
-const { mapGoodsReceipt, resolveStoreId, resolveStoreHeadForStore, resolveItemId, resolveSupplierId } = require('./_helpers');
+const { mapGoodsReceipt, resolveStoreId, resolveStoreHeadForStore, resolveItemId, resolveSupplierId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 const stockService = require('../services/stockService');
 const { assertTransition } = require('../utils/workflow');
 const { notify } = require('../utils/notify');
@@ -31,9 +31,14 @@ const list = asyncHandler(async (req, res) => {
 
   if (req.user.role === 'Technical Evaluation Committee') {
     scope = "WHERE g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected')";
-  } else if (req.user.role === 'Store Head' && req.user.store) {
-    scope = 'WHERE s.name = $1';
-    params = [req.user.store];
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = 'WHERE 1 = 1';
+    } else if (visibility.assignedStoreId) {
+      scope = 'WHERE g.store_id = $1';
+      params = [visibility.assignedStoreId];
+    }
   }
 
   const { rows } = await query(`${SELECT} ${scope} ORDER BY g.id DESC`, params);
@@ -54,13 +59,25 @@ const getOne = asyncHandler(async (req, res) => {
 
   if (req.user.role === 'Technical Evaluation Committee') {
     scope = " AND g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected')";
-  } else if (req.user.role === 'Store Head' && req.user.store) {
-    scope = ' AND s.name = $2';
-    params.push(req.user.store);
+  } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    const visibility = await getUserStoreVisibility(req.user, { query });
+    if (visibility.canViewAllStores) {
+      scope = '';
+    } else if (visibility.assignedStoreId) {
+      scope = ' AND g.store_id = $2';
+      params.push(visibility.assignedStoreId);
+    } else {
+      throw new AppError('You are not assigned to any store scope.', 403);
+    }
   }
 
   const { rows } = await query(`${SELECT} WHERE g.id = $1${scope}`, params);
   if (!rows[0]) throw new AppError('Goods receipt not found.', 404);
+
+  if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
+  }
+
   const grn = await fetchWithLines(
     req.params.id,
     { query },
@@ -160,6 +177,7 @@ const evaluate = asyncHandler(async (req, res) => {
     await notify(client, {
       userId: isAccepted ? undefined : storeHeadId || undefined,
       role: isAccepted ? 'Storekeeper' : storeHeadId ? undefined : 'Property Administration Officer',
+      storeId: rows[0]?.store_id || null,
       title: isAccepted ? 'Goods receipt accepted' : 'Goods receipt rejected',
       message: isAccepted
         ? `${rows[0]?.grn_ref || `Receipt ${req.params.id}`} was ${decision.toLowerCase()}. Generate the official GRN and post the accepted stock.`
@@ -242,6 +260,8 @@ const setStatus = asyncHandler(async (req, res) => {
     if (req.body.status === 'Submitted') {
       await notify(client, {
         userId: storeHeadId || undefined,
+        role: storeHeadId ? undefined : 'Store Head',
+        storeId: currentRows[0].store_id,
         title: 'Goods receipt submitted for review',
         message: `${currentRows[0].grn_ref} for ${currentRows[0].store_name || 'your store'} was submitted by the Storekeeper and requires your review before technical evaluation.`,
         type: 'info',

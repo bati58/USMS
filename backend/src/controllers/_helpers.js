@@ -94,6 +94,7 @@ function mapStore(row) {
     department: row.department || null,
     location: row.location,
     headOfStore: row.head_of_store,
+    storekeeper: row.storekeeper,
     description: row.description,
     contactInfo: row.contact_info,
     active: row.active
@@ -333,6 +334,91 @@ function mapAuditLog(row) {
   };
 }
 
+async function getUserStoreVisibility(user, db = { query }) {
+  const storeRole = ['Store Head', 'Storekeeper'].includes(user?.role);
+  if (!storeRole) {
+    return {
+      isMainStoreUser: false,
+      assignedStoreId: null,
+      assignedStoreName: null,
+      scope: 'NONE',
+      canViewAllStores: false,
+      storeFilter: null
+    };
+  }
+
+  const name = user?.name || '';
+  const { rows } = await db.query(
+    `SELECT s.id, s.name, s.type, s.code
+     FROM stores s
+     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
+     ORDER BY s.id`,
+    [name]
+  );
+
+  const stores = rows || [];
+  const hasMultipleStores = stores.length > 1;
+  const assignedStore = hasMultipleStores ? null : stores[0] || null;
+  const isMainStoreUser = Boolean(!hasMultipleStores && assignedStore && assignedStore.type === 'Main Store');
+
+  return {
+    isMainStoreUser,
+    assignedStoreId: assignedStore?.id || null,
+    assignedStoreName: assignedStore?.name || null,
+    assignedStoreType: assignedStore?.type || null,
+    scope: hasMultipleStores || isMainStoreUser ? 'ALL_STORES' : 'ASSIGNED_STORE_ONLY',
+    canViewAllStores: hasMultipleStores || isMainStoreUser,
+    storeFilter: assignedStore ? { id: assignedStore.id, name: assignedStore.name } : null
+  };
+}
+
+async function assertUserCanAccessStoreRecord(user, storeId, db = { query }) {
+  if (!['Store Head', 'Storekeeper'].includes(user?.role)) return;
+  if (storeId == null || storeId === '') return;
+
+  const visibility = await getUserStoreVisibility(user, db);
+  if (visibility.canViewAllStores) return;
+  if (!visibility.assignedStoreId) {
+    throw new AppError('You are not assigned to any store scope.', 403);
+  }
+  if (Number(storeId) !== Number(visibility.assignedStoreId)) {
+    throw new AppError('This record does not belong to your assigned store.', 403);
+  }
+}
+
+async function assertUserCanAccessDepartmentRecord(user, department, db = { query }) {
+  if (user?.role !== 'Department Head') return;
+  if (!department) {
+    throw new AppError('Your account is not assigned to a department.', 403);
+  }
+  if (!user.department) {
+    throw new AppError('Your account is not assigned to a department.', 403);
+  }
+  if (department !== user.department) {
+    throw new AppError('This record does not belong to your department.', 403);
+  }
+}
+
+function buildOwnerScope(user) {
+  if (!user) return { scope: '', params: [] };
+
+  if (user.role === 'Department Head') {
+    return {
+      scope: 'WHERE requested_by = $1',
+      params: [user.name]
+    };
+  }
+
+  if (['Store Head', 'Storekeeper'].includes(user.role)) {
+    return {
+      scope: 'WHERE created_by = $1 OR requested_by = $1 OR dispatched_by = $1 OR received_by = $1',
+      params: [user.name]
+    };
+  }
+
+  return { scope: '', params: [] };
+}
+
 module.exports = {
   resolveStoreId,
   resolveStoreHeadForStore,
@@ -340,6 +426,10 @@ module.exports = {
   resolveCategoryId,
   resolveItemId,
   resolveLocationId,
+  getUserStoreVisibility,
+  assertUserCanAccessStoreRecord,
+  assertUserCanAccessDepartmentRecord,
+  buildOwnerScope,
   mapUser,
   mapStore,
   mapCategory,
