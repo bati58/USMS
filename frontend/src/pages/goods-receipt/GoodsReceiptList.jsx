@@ -46,6 +46,18 @@ export default function GoodsReceiptList() {
   const hasMainStoreAssignment = assignedStoreNames.some((storeName) =>
     stores.some((store) => store.name === storeName && store.type === 'Main Store')
   )
+  const receiptCatalogItems = useMemo(() => {
+    const selectedStore = stores.find((store) => store.name === header.store)
+    if (!selectedStore || selectedStore.type !== 'Main Store') return []
+
+    const uniqueItems = new Map()
+    items
+      .filter((item) => item.store === selectedStore.name)
+      .forEach((item) => {
+        if (!uniqueItems.has(item.name)) uniqueItems.set(item.name, item)
+      })
+    return Array.from(uniqueItems.values())
+  }, [items, stores, header.store])
   const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = isStorekeeper
   const canNotifyTec = isStoreHead
@@ -322,7 +334,7 @@ export default function GoodsReceiptList() {
                     <Select
                       label="Item"
                       error={fieldErrors[`line_${idx}_item`]}
-                      options={items.map((i) => i.name)}
+                      options={receiptCatalogItems.map((item) => item.name)}
                       value={line.item}
                       onChange={(e) => {
                         updateLine(idx, { item: e.target.value })

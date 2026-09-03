@@ -52,6 +52,8 @@ export const stockTakingService = createEntityService('stock-taking')
 stockTakingService.submit = (id) => api.action('stock-taking', id, 'submit', {})
 stockTakingService.update = (id, items) => api.raw(`/stock-taking/${id}`, { method: 'PUT', body: JSON.stringify({ items }) })
 stockTakingService.requestRecount = (id, reason) => api.action('stock-taking', id, 'request-recount', { reason })
+stockTakingService.verify = (id) => api.action('stock-taking', id, 'verify', {})
+stockTakingService.reconcile = (id) => api.action('stock-taking', id, 'reconcile', {})
 stockTakingService.approve = (id) => api.action('stock-taking', id, 'approve', {})
 stockTakingService.post = (id) => api.action('stock-taking', id, 'post', {})
 export const reconciliationService = {

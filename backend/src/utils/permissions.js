@@ -80,6 +80,9 @@ ACTION_PERMISSIONS['material-transfers-execute'] = [STOREKEEPER]; // dispatch/re
 ACTION_PERMISSIONS['stock-taking'] = [STORE_HEAD, PAO]; // Store Head owns the session; PAO retains oversight/authorization
 ACTION_PERMISSIONS['stock-taking-post'] = [STORE_HEAD, PAO]; // Store Head closes the cycle; PAO remains a valid authorized reviewer
 ACTION_PERMISSIONS['stock-taking-recount'] = [STORE_HEAD];
+ACTION_PERMISSIONS['stock-taking-verify'] = [STORE_HEAD];
+ACTION_PERMISSIONS['stock-taking-reconcile'] = [STORE_HEAD];
+ACTION_PERMISSIONS['stock-taking-approve-adjustment'] = [PAO];
 
 ACTION_PERMISSIONS['business-rules'] = [ADMIN];
 

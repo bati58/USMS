@@ -711,9 +711,41 @@ async function approveStockTaking(client, { sessionId, actorName }) {
   const { rows } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
   const session = rows[0];
   if (!session) throw new AppError('Stock-taking session not found.', 404);
-  if (!['Submitted', 'Under Review', 'Pending Approval'].includes(session.status)) throw new AppError(`Only a submitted or under-review stock-taking session can be approved; current status is ${session.status}.`, 409);
+  if (session.status !== 'Pending Approval') throw new AppError(`Only a reconciled stock-taking session can be approved; current status is ${session.status}.`, 409);
   await client.query("UPDATE stock_taking_sessions SET status = 'Approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, sessionId]);
   await logAudit(client, { userName: actorName, action: `Approved stock-taking ${session.session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: sessionId, entityReference: session.session_ref });
+}
+
+async function verifyStockTaking(client, { sessionId, actorName }) {
+  const { rows } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
+  const session = rows[0];
+  if (!session) throw new AppError('Stock-taking session not found.', 404);
+  assertTransition('stockTaking', session.status, 'Closed');
+  const { rows: lines } = await client.query('SELECT physical_qty, recount_physical_qty, system_qty FROM stock_taking_items WHERE session_id = $1', [sessionId]);
+  if (lines.some((line) => (line.recount_physical_qty ?? line.physical_qty) == null)) {
+    throw new AppError('Every item must have a physical count before verification.', 400);
+  }
+  if (lines.some((line) => Math.abs(Number(line.recount_physical_qty ?? line.physical_qty) - Number(line.system_qty)) > 0.0001)) {
+    throw new AppError('A variance exists. Request a recount or send the session for reconciliation.', 409);
+  }
+  await client.query("UPDATE stock_taking_sessions SET status = 'Closed', closed_by = $1, closed_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, sessionId]);
+  await logAudit(client, { userName: actorName, action: `Verified stock-taking ${session.session_ref} with no variance`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: sessionId, entityReference: session.session_ref });
+}
+
+async function reconcileStockTaking(client, { sessionId, actorName }) {
+  const { rows } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
+  const session = rows[0];
+  if (!session) throw new AppError('Stock-taking session not found.', 404);
+  assertTransition('stockTaking', session.status, 'Pending Approval');
+  const { rows: lines } = await client.query('SELECT physical_qty, recount_physical_qty, system_qty FROM stock_taking_items WHERE session_id = $1', [sessionId]);
+  if (lines.some((line) => (line.recount_physical_qty ?? line.physical_qty) == null)) {
+    throw new AppError('Every item must have a physical count before reconciliation.', 400);
+  }
+  if (!lines.some((line) => Math.abs(Number(line.recount_physical_qty ?? line.physical_qty) - Number(line.system_qty)) > 0.0001)) {
+    throw new AppError('No adjustment is required because there is no variance.', 409);
+  }
+  await client.query("UPDATE stock_taking_sessions SET status = 'Pending Approval', updated_at = NOW() WHERE id = $1", [sessionId]);
+  await logAudit(client, { userName: actorName, action: `Sent stock-taking ${session.session_ref} for adjustment approval`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: sessionId, entityReference: session.session_ref });
 }
 
 async function postStockTaking(client, { sessionId, actorName }) {
@@ -823,6 +855,8 @@ module.exports = {
   decideMaterialTransfer,
   createBinTransfer,
   approveStockTaking,
+  verifyStockTaking,
+  reconcileStockTaking,
   postStockTaking,
   decideDisposal,
   executeDisposal

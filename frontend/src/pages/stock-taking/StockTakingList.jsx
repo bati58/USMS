@@ -143,6 +143,28 @@ export default function StockTakingList() {
         }
     }
 
+    const handleVerifySession = async () => {
+        try {
+            await stockTakingService.verify(selectedSession.id)
+            push('Count verified. No adjustment is required.', 'success')
+            loadSessions()
+            setShowDetailModal(false)
+        } catch (error) {
+            push(error.message || 'The count could not be verified', 'error')
+        }
+    }
+
+    const handleReconcileSession = async () => {
+        try {
+            await stockTakingService.reconcile(selectedSession.id)
+            push('Session sent to PAO for adjustment approval.', 'success')
+            loadSessions()
+            setShowDetailModal(false)
+        } catch (error) {
+            push(error.message || 'The session could not be sent for reconciliation', 'error')
+        }
+    }
+
     const handleApproveSession = async () => {
         try {
             await stockTakingService.approve(selectedSession.id)
@@ -207,9 +229,9 @@ export default function StockTakingList() {
         user?.role === ROLES.STOCK_CLERK &&
         selectedSession?.assignedTo === user?.name
     const canEditCount = selectedSession && ['Draft', 'Scheduled', 'In Progress', 'Recount Required'].includes(selectedSession.status) && user?.role === ROLES.STOCK_CLERK && selectedSession.assignedTo === user?.name
-    const canRequestRecount = ['Submitted', 'Under Review'].includes(selectedSession?.status) && user?.role === ROLES.STORE_HEAD
-    const canApprove = ['Submitted', 'Under Review', 'Pending Approval'].includes(selectedSession?.status) &&
-        [ROLES.PAO, ROLES.STORE_HEAD].includes(user?.role)
+    const canReview = ['Submitted', 'Under Review'].includes(selectedSession?.status) && user?.role === ROLES.STORE_HEAD
+    const canRequestRecount = canReview
+    const canApprove = selectedSession?.status === 'Pending Approval' && user?.role === ROLES.PAO
     const canPost = selectedSession?.status === 'Approved' &&
         [ROLES.PAO, ROLES.STORE_HEAD].includes(user?.role)
 
@@ -377,6 +399,12 @@ export default function StockTakingList() {
                             )}
                             {canRequestRecount && (
                                 <Button onClick={handleRequestRecount} variant="outline">Request Recount</Button>
+                            )}
+                            {canReview && (
+                                <>
+                                    <Button onClick={handleVerifySession} variant="primary">Verify Count</Button>
+                                    <Button onClick={handleReconcileSession} variant="outline">Send for Reconciliation</Button>
+                                </>
                             )}
                             {canApprove && (
                                 <Button

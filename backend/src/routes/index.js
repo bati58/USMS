@@ -129,7 +129,9 @@ router.post('/stock-taking', requireRole('stock-taking'), stockTakingController.
 router.put('/stock-taking/:id', requireRole('stock-taking'), stockTakingController.update);
 router.post('/stock-taking/:id/submit', requireRole('stock-taking'), stockTakingController.submit);
 router.post('/stock-taking/:id/request-recount', requireRole('stock-taking-recount', 'action'), stockTakingController.requestRecount);
-router.post('/stock-taking/:id/approve', requireRole('stock-taking', 'action'), stockTakingController.approve);
+router.post('/stock-taking/:id/verify', requireRole('stock-taking-verify', 'action'), stockTakingController.verify);
+router.post('/stock-taking/:id/reconcile', requireRole('stock-taking-reconcile', 'action'), stockTakingController.reconcile);
+router.post('/stock-taking/:id/approve', requireRole('stock-taking-approve-adjustment', 'action'), stockTakingController.approve);
 router.post('/stock-taking/:id/post', requireRole('stock-taking-post', 'action'), stockTakingController.post);
 router.get('/reconciliation', requireRole('reconciliation'), stockTakingController.reconciliation);
 

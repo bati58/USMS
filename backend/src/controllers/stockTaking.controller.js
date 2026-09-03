@@ -245,12 +245,13 @@ const requestRecount = asyncHandler(async (req, res) => {
     if (!reason || !String(reason).trim()) throw new AppError('A recount reason is required.', 400);
     await withTransaction(async (client) => {
         const { rows } = await client.query(
-            `SELECT st.status, st.session_ref, st.created_by, st.assigned_user_id
+            `SELECT st.status, st.session_ref, st.store_id, st.created_by, st.assigned_user_id
              FROM stock_taking_sessions st
              WHERE st.id = $1 FOR UPDATE OF st`,
             [req.params.id]
         );
         if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
         if (rows[0].status !== 'Submitted') throw new AppError(`Cannot request recount in status: ${rows[0].status}`, 409);
         await client.query("UPDATE stock_taking_sessions SET status = 'Recount Required', updated_at = NOW() WHERE id = $1", [req.params.id]);
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Requested recount for ${rows[0].session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: req.params.id, entityReference: rows[0].session_ref, metadata: { reason } });
@@ -262,13 +263,52 @@ const requestRecount = asyncHandler(async (req, res) => {
     res.json(await fetchSession(req.params.id));
 });
 
+const verify = asyncHandler(async (req, res) => {
+    await withTransaction(async (client) => {
+        const { rows } = await client.query('SELECT store_id FROM stock_taking_sessions WHERE id = $1', [req.params.id]);
+        if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
+        await stockService.verifyStockTaking(client, { sessionId: req.params.id, actorName: req.user.name });
+    });
+    res.json(await fetchSession(req.params.id));
+});
+
+const reconcile = asyncHandler(async (req, res) => {
+    await withTransaction(async (client) => {
+        const { rows } = await client.query('SELECT store_id FROM stock_taking_sessions WHERE id = $1', [req.params.id]);
+        if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
+        await stockService.reconcileStockTaking(client, { sessionId: req.params.id, actorName: req.user.name });
+        await notify(client, {
+            role: 'Property Administration Officer',
+            title: 'Stock-taking adjustment approval required',
+            message: `Stock-taking session ${req.params.id} has a variance requiring adjustment approval.`,
+            type: 'warning',
+            route: '/stock-taking',
+            entityType: 'stock-taking-session',
+            entityId: req.params.id
+        });
+    });
+    res.json(await fetchSession(req.params.id));
+});
+
 const approve = asyncHandler(async (req, res) => {
-    await withTransaction((client) => stockService.approveStockTaking(client, { sessionId: req.params.id, actorName: req.user.name }));
+    await withTransaction(async (client) => {
+        const { rows } = await client.query('SELECT store_id FROM stock_taking_sessions WHERE id = $1', [req.params.id]);
+        if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
+        await stockService.approveStockTaking(client, { sessionId: req.params.id, actorName: req.user.name });
+    });
     res.json(await fetchSession(req.params.id));
 });
 
 const post = asyncHandler(async (req, res) => {
-    await withTransaction((client) => stockService.postStockTaking(client, { sessionId: req.params.id, actorName: req.user.name }));
+    await withTransaction(async (client) => {
+        const { rows } = await client.query('SELECT store_id FROM stock_taking_sessions WHERE id = $1', [req.params.id]);
+        if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
+        await stockService.postStockTaking(client, { sessionId: req.params.id, actorName: req.user.name });
+    });
     res.json(await fetchSession(req.params.id));
 });
 
@@ -286,4 +326,4 @@ const reconciliation = asyncHandler(async (req, res) => {
     res.json(rows.map((row) => ({ ...row, systemQty: Number(row.system_qty), physicalQty: Number(row.physical_qty), variance: Number(row.variance) })));
 });
 
-module.exports = { list, getOne, create, update, submit, requestRecount, approve, post, reconciliation };
+module.exports = { list, getOne, create, update, submit, requestRecount, verify, reconcile, approve, post, reconciliation };
