@@ -501,6 +501,7 @@ CREATE TABLE IF NOT EXISTS stock_taking_sessions (
                  )),
   created_by   TEXT NOT NULL,
   assigned_to  TEXT,
+  assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   approved_by  TEXT,
   approved_at  TIMESTAMP,
   closed_by    TEXT,
@@ -514,20 +515,30 @@ CREATE TABLE IF NOT EXISTS stock_taking_items (
   item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
   bin             TEXT,
   system_qty      NUMERIC(14,2) NOT NULL,
-  physical_qty    NUMERIC(14,2) NOT NULL CHECK (physical_qty >= 0),
-  variance        NUMERIC(14,2) NOT NULL,
+  physical_qty    NUMERIC(14,2) CHECK (physical_qty >= 0),
+  variance        NUMERIC(14,2),
   reason          TEXT,
   counter         TEXT,
   verified_by     TEXT,
   adjustment_ref  TEXT,
   UNIQUE (session_id, item_id, bin)
 );
+ALTER TABLE stock_taking_items ALTER COLUMN physical_qty DROP NOT NULL;
+ALTER TABLE stock_taking_items ALTER COLUMN variance DROP NOT NULL;
 ALTER TABLE stock_taking_sessions ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+ALTER TABLE stock_taking_sessions ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+UPDATE stock_taking_sessions st
+SET assigned_user_id = u.id
+FROM users u
+WHERE st.assigned_user_id IS NULL
+  AND st.assigned_to = u.name
+  AND u.role = 'Stock Clerk';
 ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recount_physical_qty NUMERIC(14,2);
 ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recount_variance NUMERIC(14,2);
 ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recounted_by TEXT;
 ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recounted_at TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_stock_taking_assigned_to ON stock_taking_sessions(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_stock_taking_assigned_user ON stock_taking_sessions(assigned_user_id);
 CREATE INDEX IF NOT EXISTS idx_stock_taking_status ON stock_taking_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_stock_taking_items_session ON stock_taking_items(session_id);
 

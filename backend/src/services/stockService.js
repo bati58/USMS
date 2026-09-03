@@ -722,6 +722,9 @@ async function postStockTaking(client, { sessionId, actorName }) {
   if (!session) throw new AppError('Stock-taking session not found.', 404);
   if (session.status !== 'Approved') throw new AppError(`Only an approved stock-taking session can be posted; current status is ${session.status}.`, 409);
   const { rows: lines } = await client.query('SELECT sti.*, i.name, i.bin, i.store_id, i.unit_price FROM stock_taking_items sti JOIN items i ON i.id = sti.item_id WHERE sti.session_id = $1 FOR UPDATE', [sessionId]);
+  if (lines.some((line) => line.physical_qty == null)) {
+    throw new AppError('Every item must have a physical count before the session can be posted.', 400);
+  }
   const { nextRef } = require('../utils/refGenerator');
   for (const line of lines) {
     const item = await getItemForUpdate(client, line.item_id);

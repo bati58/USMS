@@ -22,6 +22,7 @@ function mapSession(row, items = []) {
         status: row.status,
         createdBy: row.created_by,
         assignedTo: row.assigned_to,
+        assignedUserId: row.assigned_user_id,
         approvedBy: row.approved_by,
         approvedAt: row.approved_at,
         closedBy: row.closed_by,
@@ -32,8 +33,8 @@ function mapSession(row, items = []) {
             item: item.item_name,
             bin: item.bin,
             systemQty: Number(item.system_qty),
-            physicalQty: Number(item.physical_qty),
-            variance: Number(item.variance),
+            physicalQty: item.physical_qty == null ? null : Number(item.physical_qty),
+            variance: item.variance == null ? null : Number(item.variance),
             recountPhysicalQty: item.recount_physical_qty == null ? null : Number(item.recount_physical_qty),
             recountVariance: item.recount_variance == null ? null : Number(item.recount_variance),
             recountedBy: item.recounted_by,
@@ -69,8 +70,8 @@ const list = asyncHandler(async (req, res) => {
             params = [visibility.assignedStoreId];
         }
     } else if (req.user.role === 'Stock Clerk') {
-        scope = 'WHERE st.assigned_to = $1 OR st.created_by = $1';
-        params = [req.user.name];
+        scope = 'WHERE st.assigned_user_id = $1';
+        params = [req.user.id];
     }
 
     const { rows } = await query(`${SELECT} ${scope} ORDER BY st.id DESC`, params);
@@ -94,8 +95,8 @@ const getOne = asyncHandler(async (req, res) => {
             throw new AppError('You are not assigned to any store scope.', 403);
         }
     } else if (req.user.role === 'Stock Clerk') {
-        scope = ' AND (st.assigned_to = $2 OR st.created_by = $2)';
-        params.push(req.user.name);
+        scope = ' AND st.assigned_user_id = $2';
+        params.push(req.user.id);
     }
 
     const { rows } = await query(`${SELECT} WHERE st.id = $1${scope}`, params);
@@ -125,25 +126,25 @@ const create = asyncHandler(async (req, res) => {
         }
 
         const sessionRef = await nextRef(client, 'STK');
+        const { rows: assignedUsers } = await client.query(
+            `SELECT id, name FROM users WHERE name = $1 AND role = 'Stock Clerk' AND active = TRUE`,
+            [assignedTo || null]
+        );
+        if (!assignedUsers[0]) throw new AppError('Select an active Stock Clerk to assign this session.', 400);
         const { rows } = await client.query(
-            `INSERT INTO stock_taking_sessions (session_ref, store_id, count_date, created_by, assigned_to) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [sessionRef, storeId, countDate || null, req.user.name, assignedTo || null]
+            `INSERT INTO stock_taking_sessions (session_ref, store_id, count_date, created_by, assigned_to, assigned_user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [sessionRef, storeId, countDate || null, req.user.name, assignedUsers[0].name, assignedUsers[0].id]
         );
         for (const line of items) {
             const itemId = await resolveItemId(line.item, client, storeId);
             if (!itemId) throw new AppError(`Unknown item: "${line.item}".`, 400);
             const { rows: stockRows } = await client.query('SELECT qty_on_hand, store_id, bin FROM items WHERE id = $1 AND store_id = $2', [itemId, storeId]);
             if (!stockRows[0]) throw new AppError(`Item "${line.item}" does not belong to the selected store.`, 400);
-            const physicalQty = Number(line.physicalQty);
-            if (!Number.isFinite(physicalQty) || physicalQty < 0) throw new AppError('Physical quantity must be zero or greater.', 400);
             const systemQty = Number(stockRows[0].qty_on_hand);
-            // Compute variance in JS rather than as `$5 - $4` in SQL: subtracting two
-            // untyped bind params makes Postgres raise "operator is not unique: unknown - unknown".
-            const variance = physicalQty - systemQty;
             await client.query(
                 `INSERT INTO stock_taking_items (session_id, item_id, bin, system_qty, physical_qty, variance, reason, counter)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                [rows[0].id, itemId, line.bin || stockRows[0].bin, systemQty, physicalQty, variance, line.reason || null, req.user.name]
+                [rows[0].id, itemId, line.bin || stockRows[0].bin, systemQty, null, null, null, null]
             );
         }
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Created stock-taking session ${sessionRef}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: rows[0].id, entityReference: sessionRef });
@@ -155,7 +156,7 @@ const create = asyncHandler(async (req, res) => {
 const submit = asyncHandler(async (req, res) => {
     await withTransaction(async (client) => {
         const { rows } = await client.query(
-            `SELECT st.status, st.session_ref, s.head_of_store, u.id AS store_head_id
+            `SELECT st.status, st.session_ref, st.assigned_user_id, s.head_of_store, u.id AS store_head_id
              FROM stock_taking_sessions st
              JOIN stores s ON s.id = st.store_id
              LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
@@ -164,6 +165,21 @@ const submit = asyncHandler(async (req, res) => {
         );
         if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
         if (!['Draft', 'Scheduled', 'In Progress', 'Recount Required', 'Submitted'].includes(rows[0].status)) throw new AppError(`Cannot submit session in status: ${rows[0].status}`, 400);
+        if (rows[0].status !== 'Submitted' && req.user.role !== 'Stock Clerk') {
+            throw new AppError('Only the assigned Stock Clerk can submit physical counts.', 403);
+        }
+        if (rows[0].status !== 'Submitted' && rows[0].assigned_user_id !== req.user.id) {
+            throw new AppError('Only the Stock Clerk assigned to this session can submit physical counts.', 403);
+        }
+
+        const countColumn = rows[0].status === 'Recount Required' ? 'recount_physical_qty' : 'physical_qty';
+        const { rows: incomplete } = await client.query(
+            `SELECT COUNT(*)::int AS missing FROM stock_taking_items WHERE session_id = $1 AND ${countColumn} IS NULL`,
+            [req.params.id]
+        );
+        if (incomplete[0].missing > 0) {
+            throw new AppError('Every item must have a physical count before the session can be submitted.', 400);
+        }
 
         const nextStatus = rows[0].status === 'Submitted' ? 'Under Review' : 'Submitted';
         await client.query('UPDATE stock_taking_sessions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
@@ -191,7 +207,7 @@ const update = asyncHandler(async (req, res) => {
         const session = sessions[0];
         if (!session) throw new AppError('Stock-taking session not found.', 404);
         if (!['Draft', 'Recount Required', 'Approved'].includes(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
-        if (req.user.role === 'Stock Clerk' && session.created_by !== req.user.name && session.assigned_to !== req.user.name) {
+        if (req.user.role === 'Stock Clerk' && session.assigned_user_id !== req.user.id) {
             throw new AppError('You are not assigned to this stock-taking session.', 403);
         }
 
@@ -229,9 +245,8 @@ const requestRecount = asyncHandler(async (req, res) => {
     if (!reason || !String(reason).trim()) throw new AppError('A recount reason is required.', 400);
     await withTransaction(async (client) => {
         const { rows } = await client.query(
-            `SELECT st.status, st.session_ref, st.created_by, st.assigned_to, u.id AS assigned_user_id
+            `SELECT st.status, st.session_ref, st.created_by, st.assigned_user_id
              FROM stock_taking_sessions st
-             LEFT JOIN users u ON u.name = st.assigned_to AND u.role = 'Stock Clerk' AND u.active = TRUE
              WHERE st.id = $1 FOR UPDATE OF st`,
             [req.params.id]
         );

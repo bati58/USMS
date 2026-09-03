@@ -89,21 +89,13 @@ export default function StockTakingList() {
             push('Select a store, assign a stock clerk, and add at least one item', 'error')
             return
         }
-        const missingQty = createForm.items.some((i) => i.physicalQty === '' || i.physicalQty === null || i.physicalQty === undefined)
-        if (missingQty) {
-            push('Enter a physical (counted) quantity for every selected item.', 'error')
-            return
-        }
-
         try {
             await stockTakingService.create({
                 store: stores.find((store) => String(store.id) === String(createForm.storeId))?.name,
                 countDate: createForm.countDate,
                 assignedTo: createForm.assignedTo,
                 items: createForm.items.map(item => ({
-                    item: items.find((catalogItem) => catalogItem.id === item.itemId)?.name,
-                    physicalQty: Number(item.physicalQty),
-                    reason: item.reason || ''
+                    item: items.find((catalogItem) => catalogItem.id === item.itemId)?.name
                 }))
             })
             push('Stock-taking session created successfully', 'success')
@@ -164,8 +156,15 @@ export default function StockTakingList() {
     }
 
     const handlePostSession = async () => {
+        const missingCounts = (selectedSession?.items || []).filter((item) => item.physicalQty == null && item.recountPhysicalQty == null)
+        if (missingCounts.length > 0) {
+            setShowPostDialog(false)
+            push(`Enter a physical count before posting: ${missingCounts.map((item) => item.item).join(', ')}.`, 'error')
+            return
+        }
         const missingReasons = (selectedSession?.items || []).filter((item) => {
-            const variance = Number(item.physicalQty) - Number(item.systemQty)
+            const physicalQty = item.recountPhysicalQty ?? item.physicalQty
+            const variance = Number(physicalQty) - Number(item.systemQty)
             return Math.abs(variance) > 0.0001 && !String(item.reason || '').trim()
         })
         if (missingReasons.length > 0) {
@@ -205,8 +204,9 @@ export default function StockTakingList() {
     }
 
     const canSubmit = ['Draft', 'Scheduled', 'In Progress', 'Recount Required'].includes(selectedSession?.status) &&
-        [ROLES.STOCK_CLERK, ROLES.STORE_HEAD].includes(user?.role)
-    const canEditCount = selectedSession && ['Draft', 'Scheduled', 'In Progress', 'Recount Required', 'Submitted', 'Approved'].includes(selectedSession.status) && user?.role === ROLES.STOCK_CLERK && (selectedSession.assignedTo === user?.name || selectedSession.createdBy === user?.name)
+        user?.role === ROLES.STOCK_CLERK &&
+        selectedSession?.assignedTo === user?.name
+    const canEditCount = selectedSession && ['Draft', 'Scheduled', 'In Progress', 'Recount Required'].includes(selectedSession.status) && user?.role === ROLES.STOCK_CLERK && selectedSession.assignedTo === user?.name
     const canRequestRecount = ['Submitted', 'Under Review'].includes(selectedSession?.status) && user?.role === ROLES.STORE_HEAD
     const canApprove = ['Submitted', 'Under Review', 'Pending Approval'].includes(selectedSession?.status) &&
         [ROLES.PAO, ROLES.STORE_HEAD].includes(user?.role)
@@ -295,6 +295,10 @@ export default function StockTakingList() {
                                 <p className="text-sm text-gray-600">Created By</p>
                                 <p className="font-semibold">{selectedSession.createdBy}</p>
                             </div>
+                            <div>
+                                <p className="text-sm text-gray-600">Assigned Clerk</p>
+                                <p className="font-semibold">{selectedSession.assignedTo || 'Not assigned'}</p>
+                            </div>
                         </div>
 
                         {/* Variance Items */}
@@ -303,7 +307,8 @@ export default function StockTakingList() {
                             {selectedSession.items && selectedSession.items.length > 0 ? (
                                 <div className="space-y-2 max-h-96 overflow-y-auto">
                                     {selectedSession.items.map((item) => {
-                                        const variance = Number(item.physicalQty) - Number(item.systemQty)
+                                        const physicalQty = item.recountPhysicalQty ?? item.physicalQty
+                                        const variance = physicalQty == null ? null : Number(physicalQty) - Number(item.systemQty)
                                         const hasVariance = Math.abs(variance) > 0.0001
                                         return (
                                             <div key={item.id} className={`p-3 border rounded ${hasVariance ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50'}`}>
@@ -317,7 +322,7 @@ export default function StockTakingList() {
                                                             </div>
                                                             <div>
                                                                 <p className="text-xs uppercase">Physical Qty</p>
-                                                                <p className="font-semibold">{Number(item.recountPhysicalQty ?? item.physicalQty).toFixed(2)}</p>
+                                                                <p className="font-semibold">{physicalQty == null ? '-' : Number(physicalQty).toFixed(2)}</p>
                                                             </div>
                                                             <div>
                                                                 <p className="text-xs uppercase">Variance</p>
@@ -491,36 +496,7 @@ export default function StockTakingList() {
                                                             <span className="text-gray-400"> · System: {Number(item.qtyOnHand ?? 0)}</span>
                                                         </span>
                                                     </label>
-                                                    {selected && (
-                                                        <div className="mt-2 ml-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                                            <div>
-                                                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                                                    Physical Qty <span className="text-red-500">*</span>
-                                                                </label>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="any"
-                                                                    value={selected.physicalQty}
-                                                                    onChange={(e) => updateItemField(item.id, 'physicalQty', e.target.value)}
-                                                                    placeholder="Counted quantity"
-                                                                    className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <label className="block text-xs font-medium text-gray-600 mb-1">
-                                                                    Reason {Math.abs(Number(selected.physicalQty || 0) - Number(item.qtyOnHand || 0)) > 0.0001 && <span className="text-red-500">*</span>}
-                                                                </label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={selected.reason}
-                                                                    onChange={(e) => updateItemField(item.id, 'reason', e.target.value)}
-                                                                    placeholder="e.g. breakage, miscount"
-                                                                    className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                                    {selected && <p className="mt-1 ml-6 text-xs text-gray-500">The assigned Stock Clerk will enter the physical count after the session is created.</p>}
                                                 </div>
                                             )
                                         })}
