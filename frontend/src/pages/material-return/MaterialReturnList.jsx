@@ -94,27 +94,25 @@ export default function MaterialReturnList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    const line = lines[0]
-    if (!header.department || !header.date || !line.item || !line.qty || Number(line.qty) <= 0) {
-      push('Returning department, date, item, and a positive quantity are required.', 'error')
+    if (!header.department || !header.date || !lines.length || lines.some((line) => !line.item || !line.qty || Number(line.qty) <= 0)) {
+      push('Returning department, date, and valid item and quantity details are required for every line.', 'error')
+      return
+    }
+    if (new Set(lines.map((line) => line.item)).size !== lines.length) {
+      push('Each returned item can only appear once in an SRN batch.', 'error')
       return
     }
     setSaving(true)
     try {
-      const count = rows.length + 1
-      const srnRef = `SRN-2026-${String(count).padStart(4, '0')}`
-      await materialReturnService.create({
-        srnRef,
+      const created = await materialReturnService.createBatch({
         ...header,
         returnedBy: user?.name || 'Department Head',
         status: RETURN_STATUS.SUBMITTED,
-        item: line.item,
-        qty: Number(line.qty),
-        reason: line.reason,
-        condition: line.condition,
-        originalIssueRef: header.originalIssueRef
+        lines: lines.map((line) => ({ ...line, qty: Number(line.qty) }))
       })
-      push(`Draft Store Return Note ${srnRef} created. Submit it from the actions column.`, 'success')
+      const createdRows = Array.isArray(created) ? created : [created]
+      const createdRefs = createdRows.map((returnRow) => returnRow.srnRef)
+      push(`${createdRefs.length} Store Return Note${createdRefs.length === 1 ? '' : 's'} created: ${createdRefs.join(', ')}`, 'success')
       setModalOpen(false)
       await load()
     } catch (err) {
@@ -298,14 +296,18 @@ export default function MaterialReturnList() {
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="label !mb-0">Materials to Return</p>
+              <Button type="button" variant="secondary" icon={Plus} onClick={() => setLines((prev) => [...prev, { ...EMPTY_LINE }])}>
+                Add Line
+              </Button>
             </div>
             <div className="space-y-2">
               {lines.map((line, idx) => (
-                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-4">
+                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.75fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                   <Select label="Item" options={items.map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
                   <Input label="Quantity" type="number" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
                   <Select label="Reason" options={['Excess', 'Defective', 'Expired', 'Wrong Item']} value={line.reason} onChange={(e) => updateLine(idx, { reason: e.target.value })} />
                   <Select label="Condition" options={['Good', 'Damaged', 'Usable']} value={line.condition} onChange={(e) => updateLine(idx, { condition: e.target.value })} />
+                  <Button type="button" variant="secondary" icon={Trash2} onClick={() => setLines((prev) => prev.length > 1 ? prev.filter((_, lineIdx) => lineIdx !== idx) : prev)} disabled={lines.length === 1} title="Remove line" />
                 </div>
               ))}
             </div>

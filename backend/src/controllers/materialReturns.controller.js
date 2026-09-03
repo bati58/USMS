@@ -70,43 +70,52 @@ const getOne = asyncHandler(async (req, res) => {
 // POST /api/material-returns — Backend-SRS §6.3 step 1 (Draft, no stock change)
 const create = asyncHandler(async (req, res) => {
   const { department, store, item, qty, reason, date, condition, originalIssueRef, status } = req.body;
+  const lines = Array.isArray(req.body.lines) ? req.body.lines : [{ item, qty, reason, condition }];
   const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
-  if (!effectiveDepartment || !store || !item || !qty) throw new AppError('department, store, item, and qty are required.', 400);
+  if (!effectiveDepartment || !store || !lines.length || lines.some((line) => !line.item || !line.qty || Number(line.qty) <= 0)) {
+    throw new AppError('department, store, and valid item and quantity details are required for every return line.', 400);
+  }
+  if (new Set(lines.map((line) => line.item)).size !== lines.length) {
+    throw new AppError('Each returned item can only appear once in an SRN batch.', 400);
+  }
 
   const requestedStatus = status === 'Submitted' ? 'Submitted' : 'Draft';
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
-    const itemId = await resolveItemId(item, client, storeId);
-    if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
-    const srnRef = await nextRef(client, 'SRN');
+    const created = [];
+    for (const line of lines) {
+      const itemId = await resolveItemId(line.item, client, storeId);
+      if (!itemId) throw new AppError(`Unknown item: "${line.item}".`, 400);
+      const srnRef = await nextRef(client, 'SRN');
+      const { rows } = await client.query(
+        `INSERT INTO material_returns (srn_ref, department, created_by, store_id, item_id, qty, reason, date, status, condition, original_issue_ref)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, CURRENT_DATE),$9,$10,$11) RETURNING id`,
+        [srnRef, effectiveDepartment, req.user.name, storeId, itemId, line.qty, line.reason || null, date || null, requestedStatus, line.condition || null, originalIssueRef || null]
+      );
 
-    const { rows } = await client.query(
-      `INSERT INTO material_returns (srn_ref, department, created_by, store_id, item_id, qty, reason, date, status, condition, original_issue_ref)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8, CURRENT_DATE),$9,$10,$11) RETURNING id`,
-      [srnRef, effectiveDepartment, req.user.name, storeId, itemId, qty, reason || null, date || null, requestedStatus, condition || null, originalIssueRef || null]
-    );
+      await logAudit(client, { userName: req.user.name, action: `Created return ${srnRef} (${requestedStatus})`, module: 'Material Return' });
 
-    await logAudit(client, { userName: req.user.name, action: `Created return ${srnRef} (${requestedStatus})`, module: 'Material Return' });
+      if (requestedStatus === 'Submitted') {
+        await notify(client, {
+          role: 'Store Head',
+          storeId,
+          title: 'Material return awaiting inspection',
+          message: `${srnRef} for ${store} is ready for Store Head review.`,
+          type: 'warning',
+          route: '/material-return',
+          entityType: 'material_return',
+          entityId: rows[0].id
+        });
+      }
 
-    if (requestedStatus === 'Submitted') {
-      await notify(client, {
-        role: 'Store Head',
-        storeId,
-        title: 'Material return awaiting inspection',
-        message: `${srnRef} for ${store} is ready for Store Head review.`,
-        type: 'warning',
-        route: '/material-return',
-        entityType: 'material_return',
-        entityId: rows[0].id
-      });
+      const { rows: full } = await client.query(`${SELECT} WHERE mr.id = $1`, [rows[0].id]);
+      created.push(mapMaterialReturn(full[0]));
     }
-
-    const { rows: full } = await client.query(`${SELECT} WHERE mr.id = $1`, [rows[0].id]);
-    return mapMaterialReturn(full[0]);
+    return created;
   });
 
-  res.status(201).json(result);
+  res.status(201).json(result.length === 1 ? result[0] : result);
 });
 
 // POST /api/material-returns/:id/submit

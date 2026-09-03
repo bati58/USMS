@@ -18,7 +18,10 @@ export const userService = {
     ...createEntityService('users'),
     listStockClerks: () => api.raw('/users/stock-clerks')
 }
-export const materialReturnService = createEntityService('materialReturns')
+export const materialReturnService = {
+    ...createEntityService('materialReturns'),
+    createBatch: (payload) => api.raw('/material-returns', { method: 'POST', body: JSON.stringify(payload) })
+}
 export const materialTransferService = createEntityService('materialTransfers')
 export const disposalService = createEntityService('disposals')
 export const binTransferService = createEntityService('binTransfers')

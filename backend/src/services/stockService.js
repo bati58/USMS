@@ -464,7 +464,7 @@ async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty,
     await insertStockTransaction(client, {
       itemId: item.id,
       date: ret.date,
-      type: 'Material Return',
+      type: 'Return',
       ref: ret.srn_ref,
       qtyIn: accepted,
       unitPrice: item.unit_price,
