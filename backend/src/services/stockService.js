@@ -788,13 +788,23 @@ async function decideDisposal(client, { disposalId, decision, actorName }) {
   const { rows } = await client.query('SELECT * FROM disposals WHERE id = $1 FOR UPDATE', [disposalId]);
   const disposal = rows[0];
   if (!disposal) throw new AppError('Disposal request not found.', 404);
-  assertTransition('disposal', disposal.status, decision === 'Approved' ? 'Approved' : 'Rejected');
+  const nextStatus = decision === 'Returned for Correction' ? 'Returned for Correction' : decision;
+  assertTransition('disposal', disposal.status, nextStatus);
 
-  await client.query('UPDATE disposals SET status = $1, updated_at = NOW() WHERE id = $2', [decision, disposalId]);
+  await client.query(
+    `UPDATE disposals SET status = $1,
+       approved_by = CASE WHEN $1 IN ('Approved', 'Rejected') THEN $2 ELSE approved_by END,
+       approved_at = CASE WHEN $1 IN ('Approved', 'Rejected') THEN NOW() ELSE approved_at END,
+       updated_at = NOW() WHERE id = $3`,
+    [nextStatus, actorName, disposalId]
+  );
   await logAudit(client, { userName: actorName, action: `${decision} disposal ${disposal.disposal_ref}`, module: 'Disposal Management' });
 }
 
-async function executeDisposal(client, { disposalId, actorName }) {
+async function executeDisposal(client, { disposalId, actorName, disposalDate, disposalMethod, witness }) {
+  if (!String(disposalMethod || '').trim() || !String(witness || '').trim()) {
+    throw new AppError('Disposal method and witness are required to execute a disposal.', 400);
+  }
   const { rows } = await client.query('SELECT * FROM disposals WHERE id = $1 FOR UPDATE', [disposalId]);
   const disposal = rows[0];
   if (!disposal) throw new AppError('Disposal request not found.', 404);
@@ -835,7 +845,12 @@ async function executeDisposal(client, { disposalId, actorName }) {
     actorName
   });
 
-  await client.query("UPDATE disposals SET status = 'Executed', updated_at = NOW() WHERE id = $1", [disposalId]);
+  await client.query(
+    `UPDATE disposals SET status = 'Executed', executed_by = $1, executed_at = NOW(),
+       disposal_date = COALESCE($2, CURRENT_DATE), disposal_method = $3, witness = $4, updated_at = NOW()
+     WHERE id = $5`,
+    [actorName, disposalDate || null, disposalMethod || null, witness || null, disposalId]
+  );
   await logAudit(client, { userName: actorName, action: `Executed disposal ${disposal.disposal_ref}`, module: 'Disposal Management' });
 }
 

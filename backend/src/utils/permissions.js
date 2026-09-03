@@ -47,7 +47,7 @@ const READ_PERMISSIONS = {
   'material-returns': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
   'material-transfers': [...REPORT_READERS, STOREKEEPER],
   'fixed-assets': REPORT_READERS,
-  disposals: REPORT_READERS,
+  disposals: [...REPORT_READERS, STOREKEEPER],
   users: [ADMIN],
   'audit-logs': [ADMIN, PAO, ACCOUNTANT, SECURITY],
   reports: [...REPORT_READERS, STOREKEEPER, SECURITY],
@@ -67,7 +67,7 @@ const ACTION_PERMISSIONS = {
   'material-transfers': [PAO, STORE_HEAD],
   // Store Head authorizes what the Storekeeper prepared before the Storekeeper posts it.
   'issue-vouchers': [STORE_HEAD],
-  disposals: [PAO, STORE_HEAD],
+  disposals: [PAO],
   'gate-pass': [SECURITY]
 };
 ACTION_PERMISSIONS['issue-voucher-post'] = [STOREKEEPER];
@@ -85,6 +85,8 @@ ACTION_PERMISSIONS['stock-taking-reconcile'] = [STORE_HEAD];
 ACTION_PERMISSIONS['stock-taking-approve-adjustment'] = [PAO];
 
 ACTION_PERMISSIONS['business-rules'] = [ADMIN];
+ACTION_PERMISSIONS['disposals-approve'] = [PAO];
+ACTION_PERMISSIONS['disposals-execute'] = [STOREKEEPER];
 
 // Who can POST/PUT/DELETE this resource. If a resource has no entry here,
 // every role in READ_PERMISSIONS for it may also write. If a resource's

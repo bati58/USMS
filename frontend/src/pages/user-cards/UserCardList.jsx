@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Edit, Trash2 } from 'lucide-react'
+import { Edit } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import Card from '../../components/ui/Card'
 import Button from '../../components/ui/Button'
@@ -54,31 +54,21 @@ export default function UserCardList() {
         }
     }
 
-    async function remove(id) {
-        try {
-            await userCardService.remove(id)
-            await load()
-            push('User material card removed.', 'success')
-        } catch (error) {
-            push(error.message, 'error')
-        }
-    }
-
     return (
         <div>
             <PageHeader title="User Material Cards" subtitle="Record material custody after a posted issue voucher." />
             {canEdit && (
                 <Card title={editing ? 'Edit custody record' : 'Record custody'} className="mb-6">
                     <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                        <Input placeholder="User name" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} required />
-                        <Input placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
-                        <select className="input" value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} required>
+                        <Input placeholder="System user name" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} disabled={Boolean(editing)} />
+                        <select className="input" value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} required disabled={Boolean(editing)}>
                             <option value="">Select item</option>
                             {items.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
                         </select>
-                        <Input placeholder="Issue reference" value={form.issueRef} onChange={(e) => setForm({ ...form, issueRef: e.target.value })} required />
-                        <Input type="date" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} required />
-                        <Input type="number" min="1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} required />
+                        <Input placeholder="Issue reference" value={form.issueRef} onChange={(e) => setForm({ ...form, issueRef: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input type="date" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input type="number" min="1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} required disabled={Boolean(editing)} />
                         <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                             {['In Use', 'Maintenance', 'Lost', 'Damaged', 'Returned'].map((status) => <option key={status}>{status}</option>)}
                         </select>
@@ -109,13 +99,6 @@ export default function UserCardList() {
                                         aria-label={`Edit custody record for ${row.user}`}
                                         title="Edit custody record"
                                         onClick={() => { setEditing(row); setForm(row) }}
-                                    />
-                                    <Button
-                                        variant="danger"
-                                        icon={Trash2}
-                                        aria-label={`Delete custody record for ${row.user}`}
-                                        title="Delete custody record"
-                                        onClick={() => remove(row.id)}
                                     />
                                 </div>
                             )

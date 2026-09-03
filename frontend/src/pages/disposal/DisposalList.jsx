@@ -30,11 +30,12 @@ export default function DisposalList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const [formData, setFormData] = useState({ item: '', store: '', qty: '', reason: '', dateFlagged: '' })
+  const [formData, setFormData] = useState({ item: '', store: '', qty: '', reason: '', dateFlagged: '', supportingDocument: '' })
 
   const canCreate = canPerformAction(user?.role, 'create', 'disposals')
   const canDelete = canPerformAction(user?.role, 'delete', 'disposals')
   const canApprove = canPerformAction(user?.role, 'approve', 'disposals')
+  const canExecute = user?.role === ROLES.STOREKEEPER
 
   // Operational disposal approvals belong to the store leadership; admin is read-only.
   const isStoreHead = user?.role === ROLES.STORE_HEAD
@@ -72,7 +73,7 @@ export default function DisposalList() {
       push('You do not have permission to flag items for disposal.', 'error')
       return
     }
-    setFormData({ item: '', store: '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10) })
+    setFormData({ item: '', store: '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10), supportingDocument: '' })
     setModalOpen(true)
   }
 
@@ -99,7 +100,8 @@ export default function DisposalList() {
         store: formData.store,
         qty: formData.qty,
         reason: formData.reason,
-        dateFlagged: formData.dateFlagged
+        dateFlagged: formData.dateFlagged,
+        supportingDocument: formData.supportingDocument
       })
       push(`Disposal request created successfully.`, 'success')
       setModalOpen(false)
@@ -127,12 +129,16 @@ export default function DisposalList() {
   }
 
   async function executeDisposal() {
-    if (!canApprove) {
+    if (!canExecute) {
       push('You do not have permission to execute disposal requests.', 'error')
       return
     }
+    const disposalMethod = window.prompt('Disposal method (for example: condemned and destroyed)')
+    if (!disposalMethod?.trim()) return
+    const witness = window.prompt('Name of disposal witness')
+    if (!witness?.trim()) return
     try {
-      await api.action('disposals', viewing.id, 'execute', {})
+      await api.action('disposals', viewing.id, 'execute', { disposalDate: new Date().toISOString().slice(0, 10), disposalMethod: disposalMethod.trim(), witness: witness.trim() })
       push(`Disposal request ${viewing.disposalRef} executed and stock removed.`, 'success')
       setViewing(null)
       await load()
@@ -210,6 +216,7 @@ export default function DisposalList() {
             <Input label="Date Flagged" type="date" value={formData.dateFlagged} onChange={(e) => setFormData({ ...formData, dateFlagged: e.target.value })} required />
           </div>
           <Input label="Reason for Disposal" type="textarea" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} required />
+          <Input label="Supporting Document Reference" placeholder="Inspection report or committee decision" value={formData.supportingDocument} onChange={(e) => setFormData({ ...formData, supportingDocument: e.target.value })} />
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
             <Button variant="secondary" type="button" onClick={() => setModalOpen(false)} disabled={saving}>Cancel</Button>
@@ -246,6 +253,26 @@ export default function DisposalList() {
                 <p className="text-slate-500">Current Status</p>
                 <div className="mt-1"><StatusBadge status={viewing.status} /></div>
               </div>
+              <div>
+                <p className="text-slate-500">Requested By</p>
+                <p className="font-medium">{viewing.createdBy || '-'}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Approved By</p>
+                <p className="font-medium">{viewing.approvedBy || '-'}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Executed By</p>
+                <p className="font-medium">{viewing.executedBy || '-'}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Witness</p>
+                <p className="font-medium">{viewing.witness || '-'}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-slate-500">Supporting Document</p>
+                <p className="font-medium">{viewing.supportingDocument || '-'}</p>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
@@ -265,7 +292,7 @@ export default function DisposalList() {
                 </>
               )}
 
-              {canApprove && viewing.status === 'Approved' && (
+              {canExecute && viewing.status === 'Approved' && (
                 <Button variant="primary" onClick={executeDisposal} className="gap-2 bg-blue-600 hover:bg-blue-700 border-transparent text-white">
                   <Play size={18} /> Execute Disposal (Remove Stock)
                 </Button>

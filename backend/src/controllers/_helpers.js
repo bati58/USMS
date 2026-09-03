@@ -322,7 +322,16 @@ function mapDisposal(row) {
     qty: Number(row.qty),
     reason: row.reason,
     dateFlagged: row.date_flagged,
-    status: row.status
+    status: row.status,
+    createdBy: row.created_by || null,
+    approvedBy: row.approved_by || null,
+    approvedAt: row.approved_at || null,
+    executedBy: row.executed_by || null,
+    executedAt: row.executed_at || null,
+    disposalDate: row.disposal_date || null,
+    disposalMethod: row.disposal_method || null,
+    witness: row.witness || null,
+    supportingDocument: row.supporting_document || null
   };
 }
 

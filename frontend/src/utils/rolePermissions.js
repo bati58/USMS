@@ -134,7 +134,7 @@ export const ROLE_PERMISSIONS = {
     [ROLES.STOREKEEPER]: {
         name: 'Storekeeper',
         // SRS: receives and issues stock, updates inventory records (bin cards)
-        canAccessPages: ['/', '/settings', '/items', '/locations', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/stock-taking', '/reports'],
+        canAccessPages: ['/', '/settings', '/items', '/locations', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/disposal', '/stock-taking', '/reports'],
         canCreate: ['goodsReceipts', 'requisitions', 'stockTransfer', 'materialTransfers', 'issueVouchers', 'userCards'],
         canEdit: ['goodsReceipts', 'userCards'],
         canPostIssueVoucher: true, // ISSUE MATERIAL: posts a PAO-authorized voucher (mirrors backend issue-voucher-post)

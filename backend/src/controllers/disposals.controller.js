@@ -37,22 +37,24 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/disposals — Backend-SRS §6.7 step 1 (Pending, no stock change)
 const create = asyncHandler(async (req, res) => {
-  const { item, store, qty, reason, dateFlagged } = req.body;
-  if (!item || !store || !qty) throw new AppError('item, store, and qty are required.', 400);
+  const { item, store, qty, reason, dateFlagged, supportingDocument } = req.body;
+  if (!item || !store || !qty || !String(reason || '').trim()) throw new AppError('item, store, positive qty, and a disposal reason are required.', 400);
+  if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) throw new AppError('Disposal quantity must be positive.', 400);
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
+    await assertUserCanAccessStoreRecord(req.user, storeId, client);
     const itemId = await resolveItemId(item, client, storeId);
     if (!itemId) throw new AppError(`Unknown item: "${item}" in the selected store.`, 400);
     const disposalRef = await nextRef(client, 'DSP');
 
     const { rows } = await client.query(
-      `INSERT INTO disposals (disposal_ref, item_id, store_id, qty, reason, date_flagged, status)
-       VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending') RETURNING id`,
-      [disposalRef, itemId, storeId, qty, reason || null, dateFlagged || null]
+      `INSERT INTO disposals (disposal_ref, item_id, store_id, qty, reason, date_flagged, status, created_by, supporting_document)
+       VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending',$7,$8) RETURNING id`,
+      [disposalRef, itemId, storeId, qty, reason.trim(), dateFlagged || null, req.user.name, supportingDocument || null]
     );
 
-    await logAudit(client, { userName: req.user.name, action: `Flagged ${disposalRef} for disposal`, module: 'Disposal Management' });
+    await logAudit(client, { userName: req.user.name, action: `Created disposal request ${disposalRef}`, module: 'Disposal Management', entityType: 'disposal', entityId: rows[0].id, entityReference: disposalRef });
 
     const { rows: full } = await client.query(`${SELECT} WHERE d.id = $1`, [rows[0].id]);
     return mapDisposal(full[0]);
@@ -62,18 +64,16 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { item, store, qty, reason, dateFlagged } = req.body;
-  const itemId = item !== undefined ? await resolveItemId(item) : undefined;
-  const storeId = store !== undefined ? await resolveStoreId(store) : undefined;
+  const { reason, dateFlagged, supportingDocument } = req.body;
+  if (reason !== undefined && !String(reason).trim()) throw new AppError('A disposal reason is required.', 400);
 
   const { rows } = await query(
     `UPDATE disposals SET
-       item_id = COALESCE($1, item_id), store_id = COALESCE($2, store_id),
-       qty = COALESCE($3, qty), reason = COALESCE($4, reason),
-       date_flagged = COALESCE($5, date_flagged), updated_at = NOW()
-     WHERE id = $6 AND status IN ('Pending', 'Flagged', 'Requested', 'Pending Review')
+       reason = COALESCE($1, reason), date_flagged = COALESCE($2, date_flagged),
+       supporting_document = COALESCE($3, supporting_document), updated_at = NOW()
+     WHERE id = $4 AND status IN ('Pending', 'Flagged', 'Requested', 'Pending Review')
      RETURNING id`,
-    [itemId, storeId, qty, reason, dateFlagged, req.params.id]
+    [reason ? String(reason).trim() : null, dateFlagged, supportingDocument, req.params.id]
   );
   if (!rows[0]) throw new AppError('Disposal request not found or is no longer editable.', 409);
 
@@ -88,14 +88,18 @@ const decide = asyncHandler(async (req, res) => {
   if (!['Approved', 'Rejected', 'Returned for Correction'].includes(decision)) throw new AppError('decision must be "Approved", "Rejected", or "Returned for Correction".', 400);
 
   await withTransaction(async (client) => {
+    const { rows: disposalRows } = await client.query('SELECT store_id FROM disposals WHERE id = $1', [req.params.id]);
+    if (!disposalRows[0]) throw new AppError('Disposal request not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, disposalRows[0].store_id, client);
     await stockService.decideDisposal(client, { disposalId: req.params.id, decision, actorName: req.user.name });
 
     // Phase 5: persist the approval so the executor is notified server-side, not only in the browser.
     if (decision === 'Approved') {
-      const { rows } = await client.query('SELECT disposal_ref FROM disposals WHERE id = $1', [req.params.id]);
+      const { rows } = await client.query('SELECT disposal_ref, store_id FROM disposals WHERE id = $1', [req.params.id]);
       await notify(client, {
-        role: 'Store Head',
-        title: 'Disposal Approved',
+        role: 'Storekeeper',
+        storeId: rows[0]?.store_id,
+        title: 'Disposal Approved - Execution Required',
         message: `Disposal ${rows[0]?.disposal_ref} was approved and is ready to execute.`,
         type: 'success',
         route: `/disposals/${req.params.id}`,
@@ -110,9 +114,15 @@ const decide = asyncHandler(async (req, res) => {
 });
 
 const execute = asyncHandler(async (req, res) => {
-  await withTransaction((client) =>
-    stockService.executeDisposal(client, { disposalId: req.params.id, actorName: req.user.name })
-  );
+  if (!String(req.body.disposalMethod || '').trim() || !String(req.body.witness || '').trim()) {
+    throw new AppError('Disposal method and witness are required to execute a disposal.', 400);
+  }
+  await withTransaction(async (client) => {
+    const { rows: disposalRows } = await client.query('SELECT store_id FROM disposals WHERE id = $1', [req.params.id]);
+    if (!disposalRows[0]) throw new AppError('Disposal request not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, disposalRows[0].store_id, client);
+    await stockService.executeDisposal(client, { disposalId: req.params.id, actorName: req.user.name, disposalDate: req.body.disposalDate, disposalMethod: req.body.disposalMethod, witness: req.body.witness });
+  });
 
   const { rows } = await query(`${SELECT} WHERE d.id = $1`, [req.params.id]);
   res.json(mapDisposal(rows[0]));

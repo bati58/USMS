@@ -441,13 +441,33 @@ CREATE TABLE IF NOT EXISTS disposals (
   item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
   store_id       INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
   qty            NUMERIC(14,2) NOT NULL CHECK (qty > 0),
-  reason         TEXT,
+  reason         TEXT NOT NULL,
   date_flagged   DATE NOT NULL DEFAULT CURRENT_DATE,
   status         TEXT NOT NULL DEFAULT 'Pending'
                    CHECK (status IN ('Flagged','Requested','Pending','Pending Review','Approved','Rejected','Returned for Correction','Executed','Completed')),
+  created_by     TEXT,
+  approved_by    TEXT,
+  approved_at    TIMESTAMP,
+  executed_by    TEXT,
+  executed_at    TIMESTAMP,
+  disposal_date DATE,
+  disposal_method TEXT,
+  witness        TEXT,
+  supporting_document TEXT,
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS approved_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS executed_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS executed_at TIMESTAMP;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_date DATE;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_method TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS witness TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS supporting_document TEXT;
+UPDATE disposals SET reason = 'Reason not recorded' WHERE reason IS NULL OR BTRIM(reason) = '';
+ALTER TABLE disposals ALTER COLUMN reason SET NOT NULL;
 
 -- ---------- audit_logs (§5.16) ----------
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -474,6 +494,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 CREATE TABLE IF NOT EXISTS user_cards (
   id             SERIAL PRIMARY KEY,
   user_name      TEXT NOT NULL,
+  user_id        INTEGER REFERENCES users(id) ON DELETE RESTRICT,
   department     TEXT,
   item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
   issue_ref      TEXT NOT NULL,
@@ -486,6 +507,13 @@ CREATE TABLE IF NOT EXISTS user_cards (
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE user_cards ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT;
+UPDATE user_cards uc
+SET user_id = u.id
+FROM users u
+WHERE uc.user_id IS NULL
+  AND uc.user_name = u.name;
+CREATE INDEX IF NOT EXISTS idx_user_cards_user ON user_cards(user_id);
 
 -- ---------- stock_taking ----------
 CREATE TABLE IF NOT EXISTS stock_taking_sessions (
