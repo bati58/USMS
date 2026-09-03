@@ -393,6 +393,8 @@ export default function GoodsReceiptList() {
                   <tr>
                     <th className="py-2">Item</th>
                     <th className="py-2">Qty</th>
+                    <th className="py-2">Accepted</th>
+                    <th className="py-2">Rejected</th>
                     <th className="py-2">Unit Price</th>
                     <th className="py-2">Total</th>
                   </tr>
@@ -402,6 +404,8 @@ export default function GoodsReceiptList() {
                     <tr key={i} className="border-b border-ink-50">
                       <td className="py-2">{l.item}</td>
                       <td className="py-2">{l.qty}</td>
+                      <td className="py-2">{l.qtyAccepted == null ? '-' : l.qtyAccepted}</td>
+                      <td className="py-2">{l.qtyRejected == null ? '-' : l.qtyRejected}</td>
                       <td className="py-2">{formatCurrency(l.unitPrice)}</td>
                       <td className="py-2">{formatCurrency(l.qty * l.unitPrice)}</td>
                     </tr>
@@ -414,6 +418,10 @@ export default function GoodsReceiptList() {
                 <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1">Technical Evaluation</p>
                 <p className="text-ink-800">{viewing.evaluationNote}</p>
                 <p className="mt-2 text-xs text-ink-500">Evaluated by {viewing.evaluatedBy}</p>
+                {viewing.evaluationDate && <p className="mt-1 text-xs text-ink-500">Evaluation date: {formatDate(viewing.evaluationDate)}</p>}
+                {viewing.evaluationFindings && <p className="mt-2 text-ink-700">Findings: {viewing.evaluationFindings}</p>}
+                {viewing.evaluationCondition && <p className="mt-1 text-ink-700">Condition: {viewing.evaluationCondition}</p>}
+                {viewing.evaluationEvidence && <p className="mt-1 text-ink-700">Evidence: {viewing.evaluationEvidence}</p>}
               </div>
             )}
             {viewing.status === GRN_STATUS.GRN_GENERATED && (

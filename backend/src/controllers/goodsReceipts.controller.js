@@ -40,7 +40,7 @@ const list = asyncHandler(async (req, res) => {
   let params = [];
 
   if (req.user.role === 'Technical Evaluation Committee') {
-    scope = "WHERE g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected')";
+    scope = "WHERE g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted')";
   } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
     const visibility = await getUserStoreVisibility(req.user, { query });
     if (visibility.canViewAllStores) {
@@ -68,7 +68,7 @@ const getOne = asyncHandler(async (req, res) => {
   let params = [req.params.id];
 
   if (req.user.role === 'Technical Evaluation Committee') {
-    scope = " AND g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected')";
+    scope = " AND g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted')";
   } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
     const visibility = await getUserStoreVisibility(req.user, { query });
     if (visibility.canViewAllStores) {
@@ -91,7 +91,7 @@ const getOne = asyncHandler(async (req, res) => {
   const grn = await fetchWithLines(
     req.params.id,
     { query },
-    req.user.role === 'Technical Evaluation Committee' ? " AND g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected')" : ''
+    req.user.role === 'Technical Evaluation Committee' ? " AND g.status IN ('Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted')" : ''
   );
   if (!grn) throw new AppError('Goods receipt not found.', 404);
   res.json(grn);

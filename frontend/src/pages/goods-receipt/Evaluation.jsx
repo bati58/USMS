@@ -24,11 +24,14 @@ export default function Evaluation() {
   const [saving, setSaving] = useState(false)
   const [acceptedQuantities, setAcceptedQuantities] = useState([])
 
+  const pendingRows = rows.filter((row) => row.status === GRN_STATUS.PENDING_EVAL || row.status === GRN_STATUS.UNDER_EVAL)
+  const historyRows = rows.filter((row) => !pendingRows.includes(row) && row.evaluatedBy)
+
   async function load() {
     setLoading(true)
     try {
       const grns = await goodsReceiptService.list()
-      setRows(grns.filter((g) => g.status === GRN_STATUS.PENDING_EVAL || g.status === GRN_STATUS.UNDER_EVAL))
+      setRows(grns)
     } catch (err) {
       push(err.message || 'Could not load evaluations.', 'error')
     } finally {
@@ -100,7 +103,7 @@ export default function Evaluation() {
       className: 'text-right',
       render: (row) => (
         <Button variant="secondary" onClick={() => startReview(row)} icon={Search}>
-          Review
+          {pendingRows.includes(row) ? 'Review' : 'View Result'}
         </Button>
       )
     }
@@ -116,10 +119,21 @@ export default function Evaluation() {
       <div className="card p-5">
         <Table
           columns={columns}
-          rows={rows}
+          rows={pendingRows}
           loading={loading}
           emptyTitle="Nothing pending evaluation"
           emptyMessage="All received materials have been evaluated."
+        />
+      </div>
+
+      <div className="card p-5 mt-5">
+        <h2 className="mb-3 text-lg font-semibold text-ink-800">Completed Evaluation History</h2>
+        <Table
+          columns={columns}
+          rows={historyRows}
+          loading={loading}
+          emptyTitle="No completed evaluations"
+          emptyMessage="Completed technical evaluation results will appear here."
         />
       </div>
 
@@ -132,15 +146,19 @@ export default function Evaluation() {
             <Button variant="secondary" onClick={() => setTarget(null)}>
               Cancel
             </Button>
-            <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(GRN_STATUS.REJECTED)}>
-              Reject (Return to Supplier)
-            </Button>
-            <Button variant="secondary" loading={saving} onClick={() => decide(GRN_STATUS.PARTIALLY_ACCEPTED)}>
-              Partially Accept
-            </Button>
-            <Button icon={CheckCircle2} loading={saving} onClick={() => decide(GRN_STATUS.ACCEPTED)}>
-              Accept Materials
-            </Button>
+            {target && pendingRows.includes(target) && (
+              <>
+                <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(GRN_STATUS.REJECTED)}>
+                  Reject (Return to Supplier)
+                </Button>
+                <Button variant="secondary" loading={saving} onClick={() => decide(GRN_STATUS.PARTIALLY_ACCEPTED)}>
+                  Partially Accept
+                </Button>
+                <Button icon={CheckCircle2} loading={saving} onClick={() => decide(GRN_STATUS.ACCEPTED)}>
+                  Accept Materials
+                </Button>
+              </>
+            )}
           </>
         }
       >
@@ -189,6 +207,15 @@ export default function Evaluation() {
                 </tbody>
               </table>
             </div>
+            {target.evaluatedBy && (
+              <div className="rounded-lg border border-success-100 bg-success-50 p-4">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-success-700">Saved Evaluation Result</p>
+                <p className="text-success-900">{target.evaluationFindings || target.evaluationNote}</p>
+                <p className="mt-2 text-xs text-success-700">Evaluated by {target.evaluatedBy} on {formatDate(target.evaluationDate)}</p>
+                {target.evaluationCondition && <p className="mt-1 text-xs text-success-700">Condition: {target.evaluationCondition}</p>}
+                {target.evaluationEvidence && <p className="mt-1 text-xs text-success-700">Evidence: {target.evaluationEvidence}</p>}
+              </div>
+            )}
             <Textarea
               label="Evaluation Findings & Decision Note"
               required

@@ -313,16 +313,32 @@ const post = asyncHandler(async (req, res) => {
 });
 
 const reconciliation = asyncHandler(async (req, res) => {
+    let scope = '';
+    let params = [];
+    if (req.user.role === 'Store Head') {
+        const visibility = await getUserStoreVisibility(req.user, { query });
+        if (!visibility.canViewAllStores && visibility.assignedStoreId) {
+            scope = ' AND st.store_id = $1';
+            params = [visibility.assignedStoreId];
+        }
+    } else if (req.user.role === 'Stock Clerk') {
+        scope = ' AND st.assigned_user_id = $1';
+        params = [req.user.id];
+    }
+
     const { rows } = await query(`
     SELECT st.session_ref, st.count_date, st.status, s.name AS store, i.name AS item,
-           sti.bin, sti.system_qty, sti.physical_qty, sti.variance, sti.reason, sti.adjustment_ref
+           sti.bin, sti.system_qty,
+           COALESCE(sti.recount_physical_qty, sti.physical_qty) AS physical_qty,
+           COALESCE(sti.recount_physical_qty, sti.physical_qty) - sti.system_qty AS variance,
+           sti.reason, sti.adjustment_ref
     FROM stock_taking_items sti
     JOIN stock_taking_sessions st ON st.id = sti.session_id
     JOIN stores s ON s.id = st.store_id
     JOIN items i ON i.id = sti.item_id
-    WHERE sti.variance <> 0
+    WHERE COALESCE(sti.recount_physical_qty, sti.physical_qty) - sti.system_qty <> 0${scope}
     ORDER BY st.count_date DESC, sti.id DESC
-  `);
+  `, params);
     res.json(rows.map((row) => ({ ...row, systemQty: Number(row.system_qty), physicalQty: Number(row.physical_qty), variance: Number(row.variance) })));
 });
 

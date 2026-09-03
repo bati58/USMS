@@ -159,11 +159,21 @@ function mapGoodsReceipt(row, items = []) {
     store: row.store_name || null,
     status: row.status,
     evaluationNote: row.evaluation_note,
+    evaluationDate: row.evaluation_date,
+    evaluationFindings: row.evaluation_findings,
+    evaluationCondition: row.evaluation_condition,
+    evaluationEvidence: row.evaluation_evidence,
     evaluatedBy: row.evaluated_by,
     gateVerified: row.gate_verified,
     gateVerifiedBy: row.gate_verified_by,
     gateVerifiedAt: row.gate_verified_at,
-    items: items.map((i) => ({ item: i.item_name, qty: Number(i.qty), unitPrice: Number(i.unit_price) }))
+    items: items.map((i) => ({
+      item: i.item_name,
+      qty: Number(i.qty),
+      qtyAccepted: i.qty_accepted == null ? null : Number(i.qty_accepted),
+      qtyRejected: i.qty_rejected == null ? null : Number(i.qty_rejected),
+      unitPrice: Number(i.unit_price)
+    }))
   };
 }
 
