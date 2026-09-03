@@ -123,6 +123,20 @@ async function upsertBinCard(client, { bin, storeId, itemId, delta, date, refere
   }
 }
 
+async function ensureSourceBinCard(client, { bin, storeId, itemId, balance, date }) {
+  if (!bin) return;
+  const { rows } = await client.query(
+    'SELECT id, balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE',
+    [bin, storeId, itemId]
+  );
+  if (rows[0]) return;
+  await client.query(
+    `INSERT INTO bin_cards (bin, store_id, item_id, last_movement, balance)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [bin, storeId, itemId, date, balance]
+  );
+}
+
 // ---------------------------------------------------------------------------
 // §6.1 Goods Receipt approval -> stock increases
 // ---------------------------------------------------------------------------
@@ -520,6 +534,13 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName 
     const fifoUnitPrice = await consumeFifo(client, sourceItem.id, transfer.qty);
     const newSourceQty = Number(sourceItem.qty_on_hand) - Number(transfer.qty);
     await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newSourceQty, sourceItem.id]);
+    await ensureSourceBinCard(client, {
+      bin: sourceItem.bin,
+      storeId: sourceItem.store_id,
+      itemId: sourceItem.id,
+      balance: Number(sourceItem.qty_on_hand),
+      date: transfer.date
+    });
 
     await insertStockTransaction(client, {
       itemId: sourceItem.id,
@@ -628,6 +649,25 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName 
   } else {
     await client.query('UPDATE material_transfers SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, transferId]);
   }
+
+  if (decision === 'Received' && transfer.requisition_id) {
+    const { rows: pendingLines } = await client.query(
+      `SELECT 1
+       FROM material_transfers
+       WHERE requisition_id = $1 AND status <> 'Completed'
+       LIMIT 1`,
+      [transfer.requisition_id]
+    );
+    if (!pendingLines.length) {
+      await client.query(
+        `UPDATE requisitions
+         SET status = 'Fulfilled', updated_at = NOW()
+         WHERE id = $1 AND status IN ('Approved', 'Partially Approved', 'Ready for Issue')`,
+        [transfer.requisition_id]
+      );
+    }
+  }
+
   await logAudit(client, {
     userName: actorName,
     action: `${decision} transfer ${transfer.transfer_ref}`,
