@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Edit, Trash2 } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import Card from '../../components/ui/Card'
 import Button from '../../components/ui/Button'
@@ -97,7 +98,28 @@ export default function UserCardList() {
                         { key: 'qty', header: 'Qty' },
                         { key: 'issueRef', header: 'Issue Reference' },
                         { key: 'status', header: 'Status', render: (row) => <StatusBadge status={row.status} /> },
-                        ...(canEdit ? [{ key: '__actions', header: 'Actions', render: (row) => <div className="flex gap-2"><Button variant="secondary" onClick={() => { setEditing(row); setForm(row) }}>Edit</Button><Button variant="danger" onClick={() => remove(row.id)}>Delete</Button></div> }] : [])
+                        ...(canEdit ? [{
+                            key: '__actions',
+                            header: 'Actions',
+                            render: (row) => (
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="secondary"
+                                        icon={Edit}
+                                        aria-label={`Edit custody record for ${row.user}`}
+                                        title="Edit custody record"
+                                        onClick={() => { setEditing(row); setForm(row) }}
+                                    />
+                                    <Button
+                                        variant="danger"
+                                        icon={Trash2}
+                                        aria-label={`Delete custody record for ${row.user}`}
+                                        title="Delete custody record"
+                                        onClick={() => remove(row.id)}
+                                    />
+                                </div>
+                            )
+                        }] : [])
                     ]}
                     rows={rows}
                     loading={loading}

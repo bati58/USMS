@@ -93,23 +93,46 @@ const getOne = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const { department, requestedBy, date, store, items } = req.body;
   const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
-  if (!effectiveDepartment || !store || !Array.isArray(items) || items.length === 0) {
+  if ((!effectiveDepartment && req.user.role !== 'Storekeeper') || !store || !Array.isArray(items) || items.length === 0) {
     throw new AppError('department, store, and at least one item are required.', 400);
   }
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
+    const { rows: destinationStores } = await client.query(
+      `SELECT type, department, active FROM stores WHERE id = $1`,
+      [storeId]
+    );
+    if (!destinationStores[0]?.active) throw new AppError('The requesting store is not active.', 400);
+    if (req.user.role === 'Storekeeper' && destinationStores[0].type === 'Main Store') {
+      throw new AppError('A Sub-Store Storekeeper must request materials for their assigned Sub-Store.', 403);
+    }
+    if (req.user.role === 'Storekeeper') {
+      const visibility = await getUserStoreVisibility(req.user, client);
+      if (!visibility.assignedStoreId || visibility.canViewAllStores || Number(visibility.assignedStoreId) !== Number(storeId)) {
+        throw new AppError('You can only create a requisition for your assigned Sub-Store.', 403);
+      }
+    }
+    const requestDepartment = req.user.role === 'Storekeeper' ? destinationStores[0].department : effectiveDepartment;
+    if (!requestDepartment) throw new AppError('The requesting store must have a department.', 400);
+    const { rows: mainStores } = await client.query(
+      `SELECT id FROM stores WHERE active = TRUE AND type = 'Main Store' ORDER BY id LIMIT 1`
+    );
+    const itemStoreId = req.user.role === 'Storekeeper' ? mainStores[0]?.id : storeId;
+    if (req.user.role === 'Storekeeper' && !itemStoreId) {
+      throw new AppError('No active Main Store is configured.', 500);
+    }
     const srRef = await nextRef(client, 'SR');
 
     const { rows } = await client.query(
-      `INSERT INTO requisitions (sr_ref, department, requested_by, date, store_id, status)
-       VALUES ($1,$2,$3,COALESCE($4, CURRENT_DATE),$5,'Draft') RETURNING id`,
-      [srRef, effectiveDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId]
+      `INSERT INTO requisitions (sr_ref, department, requested_by, date, store_id, priority, reason, status)
+       VALUES ($1,$2,$3,COALESCE($4, CURRENT_DATE),$5,$6,$7,'Draft') RETURNING id`,
+      [srRef, requestDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId, req.body.priority || 'Normal', req.body.reason || null]
     );
     const reqId = rows[0].id;
 
     for (const line of items) {
-      const itemId = await resolveItemId(line.item, client, storeId);
+      const itemId = await resolveItemId(line.item, client, itemStoreId);
       if (!itemId) throw new AppError(`Unknown item on this requisition: "${line.item}".`, 400);
       await client.query('INSERT INTO requisition_items (requisition_id, item_id, qty) VALUES ($1,$2,$3)', [
         reqId,

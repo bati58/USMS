@@ -425,6 +425,8 @@ CREATE TABLE IF NOT EXISTS material_transfers (
 ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS department TEXT;
 ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS requested_by TEXT;
 CREATE INDEX IF NOT EXISTS idx_material_transfers_department ON material_transfers(department);
+ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS requisition_id INTEGER REFERENCES requisitions(id) ON DELETE RESTRICT;
+CREATE INDEX IF NOT EXISTS idx_material_transfers_requisition ON material_transfers(requisition_id);
 
 -- ---------- disposals (§5.15) ----------
 CREATE TABLE IF NOT EXISTS disposals (

@@ -69,39 +69,52 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/material-transfers — Backend-SRS §6.4 step 1 (Pending, no stock change)
 const create = asyncHandler(async (req, res) => {
-  const { fromStore, toStore, item, qty, date, destinationBin } = req.body;
-  if (!fromStore || !toStore || !item || !qty) {
-    throw new AppError('fromStore, toStore, item, and qty are required.', 400);
+  const { requisitionId, item, qty, date, destinationBin } = req.body;
+  if (!requisitionId || !item || !qty) {
+    throw new AppError('requisitionId, item, and qty are required.', 400);
   }
-
-  if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-    const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
-    if (assignedStores.length && !assignedStores.includes(fromStore)) {
-      throw new AppError('You can only create transfer requests from one of your assigned stores.', 403);
-    }
+  if (!['Store Head', 'Storekeeper'].includes(req.user.role)) {
+    throw new AppError('Only Main Store operators can create material transfers.', 403);
   }
 
   const result = await withTransaction(async (client) => {
-    const fromStoreId = await resolveStoreId(fromStore, client);
-    const toStoreId = await resolveStoreId(toStore, client);
-    if (req.user.role === 'Department Head') {
-      const { rows: sourceStoreRows } = await client.query('SELECT department FROM stores WHERE id = $1 AND active = TRUE', [fromStoreId]);
-      const sourceDepartment = sourceStoreRows[0]?.department;
-      const assignedDepartments = Array.isArray(req.user.departments) && req.user.departments.length
-        ? req.user.departments
-        : [req.user.department];
-      const canUseSourceStore = assignedDepartments.some((department) =>
-        sourceDepartment && String(sourceDepartment).trim().toLowerCase() === String(department || '').trim().toLowerCase()
-      );
-      if (!canUseSourceStore) {
-        throw new AppError('Department Heads can only create transfers from their department store.', 403);
-      }
+    const visibility = await getUserStoreVisibility(req.user, client);
+    const { rows: sourceStores } = await client.query(
+      `SELECT id FROM stores WHERE active = TRUE AND type = 'Main Store' AND ($1 = ANY(ARRAY[storekeeper, head_of_store])) LIMIT 1`,
+      [req.user.name]
+    );
+    if (!sourceStores[0] || !visibility.canViewAllStores && visibility.assignedStoreType !== 'Main Store') {
+      throw new AppError('Only a Main Store operator can create material transfers.', 403);
     }
-    const itemId = await resolveItemId(item, client, fromStoreId);
-    if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
-    const { rows: sourceItems } = await client.query('SELECT id FROM items WHERE id = $1 AND store_id = $2', [itemId, fromStoreId]);
-    if (!sourceItems[0]) throw new AppError('The selected item does not belong to the source store.', 400);
-    if (fromStoreId === toStoreId) throw new AppError('Source and destination stores must be different.', 400);
+    const fromStoreId = sourceStores[0].id;
+    const { rows: requests } = await client.query(
+      `SELECT r.*, s.type AS destination_type
+       FROM requisitions r JOIN stores s ON s.id = r.store_id
+       WHERE r.id = $1 FOR UPDATE`,
+      [requisitionId]
+    );
+    const request = requests[0];
+    if (!request) throw new AppError('Requisition not found.', 404);
+    if (!['Approved', 'Partially Approved'].includes(request.status)) {
+      throw new AppError('Only an approved requisition can be converted into a transfer.', 409);
+    }
+    if (request.destination_type === 'Main Store') {
+      throw new AppError('Material transfers can only fulfil Sub-Store requisitions.', 400);
+    }
+    const { rows: requestLines } = await client.query(
+      `SELECT ri.qty, ri.qty_approved, i.id, i.name
+       FROM requisition_items ri JOIN items i ON i.id = ri.item_id
+       WHERE ri.requisition_id = $1 AND i.store_id = $2`,
+      [requisitionId, fromStoreId]
+    );
+    const requestLine = requestLines.find((line) => line.name === item);
+    if (!requestLine) throw new AppError('The selected item is not part of the approved requisition from Main Store.', 400);
+    const approvedQty = requestLine.qty_approved == null ? Number(requestLine.qty) : Number(requestLine.qty_approved);
+    if (Number(qty) <= 0 || Number(qty) > approvedQty) {
+      throw new AppError(`Transfer quantity cannot exceed the approved requisition quantity of ${approvedQty}.`, 400);
+    }
+    const itemId = requestLine.id;
+    const toStoreId = request.store_id;
     const transferRef = await nextRef(client, 'TRF');
 
     const { rows } = await client.query(
@@ -109,12 +122,13 @@ const create = asyncHandler(async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending Approval',$7,$8,$9) RETURNING id`,
       [transferRef, fromStoreId, toStoreId, itemId, qty, date || null, destinationBin || null, req.user.department || null, req.user.name]
     );
+    await client.query('UPDATE material_transfers SET requisition_id = $1 WHERE id = $2', [requisitionId, rows[0].id]);
 
     await logAudit(client, { userName: req.user.name, action: `Created transfer ${transferRef}`, module: 'Material Transfer' });
     await notify(client, {
       role: 'Property Administration Officer',
       title: 'Store transfer awaiting approval',
-      message: `Transfer ${transferRef} from ${fromStore} to ${toStore} is awaiting review.`,
+      message: `Transfer ${transferRef} for requisition ${request.sr_ref} is awaiting review.`,
       type: 'info',
       route: '/material-transfer',
       entityType: 'material-transfer',

@@ -103,7 +103,7 @@ const WRITE_PERMISSIONS = {
   'stock-transactions': [], // system-generated only
   'bin-cards': [STOREKEEPER, STOCK_CLERK],
   'bin-transfers': [STORE_HEAD, STOREKEEPER],
-  requisitions: [PAO, STORE_HEAD, DEPT_HEAD],
+  requisitions: [PAO, STORE_HEAD, STOREKEEPER, DEPT_HEAD],
   'issue-vouchers': [STORE_HEAD], // Store Head prepares (generates) the preliminary voucher from an approved requisition
   'material-returns': [STORE_HEAD, DEPT_HEAD],
   'material-transfers': [PAO, STORE_HEAD, STOREKEEPER, DEPT_HEAD],

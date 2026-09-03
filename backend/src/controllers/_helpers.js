@@ -218,6 +218,8 @@ function mapRequisition(row, items = [], approvals = []) {
     requestedBy: row.requested_by,
     date: row.date,
     store: row.store_name || null,
+    priority: row.priority || 'Normal',
+    reason: row.reason || null,
     status: row.status,
     items: items.map((i) => ({ item: i.item_name, qty: Number(i.qty), qtyApproved: i.qty_approved == null ? Number(i.qty) : Number(i.qty_approved) })),
     approvals: approvals.map((a) => ({ decision: a.decision, comments: a.comments, approvedBy: a.approved_by, approvedAt: a.approved_at }))
@@ -280,6 +282,8 @@ function mapMaterialTransfer(row) {
   return {
     id: row.id,
     transferRef: row.transfer_ref,
+    requisitionId: row.requisition_id || null,
+    requestedBy: row.requested_by || null,
     fromStore: row.from_store_name || null,
     toStore: row.to_store_name || null,
     item: row.item_name || null,

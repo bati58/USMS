@@ -42,7 +42,11 @@ export default function GoodsReceiptList() {
   const userAssignedStore = user?.store || ''
   const isScopedStoreUser = (isStorekeeper || isStoreHead) && !!userAssignedStore
   const isMainStoreHead = isStoreHead && !userAssignedStore
-  const canManage = isStorekeeper
+  const assignedStoreNames = user?.assignedStores?.length ? user.assignedStores : [userAssignedStore].filter(Boolean)
+  const hasMainStoreAssignment = assignedStoreNames.some((storeName) =>
+    stores.some((store) => store.name === storeName && store.type === 'Main Store')
+  )
+  const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = isStorekeeper
   const canNotifyTec = isStoreHead
 

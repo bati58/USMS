@@ -50,10 +50,15 @@ export default function RequisitionList() {
   const isPao = user?.role === ROLES.PAO
   const isDeptHead = user?.role === ROLES.DEPT_HEAD
   const isStoreHead = user?.role === ROLES.STORE_HEAD
+  const isStorekeeper = user?.role === ROLES.STOREKEEPER
 
-  const userAssignedStore = user?.store || ''
-  const isScopedStoreUser = isStoreHead && !!userAssignedStore
+  const userAssignedStore = user?.store || user?.assignedStores?.[0] || ''
+  const isScopedStoreUser = (isStoreHead || isStorekeeper) && !!userAssignedStore
   const isMainStoreHead = isStoreHead && !userAssignedStore
+  const mainStoreName = stores.find((store) => store.type === 'Main Store')?.name
+  const requestableItems = isStorekeeper
+    ? items.filter((item) => item.store === mainStoreName)
+    : items
 
   // Only the PAO (stage 2) sets the final approved quantities. The Department Head (stage 1)
   // only endorses and forwards, so the Approved-Qty inputs stay read-only for them.
@@ -104,7 +109,9 @@ export default function RequisitionList() {
     setHeader({
       department: user?.department || '',
       store: defaultStore,
-      date: new Date().toISOString().slice(0, 10)
+      date: new Date().toISOString().slice(0, 10),
+      priority: 'Normal',
+      reason: ''
     })
     setLines([{ ...EMPTY_LINE }])
     setModalOpen(true)
@@ -131,7 +138,7 @@ export default function RequisitionList() {
     e.preventDefault()
 
     const nextErrors = {}
-    if (!header.department) nextErrors.department = 'Department is required.'
+    if (!header.department && !isStorekeeper) nextErrors.department = 'Department is required.'
     if (!header.store) nextErrors.store = 'Issuing Store is required.'
     if (!header.date) nextErrors.date = 'Date is required.'
 
@@ -160,6 +167,8 @@ export default function RequisitionList() {
         ...header,
         requestedBy: user?.name || 'Department Head',
         status: REQUISITION_STATUS.PENDING,
+        priority: header.priority,
+        reason: header.reason,
         items: lines.filter((l) => l.item && l.qty)
       })
       push(`Requisition ${srRef} submitted for approval.`, 'success')
@@ -314,14 +323,14 @@ export default function RequisitionList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {isDeptHead ? (
+            {isDeptHead || isStorekeeper ? (
               <Input
-                label="Requesting Department"
+                label={isStorekeeper ? 'Requesting Store' : 'Requesting Department'}
                 required
-                value={header.department || user?.department || ''}
+                value={isStorekeeper ? userAssignedStore : (header.department || user?.department || '')}
                 disabled
                 readOnly
-                error={fieldErrors.department}
+                error={fieldErrors.department || fieldErrors.store}
               />
             ) : (
               <Select
@@ -334,9 +343,9 @@ export default function RequisitionList() {
                 placeholder="Select a department..."
               />
             )}
-            {isScopedStoreUser && !isMainStoreHead ? (
+            {isStorekeeper ? (
               <div>
-                <label className="block text-sm font-medium text-ink-700 mb-1">Issuing Store</label>
+                <label className="block text-sm font-medium text-ink-700 mb-1">Destination Store</label>
                 <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
                   {userAssignedStore}
                 </div>
@@ -345,6 +354,8 @@ export default function RequisitionList() {
               <Select label="Issuing Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
             )}
             <Input label="Date" type="date" required error={fieldErrors.date} value={header.date} onChange={(e) => { setHeader((h) => ({ ...h, date: e.target.value })); setFieldErrors((prev) => ({ ...prev, date: '' })) }} />
+            {isStorekeeper && <Select label="Priority" options={['Normal', 'High', 'Urgent']} value={header.priority || 'Normal'} onChange={(e) => setHeader((h) => ({ ...h, priority: e.target.value }))} />}
+            {isStorekeeper && <Input label="Reason" value={header.reason || ''} onChange={(e) => setHeader((h) => ({ ...h, reason: e.target.value }))} />}
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between">
@@ -356,7 +367,7 @@ export default function RequisitionList() {
             <div className="space-y-2">
               {lines.map((line, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-2">
-                  <Select label="Item" error={fieldErrors[`line_${idx}_item`]} options={items.map((i) => i.name)} value={line.item} onChange={(e) => { updateLine(idx, { item: e.target.value }); setFieldErrors((prev) => ({ ...prev, [`line_${idx}_item`]: '' })) }} />
+                  <Select label="Item" error={fieldErrors[`line_${idx}_item`]} options={requestableItems.map((i) => i.name)} value={line.item} onChange={(e) => { updateLine(idx, { item: e.target.value }); setFieldErrors((prev) => ({ ...prev, [`line_${idx}_item`]: '' })) }} />
                   <div>
                     <Input label="Quantity" type="number" error={fieldErrors[`line_${idx}_qty`]} value={line.qty} onChange={(e) => { updateLine(idx, { qty: e.target.value }); setFieldErrors((prev) => ({ ...prev, [`line_${idx}_qty`]: '' })) }} />
                     {lines.length > 1 && (

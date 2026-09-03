@@ -9,7 +9,7 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import StatusBadge from '../../components/ui/StatusBadge'
-import { materialTransferService, storeService, itemService } from '../../services'
+import { materialTransferService, storeService, itemService, requisitionService } from '../../services'
 import { api } from '../../services/apiClient'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
@@ -25,6 +25,7 @@ export default function MaterialTransferList() {
   const [rows, setRows] = useState([])
   const [stores, setStores] = useState([])
   const [items, setItems] = useState([])
+  const [requisitions, setRequisitions] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -32,7 +33,7 @@ export default function MaterialTransferList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const [header, setHeader] = useState({ fromStore: '', toStore: '', date: '', destinationBin: '' })
+  const [header, setHeader] = useState({ requisitionId: '', item: '', qty: '', date: '', destinationBin: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
 
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
@@ -42,39 +43,27 @@ export default function MaterialTransferList() {
   const isDepartmentHead = user?.role === ROLES.DEPT_HEAD
   const isStoreOperator = ['Storekeeper', 'Store Head'].includes(user?.role)
   const isScopedStoreUser = isStoreOperator && assignedStoreNames.length > 0
-  const isMainStoreHead = user?.role === ROLES.STORE_HEAD && !isScopedStoreUser
+  const isMainStoreOperator = isStoreOperator && assignedStoreNames.some((name) => stores.find((store) => store.name === name)?.type === 'Main Store')
+  const canCreateTransfer = canCreate && isMainStoreOperator
   // Store operators who physically move goods (backend: material-transfers-execute).
   const isStorekeeper = [ROLES.STOREKEEPER, ROLES.STORE_HEAD].includes(user?.role)
   const canDispatchViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.fromStore))
   const canReceiveViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.toStore))
-  const allowedSourceStores = useMemo(() => {
-    if (isDepartmentHead) {
-      const departments = (user?.departments?.length ? user.departments : [user?.department])
-        .map((department) => String(department || '').trim().toLowerCase())
-      return stores.filter((store) => departments.includes(String(store.department || '').trim().toLowerCase()))
-    }
-    if (!isScopedStoreUser) return stores
-    return stores.filter((store) => assignedStoreNames.includes(store.name))
-  }, [stores, isDepartmentHead, user?.departments, user?.department, isScopedStoreUser, assignedStoreNames])
-
-  // Filter items to show only those from the selected source store
-  const availableItems = useMemo(() => {
-    if (!header.fromStore) return items
-    return items.filter((item) => item.store === header.fromStore)
-  }, [items, header.fromStore])
-
-  // Filter destination stores to exclude the source store and handle scoped user restrictions
-  const availableDestStores = useMemo(() => {
-    return stores.filter((store) => store.name !== header.fromStore)
-  }, [stores, header.fromStore])
+  const approvedRequisitions = useMemo(
+    () => requisitions.filter((request) => ['Approved', 'Partially Approved'].includes(request.status)),
+    [requisitions]
+  )
+  const selectedRequisition = approvedRequisitions.find((request) => String(request.id) === String(header.requisitionId))
+  const availableItems = selectedRequisition?.items || []
 
   async function load() {
     setLoading(true)
     try {
-      const [transfers, storeList, itemList] = await Promise.all([materialTransferService.list(), storeService.list(), itemService.list()])
+      const [transfers, storeList, itemList, requisitionList] = await Promise.all([materialTransferService.list(), storeService.list(), itemService.list(), requisitionService.list()])
       setRows(transfers)
       setStores(storeList.filter((store) => store.active !== false))
       setItems(itemList)
+      setRequisitions(requisitionList)
     } catch (err) {
       push(err.message || 'Could not load material transfers.', 'error')
     } finally {
@@ -98,10 +87,10 @@ export default function MaterialTransferList() {
   }, [rows, query, isScopedStoreUser, userAssignedStore])
 
   function openCreate() {
-    const defaultFromStore = isScopedStoreUser && assignedStoreNames.length === 1 ? assignedStoreNames[0] : ''
     setHeader({
-      fromStore: defaultFromStore,
-      toStore: '',
+      requisitionId: '',
+      item: '',
+      qty: '',
       date: new Date().toISOString().slice(0, 10),
       destinationBin: ''
     })
@@ -115,28 +104,12 @@ export default function MaterialTransferList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    if (isScopedStoreUser && !assignedStoreNames.includes(header.fromStore)) {
-      push('You can only create transfer requests from one of your assigned stores.', 'error')
+    if (!isMainStoreOperator) {
+      push('Only the Main Store can create material transfers.', 'error')
       return
     }
-    if (header.fromStore === header.toStore) {
-      push('Source and destination stores must be different.', 'error')
-      return
-    }
-    const line = lines[0]
-    if (!header.fromStore || !header.toStore || !header.date || !line.item || !line.qty || Number(line.qty) <= 0) {
-      push('Source store, destination store, date, item, and a positive quantity are required.', 'error')
-      return
-    }
-    const selectedItem = availableItems.find((item) => item.name === line.item)
-    const availableQty = Number(selectedItem?.qtyOnHand)
-    const requestedQty = Number(line.qty)
-    if (!selectedItem || !Number.isFinite(availableQty)) {
-      push('The selected item is not available in the source store.', 'error')
-      return
-    }
-    if (requestedQty > availableQty) {
-      push(`Insufficient stock. ${selectedItem.name} has only ${availableQty} available in ${header.fromStore}.`, 'error')
+    if (!selectedRequisition || !header.item || !header.qty || Number(header.qty) <= 0) {
+      push('An approved requisition, item, and positive quantity are required.', 'error')
       return
     }
     setSaving(true)
@@ -145,12 +118,13 @@ export default function MaterialTransferList() {
       const transferRef = `TRF-2026-${String(count).padStart(4, '0')}`
       await materialTransferService.create({
         transferRef,
-        ...header,
+        requisitionId: selectedRequisition.id,
+        item: header.item,
+        qty: Number(header.qty),
+        date: header.date,
+        destinationBin: header.destinationBin,
         requestedBy: user?.name || 'Storekeeper',
         status: TRANSFER_STATUS.PENDING_APPROVAL,
-        item: line.item,
-        qty: Number(line.qty),
-        destinationBin: header.destinationBin
       })
       push(`Transfer request ${transferRef} submitted for PAO approval.`, 'success')
       setModalOpen(false)
@@ -251,7 +225,7 @@ export default function MaterialTransferList() {
         title="Store Transfers"
         subtitle="Request, approve, and execute material transfers between stores."
         actions={
-          canCreate ? <Button icon={Plus} onClick={openCreate}>New Transfer Request</Button> : null
+          canCreateTransfer ? <Button icon={Plus} onClick={openCreate}>New Transfer Request</Button> : null
         }
       />
 
@@ -280,20 +254,9 @@ export default function MaterialTransferList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {isScopedStoreUser ? (
-              <div>
-                <Select label="Source Store" required options={allowedSourceStores.map((s) => s.name)} value={header.fromStore} onChange={(e) => setHeader((h) => ({ ...h, fromStore: e.target.value }))} />
-              </div>
-            ) : (
-              <Select
-                label="Source Store"
-                required
-                options={allowedSourceStores.map((s) => s.name)}
-                value={header.fromStore}
-                onChange={(e) => setHeader((h) => ({ ...h, fromStore: e.target.value }))}
-              />
-            )}
-            <Select label="Destination Store" required options={availableDestStores.map((s) => s.name)} value={header.toStore} onChange={(e) => setHeader((h) => ({ ...h, toStore: e.target.value }))} />
+            <Select label="Approved Requisition" required options={approvedRequisitions.map((request) => ({ value: request.id, label: `${request.srRef} - ${request.store}` }))} value={header.requisitionId} onChange={(e) => setHeader((h) => ({ ...h, requisitionId: e.target.value, item: '', qty: '' }))} />
+            <Input label="Source Store" value="Main Store" readOnly disabled />
+            <Input label="Destination Store" value={selectedRequisition?.store || ''} readOnly disabled />
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
             <Input label="Destination Bin" placeholder="e.g. E03-02-04" value={header.destinationBin} onChange={(e) => setHeader((h) => ({ ...h, destinationBin: e.target.value }))} />
           </div>
@@ -306,11 +269,14 @@ export default function MaterialTransferList() {
                 <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-2">
                   <Select
                     label="Item"
-                    options={availableItems.map((item) => ({ value: item.name, label: `${item.name} (qt: ${item.qtyOnHand})` }))}
-                    value={line.item}
-                    onChange={(e) => updateLine(idx, { item: e.target.value })}
+                    options={availableItems.map((item) => ({ value: item.item, label: `${item.item} (requested: ${item.qtyApproved ?? item.qty})` }))}
+                    value={header.item}
+                    onChange={(e) => {
+                      const selectedLine = availableItems.find((line) => line.item === e.target.value)
+                      setHeader((h) => ({ ...h, item: e.target.value, qty: selectedLine?.qtyApproved ?? selectedLine?.qty ?? '' }))
+                    }}
                   />
-                  <Input label="Quantity" type="number" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
+                  <Input label="Quantity" type="number" value={header.qty} onChange={(e) => setHeader((h) => ({ ...h, qty: e.target.value }))} />
                 </div>
               ))}
             </div>

@@ -9,6 +9,16 @@ const { assertTransition } = require('../utils/workflow');
 const { notify } = require('../utils/notify');
 const { canAct } = require('../utils/permissions');
 
+async function assertMainStoreOperator(user, dbClient) {
+  const { rows } = await dbClient.query(
+    `SELECT s.id FROM stores s
+     WHERE s.active = TRUE AND s.type = 'Main Store' AND s.storekeeper = $1
+     LIMIT 1`,
+    [user.name]
+  );
+  if (!rows[0]) throw new AppError('External goods receipts can only be processed by the Main Store Storekeeper.', 403);
+}
+
 const SELECT = `
   SELECT g.*, s.name AS store_name
   FROM goods_receipts g
@@ -99,7 +109,15 @@ const create = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (client) => {
+    await assertMainStoreOperator(req.user, client);
     const storeId = await resolveStoreId(store, client);
+    const { rows: storeRows } = await client.query(
+      `SELECT id, type FROM stores WHERE id = $1 AND active = TRUE`,
+      [storeId]
+    );
+    if (storeRows[0]?.type !== 'Main Store') {
+      throw new AppError('External goods receipts must be received into the Main Store.', 403);
+    }
     const supplierId = await resolveSupplierId(supplier, client);
     const grnRef = await nextRef(client, 'GRN');
 
@@ -199,6 +217,7 @@ const generateGrn = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
+    await assertMainStoreOperator(req.user, client);
     await stockService.generateGrn(client, {
       grnId: req.params.id,
       generatedBy: req.user.name,
@@ -213,7 +232,10 @@ const postStock = asyncHandler(async (req, res) => {
     throw new AppError('Only the Storekeeper can post accepted stock into inventory.', 403);
   }
 
-  await withTransaction((client) => stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name }));
+  await withTransaction(async (client) => {
+    await assertMainStoreOperator(req.user, client);
+    await stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name });
+  });
   res.json(await fetchWithLines(req.params.id));
 });
 
