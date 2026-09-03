@@ -274,6 +274,8 @@ CREATE TABLE IF NOT EXISTS requisitions (
   requested_by    TEXT,
   date            DATE NOT NULL DEFAULT CURRENT_DATE,
   store_id        INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  priority        TEXT NOT NULL DEFAULT 'Normal',
+  reason          TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT 'Pending'
                     CHECK (status IN ('Draft','Submitted','Pending','Pending Approval','Partially Approved','Approved','Ready for Issue','Partially Issued','Fulfilled','Rejected','Returned for Correction','Cancelled')),
   created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -281,6 +283,10 @@ CREATE TABLE IF NOT EXISTS requisitions (
 );
 CREATE INDEX IF NOT EXISTS idx_req_status ON requisitions(status);
 CREATE INDEX IF NOT EXISTS idx_requisitions_department ON requisitions(department_id);
+ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'Normal';
+ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS reason TEXT;
+UPDATE requisitions SET reason = 'Legacy requisition' WHERE reason IS NULL;
+ALTER TABLE requisitions ALTER COLUMN reason SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS requisition_items (
   id               SERIAL PRIMARY KEY,

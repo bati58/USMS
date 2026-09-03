@@ -12,7 +12,7 @@ import { api } from '../../services/apiClient'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, formatCurrency } from '../../utils/formatters'
-import { SIV_STATUS, REQUISITION_STATUS } from '../../utils/constants'
+import { SIV_STATUS, REQUISITION_STATUS, ROLES } from '../../utils/constants'
 import { canPerformAction } from '../../utils/rolePermissions'
 
 export default function IssueVoucherList() {
@@ -55,7 +55,10 @@ export default function IssueVoucherList() {
       ]
       const [vouchers, reqs, allItems] = await Promise.all(requests)
       setRows(vouchers)
-      setApprovedReqs(reqs.filter((r) => r.status === REQUISITION_STATUS.APPROVED || r.status === REQUISITION_STATUS.PARTIALLY_APPROVED))
+      setApprovedReqs(reqs.filter((r) =>
+        (r.status === REQUISITION_STATUS.APPROVED || r.status === REQUISITION_STATUS.PARTIALLY_APPROVED) &&
+        r.requesterRole !== ROLES.STOREKEEPER
+      ))
       setItemsCatalog(allItems)
     } catch (err) {
       push(err.message || 'Could not load issue vouchers.', 'error')
@@ -287,7 +290,7 @@ export default function IssueVoucherList() {
         title={viewing?.sivRef}
         footer={
           <Button variant="secondary" icon={Printer} onClick={() => printIssueVoucher(viewing)}>
-            Print Model 22
+            Print {viewing?.status === SIV_STATUS.APPROVED || viewing?.status === SIV_STATUS.POSTED ? 'Model 22' : 'Draft Model 22'}
           </Button>
         }
       >
@@ -328,6 +331,10 @@ export default function IssueVoucherList() {
 function printIssueVoucher(record) {
   if (!record) return
 
+  const statusLabel = record.status === SIV_STATUS.APPROVED || record.status === SIV_STATUS.POSTED
+    ? record.status
+    : `DRAFT - ${record.status || SIV_STATUS.PRELIMINARY}`
+
   const items = (record.items || []).map((item) => `
     <tr>
       <td>${item.item || '-'}</td>
@@ -341,7 +348,7 @@ function printIssueVoucher(record) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>${record.sivRef || 'Issue Voucher'}</title>
+        <title>${record.sivRef || 'Issue Voucher'} - ${statusLabel}</title>
         <style>
           * { box-sizing: border-box; }
           body {
@@ -357,6 +364,7 @@ function printIssueVoucher(record) {
           .ref { text-align: right; }
           .ref-label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
           .ref-value { font-size: 24px; font-weight: 700; color: #1d4ed8; }
+          .status { display: inline-block; margin-top: 6px; padding: 4px 8px; border: 1px solid #9ca3af; color: #374151; font-size: 11px; font-weight: 700; text-transform: uppercase; }
           .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 22px; }
           .field { margin-bottom: 12px; }
           .label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
@@ -378,6 +386,7 @@ function printIssueVoucher(record) {
           <div class="ref">
             <div class="ref-label">Voucher Ref</div>
             <div class="ref-value">${record.sivRef || '-'}</div>
+            <div class="status">${statusLabel}</div>
           </div>
         </div>
 

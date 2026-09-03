@@ -216,6 +216,7 @@ function mapRequisition(row, items = [], approvals = []) {
     srRef: row.sr_ref,
     department: row.department,
     requestedBy: row.requested_by,
+    requesterRole: row.requester_role || null,
     date: row.date,
     store: row.store_name || null,
     priority: row.priority || 'Normal',

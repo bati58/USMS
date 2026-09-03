@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Eye, CheckCircle2, XCircle, Truck, PackageCheck, Trash2, RotateCcw } from 'lucide-react'
+import { Plus, Eye, CheckCircle2, XCircle, Truck, PackageCheck, Trash2, RotateCcw, Minus } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -17,7 +17,7 @@ import { formatDate } from '../../utils/formatters'
 import { TRANSFER_STATUS, ROLES } from '../../utils/constants'
 import { canPerformAction } from '../../utils/rolePermissions'
 
-const EMPTY_LINE = { item: '', qty: '' }
+const EMPTY_LINE = { item: '', qty: '', destinationBin: '' }
 
 export default function MaterialTransferList() {
   const { push } = useToast()
@@ -33,7 +33,7 @@ export default function MaterialTransferList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const [header, setHeader] = useState({ requisitionId: '', item: '', qty: '', date: '', destinationBin: '' })
+  const [header, setHeader] = useState({ requisitionId: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
 
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
@@ -45,8 +45,8 @@ export default function MaterialTransferList() {
   const isScopedStoreUser = isStoreOperator && assignedStoreNames.length > 0
   const isMainStoreOperator = isStoreOperator && assignedStoreNames.some((name) => stores.find((store) => store.name === name)?.type === 'Main Store')
   const canCreateTransfer = canCreate && isMainStoreOperator
-  // Store operators who physically move goods (backend: material-transfers-execute).
-  const isStorekeeper = [ROLES.STOREKEEPER, ROLES.STORE_HEAD].includes(user?.role)
+  // Only the Storekeeper physically dispatches and receives goods. The Store Head approves transfers.
+  const isStorekeeper = user?.role === ROLES.STOREKEEPER
   const canDispatchViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.fromStore))
   const canReceiveViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.toStore))
   const approvedRequisitions = useMemo(
@@ -89,10 +89,7 @@ export default function MaterialTransferList() {
   function openCreate() {
     setHeader({
       requisitionId: '',
-      item: '',
-      qty: '',
       date: new Date().toISOString().slice(0, 10),
-      destinationBin: ''
     })
     setLines([{ ...EMPTY_LINE }])
     setModalOpen(true)
@@ -108,25 +105,23 @@ export default function MaterialTransferList() {
       push('Only the Main Store can create material transfers.', 'error')
       return
     }
-    if (!selectedRequisition || !header.item || !header.qty || Number(header.qty) <= 0) {
-      push('An approved requisition, item, and positive quantity are required.', 'error')
+    if (!selectedRequisition || !lines.length || lines.some((line) => !line.item || !line.qty || Number(line.qty) <= 0 || !line.destinationBin.trim())) {
+      push('Select an approved requisition and provide an item, positive quantity, and destination bin for every line.', 'error')
+      return
+    }
+    if (new Set(lines.map((line) => line.item)).size !== lines.length) {
+      push('Each requested item can only be included once in a transfer batch.', 'error')
       return
     }
     setSaving(true)
     try {
-      const count = rows.length + 1
-      const transferRef = `TRF-2026-${String(count).padStart(4, '0')}`
-      await materialTransferService.create({
-        transferRef,
+      const created = await materialTransferService.create({
         requisitionId: selectedRequisition.id,
-        item: header.item,
-        qty: Number(header.qty),
         date: header.date,
-        destinationBin: header.destinationBin,
-        requestedBy: user?.name || 'Storekeeper',
-        status: TRANSFER_STATUS.PENDING_APPROVAL,
+        lines: lines.map((line) => ({ ...line, qty: Number(line.qty), destinationBin: line.destinationBin.trim() }))
       })
-      push(`Transfer request ${transferRef} submitted for PAO approval.`, 'success')
+      const transferCount = Array.isArray(created) ? created.length : 1
+      push(`${transferCount} transfer${transferCount === 1 ? '' : 's'} submitted for PAO approval.`, 'success')
       setModalOpen(false)
       await load()
     } catch (err) {
@@ -254,32 +249,45 @@ export default function MaterialTransferList() {
       >
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Select label="Approved Requisition" required options={approvedRequisitions.map((request) => ({ value: request.id, label: `${request.srRef} - ${request.store}` }))} value={header.requisitionId} onChange={(e) => setHeader((h) => ({ ...h, requisitionId: e.target.value, item: '', qty: '' }))} />
+            <Select label="Approved Requisition" required options={approvedRequisitions.map((request) => ({ value: request.id, label: `${request.srRef} - ${request.store}` }))} value={header.requisitionId} onChange={(e) => setHeader((h) => ({ ...h, requisitionId: e.target.value }))} />
             <Input label="Source Store" value="Main Store" readOnly disabled />
             <Input label="Destination Store" value={selectedRequisition?.store || ''} readOnly disabled />
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
-            <Input label="Destination Bin" placeholder="e.g. E03-02-04" value={header.destinationBin} onChange={(e) => setHeader((h) => ({ ...h, destinationBin: e.target.value }))} />
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="label !mb-0">Materials to Transfer</p>
             </div>
+            {!approvedRequisitions.length && (
+              <p className="mb-3 rounded-md border border-warning-100 bg-warning-50 px-3 py-2 text-sm text-warning-700">
+                No approved Sub-Store requisitions are available. A Sub-Store Storekeeper must submit a requisition and it must be approved before materials can be selected for transfer.
+              </p>
+            )}
             <div className="space-y-2">
               {lines.map((line, idx) => (
-                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-2">
+                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,0.75fr)_minmax(0,1fr)_auto] sm:items-end">
                   <Select
-                    label="Item"
-                    options={availableItems.map((item) => ({ value: item.item, label: `${item.item} (requested: ${item.qtyApproved ?? item.qty})` }))}
-                    value={header.item}
+                    label={`Item ${idx + 1}`}
+                    disabled={!selectedRequisition || !availableItems.length}
+                    options={availableItems.filter((item) => !lines.some((other, otherIdx) => otherIdx !== idx && other.item === item.item)).map((item) => ({ value: item.item, label: `${item.item} (requested: ${item.qtyApproved ?? item.qty})` }))}
+                    value={line.item}
                     onChange={(e) => {
-                      const selectedLine = availableItems.find((line) => line.item === e.target.value)
-                      setHeader((h) => ({ ...h, item: e.target.value, qty: selectedLine?.qtyApproved ?? selectedLine?.qty ?? '' }))
+                      const selectedLine = availableItems.find((item) => item.item === e.target.value)
+                      updateLine(idx, { item: e.target.value, qty: selectedLine?.qtyApproved ?? selectedLine?.qty ?? '' })
                     }}
                   />
-                  <Input label="Quantity" type="number" value={header.qty} onChange={(e) => setHeader((h) => ({ ...h, qty: e.target.value }))} />
+                  <Input label="Quantity" type="number" min="0" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
+                  <Input label="Destination Bin" placeholder="e.g. MEE-01" value={line.destinationBin} onChange={(e) => updateLine(idx, { destinationBin: e.target.value })} />
+                  <Button variant="secondary" icon={Minus} onClick={() => setLines((prev) => prev.length > 1 ? prev.filter((_, lineIdx) => lineIdx !== idx) : prev)} disabled={lines.length === 1} title="Remove line" />
                 </div>
               ))}
+              <Button variant="secondary" icon={Plus} onClick={() => setLines((prev) => [...prev, { ...EMPTY_LINE }])} disabled={!selectedRequisition || lines.length >= availableItems.length}>
+                Add Line
+              </Button>
             </div>
+            {selectedRequisition && !availableItems.length && (
+              <p className="mt-2 text-sm text-danger-600">The selected requisition has no transferable item lines.</p>
+            )}
           </div>
         </form>
       </Modal>

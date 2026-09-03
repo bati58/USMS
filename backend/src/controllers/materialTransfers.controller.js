@@ -69,9 +69,12 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/material-transfers — Backend-SRS §6.4 step 1 (Pending, no stock change)
 const create = asyncHandler(async (req, res) => {
-  const { requisitionId, item, qty, date, destinationBin } = req.body;
-  if (!requisitionId || !item || !qty) {
-    throw new AppError('requisitionId, item, and qty are required.', 400);
+  const { requisitionId, date } = req.body;
+  const lines = Array.isArray(req.body.lines)
+    ? req.body.lines
+    : [{ item: req.body.item, qty: req.body.qty, destinationBin: req.body.destinationBin }];
+  if (!requisitionId || !lines.length) {
+    throw new AppError('requisitionId and at least one transfer line are required.', 400);
   }
   if (!['Store Head', 'Storekeeper'].includes(req.user.role)) {
     throw new AppError('Only Main Store operators can create material transfers.', 403);
@@ -107,36 +110,49 @@ const create = asyncHandler(async (req, res) => {
        WHERE ri.requisition_id = $1 AND i.store_id = $2`,
       [requisitionId, fromStoreId]
     );
-    const requestLine = requestLines.find((line) => line.name === item);
-    if (!requestLine) throw new AppError('The selected item is not part of the approved requisition from Main Store.', 400);
-    const approvedQty = requestLine.qty_approved == null ? Number(requestLine.qty) : Number(requestLine.qty_approved);
-    if (Number(qty) <= 0 || Number(qty) > approvedQty) {
-      throw new AppError(`Transfer quantity cannot exceed the approved requisition quantity of ${approvedQty}.`, 400);
-    }
-    const itemId = requestLine.id;
     const toStoreId = request.store_id;
-    const transferRef = await nextRef(client, 'TRF');
+    const selectedItems = new Set();
+    const createdTransfers = [];
+    for (const line of lines) {
+      const itemName = String(line.item || '').trim();
+      const destinationBin = String(line.destinationBin || '').trim();
+      const quantity = Number(line.qty);
+      if (!itemName || !Number.isFinite(quantity) || quantity <= 0 || !destinationBin) {
+        throw new AppError('Each transfer line requires an item, positive quantity, and destination bin.', 400);
+      }
+      if (selectedItems.has(itemName)) throw new AppError(`Item "${itemName}" can only appear once in a transfer request.`, 400);
+      selectedItems.add(itemName);
 
-    const { rows } = await client.query(
-      `INSERT INTO material_transfers (transfer_ref, from_store_id, to_store_id, item_id, qty, date, status, destination_bin, department, requested_by)
-       VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending Approval',$7,$8,$9) RETURNING id`,
-      [transferRef, fromStoreId, toStoreId, itemId, qty, date || null, destinationBin || null, req.user.department || null, req.user.name]
-    );
-    await client.query('UPDATE material_transfers SET requisition_id = $1 WHERE id = $2', [requisitionId, rows[0].id]);
+      const requestLine = requestLines.find((lineItem) => lineItem.name === itemName);
+      if (!requestLine) throw new AppError(`Item "${itemName}" is not part of the approved requisition from Main Store.`, 400);
+      const approvedQty = requestLine.qty_approved == null ? Number(requestLine.qty) : Number(requestLine.qty_approved);
+      if (quantity > approvedQty) {
+        throw new AppError(`Transfer quantity for "${itemName}" cannot exceed the approved quantity of ${approvedQty}.`, 400);
+      }
 
-    await logAudit(client, { userName: req.user.name, action: `Created transfer ${transferRef}`, module: 'Material Transfer' });
-    await notify(client, {
-      role: 'Property Administration Officer',
-      title: 'Store transfer awaiting approval',
-      message: `Transfer ${transferRef} for requisition ${request.sr_ref} is awaiting review.`,
-      type: 'info',
-      route: '/material-transfer',
-      entityType: 'material-transfer',
-      entityId: rows[0].id
-    });
+      const transferRef = await nextRef(client, 'TRF');
+      const { rows } = await client.query(
+        `INSERT INTO material_transfers (transfer_ref, from_store_id, to_store_id, item_id, qty, date, status, destination_bin, department, requested_by)
+         VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending Approval',$7,$8,$9) RETURNING id`,
+        [transferRef, fromStoreId, toStoreId, requestLine.id, quantity, date || null, destinationBin, req.user.department || null, req.user.name]
+      );
+      await client.query('UPDATE material_transfers SET requisition_id = $1 WHERE id = $2', [requisitionId, rows[0].id]);
 
-    const { rows: full } = await client.query(`${SELECT} WHERE mt.id = $1`, [rows[0].id]);
-    return mapMaterialTransfer(full[0]);
+      await logAudit(client, { userName: req.user.name, action: `Created transfer ${transferRef}`, module: 'Material Transfer' });
+      await notify(client, {
+        role: 'Property Administration Officer',
+        title: 'Store transfer awaiting approval',
+        message: `Transfer ${transferRef} for requisition ${request.sr_ref} is awaiting review.`,
+        type: 'info',
+        route: '/material-transfer',
+        entityType: 'material-transfer',
+        entityId: rows[0].id
+      });
+
+      const { rows: full } = await client.query(`${SELECT} WHERE mt.id = $1`, [rows[0].id]);
+      createdTransfers.push(mapMaterialTransfer(full[0]));
+    }
+    return createdTransfers;
   });
 
   res.status(201).json(result);

@@ -329,6 +329,7 @@ export default function MaterialReturnList() {
             </>
           ) : viewing && canReviewRow(viewing) ? (
             <>
+              <Button variant="secondary" icon={Printer} onClick={() => printReturnNote(viewing)}>Print SRN Preview</Button>
               <Button variant="danger" icon={XCircle} loading={saving} onClick={() => handleDecide(RETURN_STATUS.REJECTED)}>
                 Reject Return
               </Button>
@@ -402,12 +403,15 @@ export default function MaterialReturnList() {
 function printReturnNote(record) {
   if (!record) return
 
+  const finalStatuses = [RETURN_STATUS.FULLY_ACCEPTED, RETURN_STATUS.PARTIALLY_ACCEPTED, RETURN_STATUS.RETURNED_TO_STOCK]
+  const statusLabel = finalStatuses.includes(record.status) ? record.status : `DRAFT - ${record.status || RETURN_STATUS.DRAFT}`
+
   const html = `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>${record.srnRef || 'SRN'}</title>
+        <title>${record.srnRef || 'SRN'} - ${statusLabel}</title>
         <style>
           * { box-sizing: border-box; }
           body { font-family: Arial, sans-serif; margin: 0; padding: 32px; color: #111827; background: #fff; }
@@ -417,6 +421,7 @@ function printReturnNote(record) {
           .ref { text-align: right; }
           .ref-label { font-size: 11px; color: #6b7280; text-transform: uppercase; }
           .ref-value { font-size: 24px; font-weight: 700; color: #1d4ed8; }
+          .status { display: inline-block; margin-top: 6px; padding: 4px 8px; border: 1px solid #9ca3af; color: #374151; font-size: 11px; font-weight: 700; text-transform: uppercase; }
           .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 24px; }
           .label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 5px; }
           .value { font-size: 14px; font-weight: 600; }
@@ -436,6 +441,7 @@ function printReturnNote(record) {
           <div class="ref">
             <div class="ref-label">SRN Ref</div>
             <div class="ref-value">${record.srnRef || '-'}</div>
+            <div class="status">${statusLabel}</div>
           </div>
         </div>
 

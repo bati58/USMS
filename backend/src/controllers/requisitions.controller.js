@@ -8,9 +8,10 @@ const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
 const SELECT = `
-  SELECT r.*, s.name AS store_name
+  SELECT r.*, s.name AS store_name, requester.role AS requester_role
   FROM requisitions r
   LEFT JOIN stores s ON s.id = r.store_id
+  LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
 `;
 
 async function fetchWithLines(id, dbClient = { query }) {
@@ -91,10 +92,10 @@ const getOne = asyncHandler(async (req, res) => {
 
 // POST /api/requisitions — Backend-SRS §6.2 step 1 (Pending only, no stock change)
 const create = asyncHandler(async (req, res) => {
-  const { department, requestedBy, date, store, items } = req.body;
+  const { department, requestedBy, date, store, items, reason } = req.body;
   const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
-  if ((!effectiveDepartment && req.user.role !== 'Storekeeper') || !store || !Array.isArray(items) || items.length === 0) {
-    throw new AppError('department, store, and at least one item are required.', 400);
+  if ((!effectiveDepartment && req.user.role !== 'Storekeeper') || !store || !reason?.trim() || !Array.isArray(items) || items.length === 0) {
+    throw new AppError('department, store, reason, and at least one item are required.', 400);
   }
 
   const result = await withTransaction(async (client) => {
@@ -127,7 +128,7 @@ const create = asyncHandler(async (req, res) => {
     const { rows } = await client.query(
       `INSERT INTO requisitions (sr_ref, department, requested_by, date, store_id, priority, reason, status)
        VALUES ($1,$2,$3,COALESCE($4, CURRENT_DATE),$5,$6,$7,'Draft') RETURNING id`,
-      [srRef, requestDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId, req.body.priority || 'Normal', req.body.reason || null]
+      [srRef, requestDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId, req.body.priority || 'Normal', reason.trim()]
     );
     const reqId = rows[0].id;
 

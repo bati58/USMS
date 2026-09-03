@@ -55,6 +55,7 @@ export default function RequisitionList() {
   const userAssignedStore = user?.store || user?.assignedStores?.[0] || ''
   const isScopedStoreUser = (isStoreHead || isStorekeeper) && !!userAssignedStore
   const isMainStoreHead = isStoreHead && !userAssignedStore
+  const isMainStoreStorekeeper = isStorekeeper && stores.some((store) => store.name === userAssignedStore && store.type === 'Main Store')
   const mainStoreName = stores.find((store) => store.type === 'Main Store')?.name
   const requestableItems = isStorekeeper
     ? items.filter((item) => item.store === mainStoreName)
@@ -101,6 +102,10 @@ export default function RequisitionList() {
   }, [rows, query])
 
   function openCreate() {
+    if (isMainStoreStorekeeper) {
+      push('Main Store Storekeepers cannot request stock from the Main Store. Create a requisition from the assigned Sub-Store account.', 'info')
+      return
+    }
     if (!canCreate) {
       push('You do not have permission to create requisitions.', 'error')
       return
@@ -141,6 +146,7 @@ export default function RequisitionList() {
     if (!header.department && !isStorekeeper) nextErrors.department = 'Department is required.'
     if (!header.store) nextErrors.store = 'Issuing Store is required.'
     if (!header.date) nextErrors.date = 'Date is required.'
+    if (!header.reason?.trim()) nextErrors.reason = 'Reason is required.'
 
     lines.forEach((line, idx) => {
       if (!line.item) nextErrors[`line_${idx}_item`] = `Line ${idx + 1}: Item is required.`
@@ -290,13 +296,19 @@ export default function RequisitionList() {
               : 'Departments raise store requisitions for approval before issue.'
         }
         actions={
-          canCreate ? (
+          canCreate && !isMainStoreStorekeeper ? (
             <Button icon={Plus} onClick={openCreate}>
               New Requisition
             </Button>
           ) : null
         }
       />
+
+      {isMainStoreStorekeeper && (
+        <div className="mb-4 rounded-lg border border-info-100 bg-info-50 px-4 py-3 text-sm text-info-700">
+          This account is assigned to the Main Store. Main Store Storekeepers issue stock against approved requisitions; replenishment requisitions must be created by the Storekeeper assigned to a Sub-Store.
+        </div>
+      )}
 
       <div className="card p-5">
         <div className="mb-4">
@@ -355,7 +367,13 @@ export default function RequisitionList() {
             )}
             <Input label="Date" type="date" required error={fieldErrors.date} value={header.date} onChange={(e) => { setHeader((h) => ({ ...h, date: e.target.value })); setFieldErrors((prev) => ({ ...prev, date: '' })) }} />
             {isStorekeeper && <Select label="Priority" options={['Normal', 'High', 'Urgent']} value={header.priority || 'Normal'} onChange={(e) => setHeader((h) => ({ ...h, priority: e.target.value }))} />}
-            {isStorekeeper && <Input label="Reason" value={header.reason || ''} onChange={(e) => setHeader((h) => ({ ...h, reason: e.target.value }))} />}
+            <Input
+              label="Reason"
+              required
+              error={fieldErrors.reason}
+              value={header.reason || ''}
+              onChange={(e) => { setHeader((h) => ({ ...h, reason: e.target.value })); setFieldErrors((prev) => ({ ...prev, reason: '' })) }}
+            />
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between">

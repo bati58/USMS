@@ -214,9 +214,22 @@ async function postGrn(client, { grnId, actorName }) {
 // ---------------------------------------------------------------------------
 
 async function createPreliminaryIssueVoucher(client, { srRef, issuedBy, actorName }) {
-  const { rows: reqRows } = await client.query('SELECT * FROM requisitions WHERE sr_ref = $1 FOR UPDATE', [srRef]);
+  const { rows: reqRows } = await client.query(
+    `SELECT r.*, s.type AS destination_store_type, s.name AS destination_store_name, requester.role AS requester_role
+     FROM requisitions r
+     JOIN stores s ON s.id = r.store_id
+     LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
+    WHERE r.sr_ref = $1 FOR UPDATE OF r`,
+    [srRef]
+  );
   const requisition = reqRows[0];
   if (!requisition) throw new AppError('Requisition not found.', 404);
+  if (requisition.requester_role === 'Storekeeper') {
+    throw new AppError(
+      `Requisition ${srRef} was created by a Storekeeper. Fulfil it through Material Transfer, not an Issue Voucher.`,
+      409
+    );
+  }
   if (!['Approved', 'Partially Approved', 'Ready for Issue'].includes(requisition.status)) {
     throw new AppError('Only an approved requisition can generate an issue voucher.', 400);
   }
