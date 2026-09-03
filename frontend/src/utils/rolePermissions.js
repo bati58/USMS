@@ -117,10 +117,10 @@ export const ROLE_PERMISSIONS = {
             '/reconciliation',
             '/user-cards'
         ],
-        canCreate: ['stockTaking', 'issueVouchers', 'materialTransfers', 'fixedAssets', 'userCards'],
+        canCreate: ['stockTaking', 'materialTransfers', 'fixedAssets', 'userCards'],
         canEdit: ['fixedAssets', 'userCards'],
         canDelete: [],
-        canApprove: ['materialReturns', 'materialTransfers', 'stockTaking'],
+        canApprove: ['requisitions', 'issueVouchers', 'materialReturns', 'materialTransfers', 'stockTaking'],
         canReject: ['materialReturns', 'materialTransfers', 'stockTaking'],
         canEvaluate: [],
         canVerifyGatePass: false,
@@ -135,7 +135,7 @@ export const ROLE_PERMISSIONS = {
         name: 'Storekeeper',
         // SRS: receives and issues stock, updates inventory records (bin cards)
         canAccessPages: ['/', '/settings', '/items', '/locations', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/stock-taking', '/reports'],
-        canCreate: ['goodsReceipts', 'requisitions', 'stockTransfer', 'materialTransfers', 'userCards'],
+        canCreate: ['goodsReceipts', 'requisitions', 'stockTransfer', 'materialTransfers', 'issueVouchers', 'userCards'],
         canEdit: ['goodsReceipts', 'userCards'],
         canPostIssueVoucher: true, // ISSUE MATERIAL: posts a PAO-authorized voucher (mirrors backend issue-voucher-post)
         canDelete: [],
@@ -316,11 +316,10 @@ export function getSidebarType(userRole) {
 }
 
 /**
- * Two-stage requisition approval — mirrors the backend `decide` controller so the UI
- * only ever offers a control the API will actually honour:
- *   Stage 1 — Department Head decides only while the requisition is 'Submitted'
- *             (own department, never their own request).
- *   Stage 2 — PAO decides only while the requisition is 'Pending Approval'.
+ * Requisition approval mirrors the backend `decide` controller:
+ *   Department Head endorses another request from their department.
+ *   Store Head approves requests for their issuing store.
+ *   PAO approves Storekeeper replenishment requests.
  * Any other role, or the wrong stage for the role, cannot decide.
  */
 function requisitionStageAllows(user, requisition) {
@@ -331,6 +330,11 @@ function requisitionStageAllows(user, requisition) {
     }
     if (user.role === ROLES.PAO) {
         return requisition.status === REQUISITION_STATUS.PENDING_APPROVAL
+    }
+    if (user.role === ROLES.STORE_HEAD) {
+        const assignedStore = user.store || user.assignedStores?.[0]
+        return requisition.status === REQUISITION_STATUS.SUBMITTED &&
+            (!assignedStore || requisition.store === assignedStore)
     }
     return false
 }

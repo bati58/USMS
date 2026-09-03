@@ -156,9 +156,12 @@ const create = asyncHandler(async (req, res) => {
 const submit = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `SELECT r.status, r.sr_ref, r.department, r.requested_by, dh.id AS department_head_id
+      `SELECT r.status, r.sr_ref, r.department, r.requested_by, r.store_id,
+          dh.id AS department_head_id, sh.id AS store_head_id
        FROM requisitions r
        LEFT JOIN users dh ON dh.role = 'Department Head' AND dh.department = r.department AND dh.active = TRUE
+       LEFT JOIN stores s ON s.id = r.store_id
+       LEFT JOIN users sh ON sh.role = 'Store Head' AND sh.name = s.head_of_store AND sh.active = TRUE
        WHERE r.id = $1 FOR UPDATE OF r`,
       [req.params.id]
     );
@@ -176,7 +179,8 @@ const submit = asyncHandler(async (req, res) => {
     // have no Department Head user at all. In either case we skip stage 1 and route
     // straight to the PAO (stage 2, status 'Pending Approval') so the flow never dead-ends.
     const routeToDeptHead = Boolean(reqDoc.department_head_id) && req.user.role !== 'Department Head';
-    const nextStatus = routeToDeptHead ? 'Submitted' : 'Pending Approval';
+    const routeToStoreHead = Boolean(reqDoc.store_head_id) && req.user.role === 'Department Head';
+    const nextStatus = routeToDeptHead ? 'Submitted' : routeToStoreHead ? 'Submitted' : 'Pending Approval';
 
     await client.query('UPDATE requisitions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
     await logAudit(client, { userName: req.user.name, action: `Submitted requisition ${reqDoc.sr_ref}`, module: 'Store Requisition' });
@@ -191,15 +195,25 @@ const submit = asyncHandler(async (req, res) => {
         entityType: 'requisition',
         entityId: req.params.id
       }
-      : {
-        role: 'Property Administration Officer',
-        title: 'Requisition Awaiting Approval',
-        message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval.`,
-        type: 'info',
-        route: `/requisitions/${req.params.id}`,
-        entityType: 'requisition',
-        entityId: req.params.id
-      });
+      : routeToStoreHead
+        ? {
+          userId: reqDoc.store_head_id,
+          title: 'Requisition Awaiting Store Head Approval',
+          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval before issue.`,
+          type: 'info',
+          route: `/requisitions/${req.params.id}`,
+          entityType: 'requisition',
+          entityId: req.params.id
+        }
+        : {
+          role: 'Property Administration Officer',
+          title: 'Requisition Awaiting Approval',
+          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval.`,
+          type: 'info',
+          route: `/requisitions/${req.params.id}`,
+          entityType: 'requisition',
+          entityId: req.params.id
+        });
 
     return fetchWithLines(req.params.id, client);
   });
@@ -216,7 +230,7 @@ const decide = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
-    const { rows } = await client.query('SELECT status, department, requested_by, sr_ref FROM requisitions WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const { rows } = await client.query('SELECT status, department, requested_by, store_id, sr_ref FROM requisitions WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!rows[0]) throw new AppError('Requisition not found.', 404);
     const { status, department, requested_by: requestedBy, sr_ref: srRef } = rows[0];
     const role = req.user.role;
@@ -242,6 +256,9 @@ const decide = asyncHandler(async (req, res) => {
         });
         return;
       }
+    } else if (role === 'Store Head') {
+      if (status !== 'Submitted') throw new AppError('This requisition is not awaiting Store Head approval.', 409);
+      await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
     } else if (role === 'Property Administration Officer') {
       // Stage 2 — final approval.
       if (status !== 'Pending Approval') throw new AppError('This requisition is not awaiting your approval.', 409);
@@ -253,9 +270,10 @@ const decide = asyncHandler(async (req, res) => {
     await stockService.decideRequisition(client, { requisitionId: req.params.id, decision, items, comments, actorName: req.user.name });
 
     if (isApproval) {
-      // Approved by the PAO -> the Store Head prepares the issue voucher.
+      // Approved by the issuing Store Head -> the Storekeeper prepares the issue voucher.
       await notify(client, {
-        role: 'Store Head',
+        role: 'Storekeeper',
+        storeId: rows[0].store_id,
         storeId: rows[0]?.store_id,
         title: 'Requisition Approved',
         message: `Requisition ${srRef} was ${decision.toLowerCase()}. Generate the issue voucher to fulfil it.`,

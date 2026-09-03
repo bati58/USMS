@@ -74,22 +74,22 @@ const getOne = asyncHandler(async (req, res) => {
   res.json(v);
 });
 
-// POST /api/issue-vouchers — Backend-SRS §6.2 steps 3-4 (generates from an
-// approved requisition; decrements stock via FIFO)
+// POST /api/issue-vouchers — Storekeeper creates the preliminary voucher from
+// an approved requisition; posting remains a separate final issue action.
 const create = asyncHandler(async (req, res) => {
   const { srRef } = req.body;
   if (!srRef) throw new AppError('srRef (the approved requisition reference) is required.', 400);
 
   const result = await withTransaction(async (client) => {
-    // The Store Head prepares the preliminary voucher from an approved requisition.
+    // The Storekeeper prepares the preliminary voucher from an approved requisition.
     const { id, sivRef } = await stockService.createPreliminaryIssueVoucher(client, {
       srRef,
       issuedBy: req.user.name,
       actorName: req.user.name
     });
-    // AUTHORIZED REVIEW: the PAO must authorize the voucher before the Storekeeper issues it.
+    // AUTHORIZED REVIEW: the Store Head must authorize the voucher before issue.
     await notify(client, {
-      role: 'Property Administration Officer',
+      role: 'Store Head',
       title: 'Issue Voucher Awaiting Authorization',
       message: `Issue voucher ${sivRef} (from requisition ${srRef}) was prepared and needs your authorization.`,
       type: 'info',

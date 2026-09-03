@@ -61,9 +61,8 @@ export default function RequisitionList() {
     ? items.filter((item) => item.store === mainStoreName)
     : items
 
-  // Only the PAO (stage 2) sets the final approved quantities. The Department Head (stage 1)
-  // only endorses and forwards, so the Approved-Qty inputs stay read-only for them.
-  const canEditApprovedQty = isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL
+  const canEditApprovedQty = (isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL) ||
+    (isStoreHead && viewing?.status === REQUISITION_STATUS.SUBMITTED)
 
   async function load() {
     setLoading(true)
@@ -199,10 +198,9 @@ export default function RequisitionList() {
       return
     }
 
-    // Partial approval is a PAO-stage concept. A Department-Head endorsement only forwards
-    // the requisition to the PAO unchanged; the PAO sets the final issue quantities.
+    // Partial approval is set by the actor responsible for the current approval stage.
     let finalStatus = status
-    if (status === REQUISITION_STATUS.APPROVED && isPao) {
+    if (status === REQUISITION_STATUS.APPROVED && (isPao || isStoreHead)) {
       const isPartial = approveLines.some(l => Number(l.qtyApproved) < Number(l.qty) && Number(l.qtyApproved) >= 0)
       if (isPartial) finalStatus = REQUISITION_STATUS.PARTIALLY_APPROVED
     }
@@ -225,7 +223,7 @@ export default function RequisitionList() {
       } else if (isDeptHead) {
         message = `${viewing.srRef} endorsed and forwarded to the Property Administration Officer.`
       } else {
-        message = `${viewing.srRef} approved. The Store Head can now generate the issue voucher.`
+        message = `${viewing.srRef} approved. The Storekeeper can now create the preliminary issue voucher.`
       }
       push(message, tone)
       setViewing(null)
@@ -434,7 +432,7 @@ export default function RequisitionList() {
                       Return for Correction
                     </Button>
                     <Button icon={CheckCircle2} loading={saving} onClick={() => decide(REQUISITION_STATUS.APPROVED)}>
-                      {isDeptHead ? 'Endorse & Forward to PAO' : 'Approve (Full/Partial)'}
+                      {isDeptHead ? 'Endorse & Forward to PAO' : isStoreHead ? 'Approve (Full/Partial)' : 'Approve (Full/Partial)'}
                     </Button>
                   </>
                 )}

@@ -498,21 +498,20 @@ test('Department Head is alerted to endorse a submitted requisition from their o
 });
 
 test('store-requisition and issue-voucher permissions enforce segregation of duties', () => {
-    // Two-stage requisition approval: Department Head endorses, then PAO approves.
-    // The Store Head no longer approves requisitions.
+    // Department Head can endorse, and Store Head approves for the issuing store.
     assert.equal(canAct('requisitions', 'Department Head'), true);
     assert.equal(canAct('requisitions', 'Property Administration Officer'), true);
-    assert.equal(canAct('requisitions', 'Store Head'), false);
+    assert.equal(canAct('requisitions', 'Store Head'), true);
 
-    // Store Head PREPARES the issue voucher (write); the Storekeeper does not generate one.
-    assert.equal(canWrite('issue-vouchers', 'Store Head'), true);
-    assert.equal(canWrite('issue-vouchers', 'Storekeeper'), false);
+    // Storekeeper prepares the issue voucher; Store Head authorizes it.
+    assert.equal(canWrite('issue-vouchers', 'Store Head'), false);
+    assert.equal(canWrite('issue-vouchers', 'Storekeeper'), true);
 
-    // AUTHORIZED REVIEW: only the PAO authorizes a prepared voucher.
-    assert.equal(canAct('issue-vouchers', 'Property Administration Officer'), true);
-    assert.equal(canAct('issue-vouchers', 'Store Head'), false);
+    // AUTHORIZED REVIEW: the Store Head authorizes a prepared voucher.
+    assert.equal(canAct('issue-vouchers', 'Property Administration Officer'), false);
+    assert.equal(canAct('issue-vouchers', 'Store Head'), true);
 
-    // The preparer (Store Head) revises via the dedicated amend action, not the PAO approve key.
+    // The Store Head reviews and amends the Storekeeper's preliminary voucher.
     assert.equal(canAct('issue-voucher-amend', 'Store Head'), true);
     assert.equal(canAct('issue-voucher-amend', 'Property Administration Officer'), false);
 
