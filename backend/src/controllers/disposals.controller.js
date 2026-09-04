@@ -163,6 +163,9 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { reason, dateFlagged, supportingDocument } = req.body;
+  const { rows: currentRows } = await query('SELECT store_id FROM disposals WHERE id = $1', [req.params.id]);
+  if (!currentRows[0]) throw new AppError('Disposal request not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, currentRows[0].store_id, { query });
   if (reason !== undefined && !String(reason).trim()) throw new AppError('A disposal reason is required.', 400);
 
   const { rows } = await query(

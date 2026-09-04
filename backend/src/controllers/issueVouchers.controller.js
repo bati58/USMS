@@ -1,7 +1,7 @@
 const { query, withTransaction } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
-const { mapIssueVoucher, getUserStoreVisibility } = require('./_helpers');
+const { mapIssueVoucher, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
@@ -20,6 +20,18 @@ async function fetchWithLines(id, dbClient = { query }) {
     [id]
   );
   return mapIssueVoucher(rows[0], lines);
+}
+
+async function assertVoucherStoreAccess(user, voucherId, dbClient = { query }) {
+  const { rows } = await dbClient.query(
+    `SELECT r.store_id
+     FROM issue_vouchers iv
+     LEFT JOIN requisitions r ON r.sr_ref = iv.sr_ref
+     WHERE iv.id = $1`,
+    [voucherId]
+  );
+  if (!rows[0]) throw new AppError('Issue voucher not found.', 404);
+  await assertUserCanAccessStoreRecord(user, rows[0].store_id, dbClient);
 }
 
 const list = asyncHandler(async (req, res) => {
@@ -81,6 +93,9 @@ const create = asyncHandler(async (req, res) => {
   if (!srRef) throw new AppError('srRef (the approved requisition reference) is required.', 400);
 
   const result = await withTransaction(async (client) => {
+    const { rows: requisitionRows } = await client.query('SELECT store_id FROM requisitions WHERE sr_ref = $1', [srRef]);
+    if (!requisitionRows[0]) throw new AppError('The referenced requisition was not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, requisitionRows[0].store_id, client);
     // The Storekeeper prepares the preliminary voucher from an approved requisition.
     const { id, sivRef } = await stockService.createPreliminaryIssueVoucher(client, {
       srRef,
@@ -105,6 +120,7 @@ const create = asyncHandler(async (req, res) => {
 
 const approve = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
+    await assertVoucherStoreAccess(req.user, req.params.id, client);
     await stockService.approveIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
     const { rows } = await client.query('SELECT siv_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     const { rows: voucherRows } = await client.query(
@@ -130,6 +146,7 @@ const approve = asyncHandler(async (req, res) => {
 
 const post = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
+    await assertVoucherStoreAccess(req.user, req.params.id, client);
     await stockService.postIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
     const { rows } = await client.query('SELECT siv_ref, sr_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     const sivRef = rows[0]?.siv_ref;
@@ -169,6 +186,7 @@ const post = asyncHandler(async (req, res) => {
 
 const amend = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
+    await assertVoucherStoreAccess(req.user, req.params.id, client);
     await stockService.amendIssueVoucher(client, { voucherId: req.params.id, items: req.body.items, reason: req.body.reason, actorName: req.user.name });
 
     // Amend is the Store Head's revise-and-resubmit step (status -> 'Pending Approval').

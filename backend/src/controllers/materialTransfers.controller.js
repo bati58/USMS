@@ -172,12 +172,7 @@ const decide = asyncHandler(async (req, res) => {
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
     if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
-      const userStoreId = userStoreRows[0]?.id;
-      if (assignedStores.length && !userStoreRows.some((row) => Number(transfer.from_store_id) === Number(row.id))) {
-        throw new AppError('You can only act on transfers from one of your assigned stores.', 403);
-      }
+      await assertUserCanAccessStoreRecord(req.user, transfer.from_store_id, client);
     }
 
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
@@ -223,13 +218,8 @@ const execute = asyncHandler(async (req, res) => {
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
     if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
       const requiredStoreId = decision === 'Received' ? transfer.to_store_id : transfer.from_store_id;
-      if (assignedStores.length && !userStoreRows.some((row) => Number(requiredStoreId) === Number(row.id))) {
-        const actionStore = decision === 'Received' ? 'destination' : 'source';
-        throw new AppError(`You can only ${decision === 'Received' ? 'receive transfers at' : 'execute transfers from'} one of your assigned ${actionStore} stores.`, 403);
-      }
+      await assertUserCanAccessStoreRecord(req.user, requiredStoreId, client);
     }
 
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
@@ -294,13 +284,7 @@ const resubmit = asyncHandler(async (req, res) => {
     const transfer = transferRows[0];
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
-    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-      const assignedStores = Array.isArray(req.user.assignedStores) && req.user.assignedStores.length ? req.user.assignedStores : (req.user.store ? [req.user.store] : []);
-      const { rows: userStoreRows } = await client.query('SELECT id FROM stores WHERE name = ANY($1)', [assignedStores]);
-      if (assignedStores.length && !userStoreRows.some((row) => Number(transfer.from_store_id) === Number(row.id))) {
-        throw new AppError('You can only resubmit transfers from one of your assigned stores.', 403);
-      }
-    }
+    await assertUserCanAccessStoreRecord(req.user, transfer.from_store_id, client);
 
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name });
   });
@@ -309,8 +293,9 @@ const resubmit = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-  const { rows: check } = await query('SELECT status FROM material_transfers WHERE id = $1', [req.params.id]);
+  const { rows: check } = await query('SELECT status, from_store_id FROM material_transfers WHERE id = $1', [req.params.id]);
   if (!check[0]) throw new AppError('Material transfer not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, check[0].from_store_id, { query });
   if (!['Draft', 'Submitted', 'Pending Approval', 'Returned for Correction'].includes(check[0].status)) throw new AppError('Cannot delete a material transfer that has already been processed.', 400);
 
   const { rows } = await query('DELETE FROM material_transfers WHERE id = $1 RETURNING transfer_ref', [req.params.id]);

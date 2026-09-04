@@ -111,11 +111,15 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
+    if (req.user.role !== 'Store Head') {
+        throw new AppError('Only the Store Head can create a stock-taking session.', 403);
+    }
     const { store, countDate, items, assignedTo } = req.body;
     if (!store || !Array.isArray(items) || items.length === 0) throw new AppError('store and at least one counted item are required.', 400);
 
     const result = await withTransaction(async (client) => {
         const storeId = await resolveStoreId(store, client);
+        await assertUserCanAccessStoreRecord(req.user, storeId, client);
 
         const { rows: openSessions } = await client.query(
             `SELECT session_ref FROM stock_taking_sessions WHERE store_id = $1 AND status IN ('Draft', 'Submitted', 'Approved')`,
@@ -206,6 +210,7 @@ const update = asyncHandler(async (req, res) => {
         const { rows: sessions } = await client.query('SELECT * FROM stock_taking_sessions WHERE id = $1 FOR UPDATE', [req.params.id]);
         const session = sessions[0];
         if (!session) throw new AppError('Stock-taking session not found.', 404);
+        await assertUserCanAccessStoreRecord(req.user, session.store_id, client);
         if (!['Draft', 'Recount Required', 'Approved'].includes(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
         if (req.user.role === 'Stock Clerk' && session.assigned_user_id !== req.user.id) {
             throw new AppError('You are not assigned to this stock-taking session.', 403);

@@ -51,6 +51,9 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { assetTag, name, category, store, assignedTo, status, acquisitionDate, value } = req.body;
+  const { rows: currentRows } = await query('SELECT store_id FROM fixed_assets WHERE id = $1', [req.params.id]);
+  if (!currentRows[0]) throw new AppError('Fixed asset not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, currentRows[0].store_id, { query });
 
   // If trying to update store, validate access first
   if (store !== undefined) {
@@ -84,6 +87,9 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
+  const { rows: currentRows } = await query('SELECT store_id FROM fixed_assets WHERE id = $1', [req.params.id]);
+  if (!currentRows[0]) throw new AppError('Fixed asset not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, currentRows[0].store_id, { query });
   const { rows } = await query('DELETE FROM fixed_assets WHERE id = $1 RETURNING asset_tag', [req.params.id]);
   if (!rows[0]) throw new AppError('Fixed asset not found.', 404);
   await logAudit(query, { userName: req.user.name, action: `Deleted asset ${rows[0].asset_tag}`, module: 'Fixed Assets' });

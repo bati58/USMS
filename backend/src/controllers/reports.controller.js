@@ -2,9 +2,25 @@ const { query } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const { ROLES } = require('../utils/permissions');
 
-function scopeForStoreHead(req) {
-  if (req.user.role !== ROLES.STORE_HEAD || !req.user.store) return { where: '', params: [] };
-  return { where: 's.name = $1', params: [req.user.store] };
+async function getAssignedStoreScope(req) {
+  if (![ROLES.STORE_HEAD, ROLES.STOREKEEPER].includes(req.user.role)) return null;
+  const assignmentColumn = req.user.role === ROLES.STORE_HEAD ? 'head_of_store' : 'storekeeper';
+  const { rows } = await query(
+    `SELECT id FROM stores WHERE ${assignmentColumn} = $1 AND active = TRUE ORDER BY id`,
+    [req.user.name]
+  );
+  return rows.map((row) => row.id);
+}
+
+async function addStoreScope(req, conditions, params, expression) {
+  const storeScope = await getAssignedStoreScope(req);
+  if (storeScope !== null) {
+    const scopedExpression = expression.replace(/\?/g, () => {
+      params.push(storeScope);
+      return `$${params.length}`;
+    });
+    conditions.push(scopedExpression);
+  }
 }
 
 function scopeForDepartmentHead(req, column) {
@@ -27,14 +43,16 @@ function dateConditions(column, queryParams, values) {
 
 // GET /api/reports/inventory-summary
 const inventorySummary = asyncHandler(async (req, res) => {
-  const storeScope = scopeForStoreHead(req);
+  const conditions = [];
+  const params = [];
+  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT i.code, i.name, s.name AS store, i.qty_on_hand, i.unit_price,
            (i.qty_on_hand * i.unit_price) AS value
     FROM items i JOIN stores s ON s.id = i.store_id
-    ${storeScope.where ? `WHERE ${storeScope.where}` : ''}
+    ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY i.name
-  `, storeScope.params);
+  `, params);
   res.json(
     rows.map((r) => ({
       code: r.code,
@@ -49,13 +67,15 @@ const inventorySummary = asyncHandler(async (req, res) => {
 
 // GET /api/reports/low-stock
 const lowStock = asyncHandler(async (req, res) => {
-  const storeScope = scopeForStoreHead(req);
+  const conditions = ['i.qty_on_hand <= i.reorder_level'];
+  const params = [];
+  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT i.code, i.name, s.name AS store, i.qty_on_hand, i.reorder_level
     FROM items i JOIN stores s ON s.id = i.store_id
-    WHERE i.qty_on_hand <= i.reorder_level${storeScope.where ? ` AND ${storeScope.where}` : ''}
+    WHERE ${conditions.join(' AND ')}
     ORDER BY i.name
-  `, storeScope.params);
+  `, params);
   res.json(
     rows.map((r) => ({
       code: r.code,
@@ -72,8 +92,6 @@ const stockMovement = asyncHandler(async (req, res) => {
   const { from, to, item } = req.query;
   const conditions = [];
   const params = [];
-  const storeScope = scopeForStoreHead(req);
-
   if (from) {
     params.push(from);
     conditions.push(`st.date >= $${params.length}`);
@@ -86,10 +104,7 @@ const stockMovement = asyncHandler(async (req, res) => {
     params.push(item);
     conditions.push(`i.name = $${params.length}`);
   }
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await query(
@@ -118,11 +133,7 @@ const stockMovement = asyncHandler(async (req, res) => {
 const grnStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('g.received_date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'g.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT g.grn_ref, g.supplier, s.name AS store, g.received_date, g.status
     FROM goods_receipts g JOIN stores s ON s.id = g.store_id
@@ -138,11 +149,7 @@ const grnStatus = asyncHandler(async (req, res) => {
 const requisitionStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'r.store_id = ANY(?::int[])');
   const departmentScope = scopeForDepartmentHead(req, 'r.department');
   if (departmentScope) {
     params.push(departmentScope.value);
@@ -163,6 +170,9 @@ const requisitionStatus = asyncHandler(async (req, res) => {
 const dashboardSummary = asyncHandler(async (req, res) => {
   const role = req.user.role;
   const summary = {};
+  const assignedStoreScope = await getAssignedStoreScope(req);
+  const itemStoreCondition = assignedStoreScope === null ? 's.active = TRUE' : 's.active = TRUE AND i.store_id = ANY($1::int[])';
+  const itemStoreParams = assignedStoreScope === null ? [] : [assignedStoreScope];
 
   if (role === ROLES.ADMIN) {
     const overviewQ = await query(`
@@ -229,40 +239,40 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     SELECT COALESCE(SUM(i.qty_on_hand * i.unit_price), 0) AS total
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE s.active = TRUE
-  `);
+    WHERE ${itemStoreCondition}
+  `, itemStoreParams);
   summary.totalInventoryValue = Number(totalValueQ.rows[0].total);
 
   const lowStockQ = await query(`
     SELECT COUNT(*) AS count
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE s.active = TRUE AND i.qty_on_hand <= i.reorder_level
-  `);
+    WHERE ${itemStoreCondition} AND i.qty_on_hand <= i.reorder_level
+  `, itemStoreParams);
   summary.itemsAtReorderLevel = Number(lowStockQ.rows[0].count);
 
   const expiringItemsQ = await query(`
     SELECT COUNT(*) AS count
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE
-  `);
+    WHERE ${itemStoreCondition} AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE
+  `, itemStoreParams);
   summary.expiringItems = Number(expiringItemsQ.rows[0].count);
 
   const expiredItemsQ = await query(`
     SELECT COUNT(*) AS count
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE
-  `);
+    WHERE ${itemStoreCondition} AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE
+  `, itemStoreParams);
   summary.expiredItems = Number(expiredItemsQ.rows[0].count);
 
   const pendingGrnQ = await query(`
     SELECT COUNT(*) AS count
     FROM goods_receipts g
     JOIN stores s ON s.id = g.store_id
-    WHERE s.active = TRUE AND g.status IN ('Pending','Under Evaluation')
-  `);
+    WHERE s.active = TRUE AND g.status IN ('Pending','Under Evaluation')${assignedStoreScope === null ? '' : ' AND g.store_id = ANY($1::int[])'}
+  `, itemStoreParams);
   summary.pendingGoodsReceipts = Number(pendingGrnQ.rows[0].count);
 
   if (role === ROLES.ADMIN) {
@@ -292,9 +302,12 @@ const dashboardSummary = asyncHandler(async (req, res) => {
        WHERE mr.status = 'Pending'`
     );
     summary.pendingReturns = Number(myReturns.rows[0].count);
-  } else {
+  } else if (assignedStoreScope === null) {
     // Stage-2 approval queue (PAO/Admin): requisitions endorsed and awaiting final approval.
     const pendingReqQ = await query("SELECT COUNT(*) AS count FROM requisitions WHERE status = 'Pending Approval'");
+    summary.pendingRequisitions = Number(pendingReqQ.rows[0].count);
+  } else {
+    const pendingReqQ = await query("SELECT COUNT(*) AS count FROM requisitions WHERE store_id = ANY($1::int[]) AND status = 'Pending Approval'", itemStoreParams);
     summary.pendingRequisitions = Number(pendingReqQ.rows[0].count);
   }
 
@@ -317,11 +330,7 @@ const dashboardSummary = asyncHandler(async (req, res) => {
 const issueStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('iv.date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'r.store_id = ANY(?::int[])');
   const departmentScope = scopeForDepartmentHead(req, 'r.department');
   if (departmentScope) {
     params.push(departmentScope.value);
@@ -344,11 +353,7 @@ const issueStatus = asyncHandler(async (req, res) => {
 const returnStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('mr.date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
   const departmentScope = scopeForDepartmentHead(req, 'mr.department');
   if (departmentScope) {
     params.push(departmentScope.value);
@@ -372,11 +377,7 @@ const returnStatus = asyncHandler(async (req, res) => {
 const transferStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('mt.date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`(fs.name = $${params.length} OR ts.name = $${params.length})`);
-  }
+  await addStoreScope(req, conditions, params, '(mt.from_store_id = ANY(?::int[]) OR mt.to_store_id = ANY(?::int[]))');
   const departmentScope = scopeForDepartmentHead(req, 'mt.department');
   if (departmentScope) {
     params.push(departmentScope.value);
@@ -402,11 +403,7 @@ const transferStatus = asyncHandler(async (req, res) => {
 const assetSummary = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('fa.acquisition_date', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'fa.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT fa.asset_tag, fa.name, fa.category, s.name AS store, fa.assigned_to,
            fa.status, fa.acquisition_date, fa.value
@@ -425,11 +422,7 @@ const assetSummary = asyncHandler(async (req, res) => {
 const disposalStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('d.date_flagged', req.query, params);
-  const storeScope = scopeForStoreHead(req);
-  if (storeScope.where) {
-    params.push(storeScope.params[0]);
-    conditions.push(`s.name = $${params.length}`);
-  }
+  await addStoreScope(req, conditions, params, 'd.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT d.disposal_ref, i.name AS item, s.name AS store, d.qty, d.reason,
            d.date_flagged, d.status
@@ -447,15 +440,18 @@ const disposalStatus = asyncHandler(async (req, res) => {
 
 // GET /api/reports/fifo-valuation
 const fifoValuation = asyncHandler(async (req, res) => {
+  const conditions = ['sl.qty_remaining > 0'];
+  const params = [];
+  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT i.code, i.name, i.unit, sl.unit_price, sl.qty_remaining,
            (sl.unit_price * sl.qty_remaining) AS lot_value,
            sl.received_date, sl.source_ref
     FROM stock_lots sl
     JOIN items i ON i.id = sl.item_id
-    WHERE sl.qty_remaining > 0
+    WHERE ${conditions.join(' AND ')}
     ORDER BY i.name, sl.received_date ASC
-  `);
+  `, params);
   res.json(rows.map((r) => ({
     code: r.code, name: r.name, unit: r.unit, unitPrice: Number(r.unit_price),
     qtyRemaining: Number(r.qty_remaining), lotValue: Number(r.lot_value),

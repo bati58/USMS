@@ -1,6 +1,6 @@
 const { query } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
-const { mapBinCard, getUserStoreVisibility } = require('./_helpers');
+const { mapBinCard, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 
 // Read-only — rows are created/updated as a side effect of stockService.js.
 const list = asyncHandler(async (req, res) => {
@@ -22,6 +22,9 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const movements = asyncHandler(async (req, res) => {
+  const { rows: cardRows } = await query('SELECT store_id FROM bin_cards WHERE id = $1', [req.params.id]);
+  if (!cardRows[0]) throw new AppError('Bin card not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, cardRows[0].store_id, { query });
   const { rows } = await query(`
     SELECT bcm.*, i.name AS item_name, s.name AS store_name, bc.bin
     FROM bin_card_movements bcm

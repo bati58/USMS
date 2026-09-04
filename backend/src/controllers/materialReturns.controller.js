@@ -83,6 +83,7 @@ const create = asyncHandler(async (req, res) => {
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
+    await assertUserCanAccessStoreRecord(req.user, storeId, client);
     const created = [];
     for (const line of lines) {
       const itemId = await resolveItemId(line.item, client, storeId);
@@ -169,6 +170,9 @@ const decide = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
+    const { rows: returnRows } = await client.query('SELECT store_id FROM material_returns WHERE id = $1', [req.params.id]);
+    if (!returnRows[0]) throw new AppError('Material return not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, returnRows[0].store_id, client);
     await stockService.decideMaterialReturn(client, {
       returnId: req.params.id,
       decision,
@@ -216,8 +220,11 @@ const decide = asyncHandler(async (req, res) => {
 const receive = asyncHandler(async (req, res) => {
   const { actualQty, acceptedQty, rejectedQty, condition, remarks, rejectionReason } = req.body;
 
-  await withTransaction((client) =>
-    stockService.receiveMaterialReturn(client, {
+  await withTransaction(async (client) => {
+    const { rows: returnRows } = await client.query('SELECT store_id FROM material_returns WHERE id = $1', [req.params.id]);
+    if (!returnRows[0]) throw new AppError('Material return not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, returnRows[0].store_id, client);
+    await stockService.receiveMaterialReturn(client, {
       returnId: req.params.id,
       actualQty,
       acceptedQty,
@@ -226,21 +233,24 @@ const receive = asyncHandler(async (req, res) => {
       remarks,
       rejectionReason,
       actorName: req.user.name
-    })
-  );
+    });
+  });
 
   const { rows } = await query(`${SELECT} WHERE mr.id = $1`, [req.params.id]);
   res.json(mapMaterialReturn(rows[0]));
 });
 
 const resubmit = asyncHandler(async (req, res) => {
-  await withTransaction((client) =>
-    stockService.decideMaterialReturn(client, {
+  await withTransaction(async (client) => {
+    const { rows: returnRows } = await client.query('SELECT store_id FROM material_returns WHERE id = $1', [req.params.id]);
+    if (!returnRows[0]) throw new AppError('Material return not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, returnRows[0].store_id, client);
+    await stockService.decideMaterialReturn(client, {
       returnId: req.params.id,
       decision: 'Submitted',
       actorName: req.user.name
-    })
-  );
+    });
+  });
 
   const { rows } = await query(`${SELECT} WHERE mr.id = $1`, [req.params.id]);
   res.json(mapMaterialReturn(rows[0]));
@@ -251,8 +261,9 @@ const remove = asyncHandler(async (req, res) => {
   const params = req.user.role === 'Department Head'
     ? [req.params.id, req.user.department, req.user.name]
     : [req.params.id];
-  const { rows: check } = await query(`SELECT status FROM material_returns WHERE id = $1${scope}`, params);
+  const { rows: check } = await query(`SELECT status, store_id FROM material_returns WHERE id = $1${scope}`, params);
   if (!check[0]) throw new AppError('Material return not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, check[0].store_id, { query });
   if (!['Draft', 'Submitted', 'Pending Review', 'Pending'].includes(check[0].status)) throw new AppError('Cannot delete a material return that has already been processed.', 400);
 
   const { rows } = await query('DELETE FROM material_returns WHERE id = $1 RETURNING srn_ref', [req.params.id]);

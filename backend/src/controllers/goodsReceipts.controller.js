@@ -218,6 +218,9 @@ const generateGrn = asyncHandler(async (req, res) => {
 
   await withTransaction(async (client) => {
     await assertMainStoreOperator(req.user, client);
+    const { rows: receiptRows } = await client.query('SELECT store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
+    if (!receiptRows[0]) throw new AppError('Goods receipt not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, receiptRows[0].store_id, client);
     await stockService.generateGrn(client, {
       grnId: req.params.id,
       generatedBy: req.user.name,
@@ -234,6 +237,9 @@ const postStock = asyncHandler(async (req, res) => {
 
   await withTransaction(async (client) => {
     await assertMainStoreOperator(req.user, client);
+    const { rows: receiptRows } = await client.query('SELECT store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
+    if (!receiptRows[0]) throw new AppError('Goods receipt not found.', 404);
+    await assertUserCanAccessStoreRecord(req.user, receiptRows[0].store_id, client);
     await stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name });
   });
   res.json(await fetchWithLines(req.params.id));
@@ -261,6 +267,9 @@ const setStatus = asyncHandler(async (req, res) => {
       [req.params.id]
     );
     if (!currentRows[0]) throw new AppError('Goods receipt not found.', 404);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
+      await assertUserCanAccessStoreRecord(req.user, currentRows[0].store_id, client);
+    }
     assertTransition('goodsReceipt', currentRows[0].status, req.body.status);
     const storeHeadId = currentRows[0]?.store_id ? await resolveStoreHeadForStore(currentRows[0].store_id, client) : null;
     await client.query(
@@ -320,8 +329,9 @@ const setStatus = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-  const { rows: check } = await query('SELECT status FROM goods_receipts WHERE id = $1', [req.params.id]);
+  const { rows: check } = await query('SELECT status, store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
   if (!check[0]) throw new AppError('Goods receipt not found.', 404);
+  await assertUserCanAccessStoreRecord(req.user, check[0].store_id, { query });
   if (!['Draft', 'Submitted', 'Pending', 'Pending Evaluation'].includes(check[0].status)) throw new AppError('Cannot delete a goods receipt that has already been processed.', 400);
 
   const { rows } = await query('DELETE FROM goods_receipts WHERE id = $1 RETURNING grn_ref', [req.params.id]);
