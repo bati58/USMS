@@ -129,6 +129,8 @@ export default function ItemList() {
   const canCreate = canPerformAction(user?.role, 'create', 'items')
   const canEdit = canPerformAction(user?.role, 'edit', 'items')
   const canDelete = canPerformAction(user?.role, 'delete', 'items')
+  const assignedStoreNames = [user?.store, ...(user?.assignedStores || [])].filter(Boolean)
+  const isSingleStoreHead = user?.role === 'Store Head' && assignedStoreNames.length === 1
 
   async function load() {
     setLoading(true)
@@ -174,7 +176,7 @@ export default function ItemList() {
       push('You do not have permission to create items.', 'error')
       return
     }
-    setForm(EMPTY_FORM)
+    setForm({ ...EMPTY_FORM, ...(isSingleStoreHead ? { store: assignedStoreNames[0] } : {}) })
     setEditing(null)
     setModalOpen(true)
   }
@@ -351,6 +353,7 @@ export default function ItemList() {
             required
             options={stores.map((s) => s.name)}
             value={form.store}
+            disabled={isSingleStoreHead}
             onChange={(e) => setForm((f) => ({ ...f, store: e.target.value, locationId: '' }))}
           />
           <Select label="Unit of Issue" required options={UNITS} value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />

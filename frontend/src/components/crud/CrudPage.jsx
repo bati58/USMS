@@ -31,6 +31,7 @@ export default function CrudPage({
   extraActions,
   validatePayload,
   onSaved,
+  initialValues = {},
   entityType // e.g., 'users', 'stores', 'categories' - used for permission checks
 }) {
   const { push } = useToast()
@@ -86,6 +87,7 @@ export default function CrudPage({
     fields.forEach((f) => {
       initial[f.name] = f.type === 'checkbox' ? true : ''
     })
+    Object.assign(initial, typeof initialValues === 'function' ? initialValues() : initialValues)
     if (entityType === 'users') {
       initial.active = true
     }
@@ -262,6 +264,7 @@ export default function CrudPage({
             const { key: _ignoredKey, ...commonProps } = {
               label: f.label,
               required: f.required,
+              disabled: typeof f.disabled === 'function' ? f.disabled(form, rows) : f.disabled,
               className: f.fullWidth ? 'sm:col-span-2' : '',
               ...(f.type === 'checkbox' ? { checked: Boolean(form[f.name]) } : { value: form[f.name] ?? '' }),
               onChange: (e) => setForm((prev) => ({ ...prev, [f.name]: f.type === 'checkbox' ? e.target.checked : e.target.value }))

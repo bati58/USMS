@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react'
 import CrudPage from '../../components/crud/CrudPage'
 import StatusBadge from '../../components/ui/StatusBadge'
 import { locationService, storeService } from '../../services'
+import { useAuth } from '../../context/AuthContext'
 
 export default function LocationList() {
+    const { user } = useAuth()
     const [storeOptions, setStoreOptions] = useState([])
     const [stores, setStores] = useState([])
     const [locationOptions, setLocationOptions] = useState([])
+    const assignedStoreNames = [user?.store, ...(user?.assignedStores || [])].filter(Boolean)
+    const isStoreScoped = ['Store Head', 'Storekeeper'].includes(user?.role)
+    const isSingleStoreUser = isStoreScoped && assignedStoreNames.length === 1
 
     async function loadLocationOptions() {
         const locs = await locationService.list()
@@ -16,18 +21,16 @@ export default function LocationList() {
     }
 
     useEffect(() => {
-        const storedUser = JSON.parse(localStorage.getItem('sms_user') || 'null')
         storeService.list().then(stores => {
-            const assignedNames = [storedUser?.store, ...(storedUser?.assignedStores || [])].filter(Boolean)
             const activeStores = stores.filter(s => s.active && (
-                !['Store Head', 'Storekeeper'].includes(storedUser?.role) || assignedNames.length === 0 || assignedNames.includes(s.name)
+                !isStoreScoped || assignedStoreNames.length === 0 || assignedStoreNames.includes(s.name)
             ))
             setStores(activeStores)
             setStoreOptions(activeStores.map(s => s.name))
         }).catch(console.error)
 
         loadLocationOptions().catch(console.error)
-    }, [])
+    }, [user?.role, user?.store, user?.assignedStores])
 
     return (
         <CrudPage
@@ -35,6 +38,7 @@ export default function LocationList() {
             subtitle="Manage the store section, rack, shelf, and bin hierarchy."
             service={locationService}
             onSaved={loadLocationOptions}
+            initialValues={() => isSingleStoreUser ? { store: assignedStoreNames[0] } : {}}
             entityType="locations"
             addLabel="Add Location"
             searchKeys={['store', 'parent', 'type', 'code', 'name']}
@@ -49,7 +53,7 @@ export default function LocationList() {
                 { key: 'active', header: 'Status', render: (row) => <StatusBadge status={row.active ? 'Approved' : 'Cancelled'} /> }
             ]}
             fields={[
-                { name: 'store', label: 'Store Name', type: 'select', required: true, options: storeOptions, placeholder: 'Select a store...' },
+                { name: 'store', label: 'Store Name', type: 'select', required: true, options: storeOptions, placeholder: 'Select a store...', disabled: () => isSingleStoreUser },
                 { name: 'type', label: 'Location Level', type: 'select', required: true, options: ['SECTION', 'RACK', 'SHELF', 'BIN'] },
                 {
                     name: 'parentId',
