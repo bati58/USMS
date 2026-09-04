@@ -5,18 +5,28 @@ import { locationService, storeService } from '../../services'
 
 export default function LocationList() {
     const [storeOptions, setStoreOptions] = useState([])
+    const [stores, setStores] = useState([])
     const [locationOptions, setLocationOptions] = useState([])
 
+    async function loadLocationOptions() {
+        const locs = await locationService.list()
+        setLocationOptions(locs
+            .filter(l => l.active)
+            .map(l => ({ label: `${l.name} (${l.code})`, value: l.id, store: l.store, storeId: l.storeId, type: l.type })))
+    }
+
     useEffect(() => {
+        const storedUser = JSON.parse(localStorage.getItem('sms_user') || 'null')
         storeService.list().then(stores => {
-            setStoreOptions(stores.filter(s => s.active).map(s => s.name))
+            const assignedNames = [storedUser?.store, ...(storedUser?.assignedStores || [])].filter(Boolean)
+            const activeStores = stores.filter(s => s.active && (
+                !['Store Head', 'Storekeeper'].includes(storedUser?.role) || assignedNames.length === 0 || assignedNames.includes(s.name)
+            ))
+            setStores(activeStores)
+            setStoreOptions(activeStores.map(s => s.name))
         }).catch(console.error)
 
-        locationService.list().then(locs => {
-            setLocationOptions(locs
-                .filter(l => l.active)
-                .map(l => ({ label: `${l.name} (${l.code})`, value: l.id, store: l.store, type: l.type })))
-        }).catch(console.error)
+        loadLocationOptions().catch(console.error)
     }, [])
 
     return (
@@ -24,6 +34,7 @@ export default function LocationList() {
             title="Locations"
             subtitle="Manage the store section, rack, shelf, and bin hierarchy."
             service={locationService}
+            onSaved={loadLocationOptions}
             entityType="locations"
             addLabel="Add Location"
             searchKeys={['store', 'parent', 'type', 'code', 'name']}
@@ -47,8 +58,13 @@ export default function LocationList() {
                     options: (form) => {
                         const parentType = { RACK: 'SECTION', SHELF: 'RACK', BIN: 'SHELF' }[form.type]
                         if (!parentType) return []
+                        const selectedStore = stores.find(store => store.name === form.store)
                         return locationOptions
-                            .filter(location => location.store === form.store && location.type === parentType)
+                            .filter(location => location.active !== false && location.type === parentType && (
+                                selectedStore?.id
+                                    ? Number(location.storeId) === Number(selectedStore.id)
+                                    : location.store === form.store
+                            ))
                             .map(({ label, value }) => ({ label, value }))
                     },
                     placeholder: 'Select a parent location...'

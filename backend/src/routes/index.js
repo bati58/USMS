@@ -202,6 +202,21 @@ router.post('/disposals', requireRole('disposals'), disposalsController.create);
 router.put('/disposals/:id', requireRole('disposals'), disposalsController.update);
 router.post('/disposals/:id/approve', requireRole('disposals-approve', 'action'), disposalsController.decide);
 router.post('/disposals/:id/execute', requireRole('disposals-execute', 'action'), disposalsController.execute);
+router.post('/disposals/:id/quarantine', requireRole('disposals-quarantine', 'action'), disposalsController.quarantine);
+router.post('/disposals/:id/start-assessment', requireRole('disposals-assess', 'action'), disposalsController.startAssessment);
+router.post('/disposals/:id/assess', requireRole('disposals-assess', 'action'), disposalsController.assess);
+router.post('/disposals/:id/repair', requireRole('disposals-repair', 'action'), disposalsController.sendForRepair);
+router.post('/disposals/:id/reassess', requireRole('disposals-reassess', 'action'), disposalsController.reassess);
+router.post('/disposals/:id/request', requireRole('disposals-request', 'action'), disposalsController.requestDisposal);
+router.post('/disposals/:id/review', requireRole('disposals-review', 'action'), disposalsController.review);
+router.post('/disposals/:id/recommend', requireRole('disposals-review', 'action'), disposalsController.recommend);
+router.post('/disposals/:id/submit-authorization', requireRole('disposals-review', 'action'), disposalsController.submitAuthorization);
+router.post('/disposals/:id/authorize', requireRole('disposals-authorize', 'action'), disposalsController.authorize);
+router.post('/disposals/:id/submit-confirmation', requireRole('disposals-submit-confirmation', 'action'), disposalsController.submitConfirmation);
+router.post('/disposals/:id/confirm', requireRole('disposals-confirm', 'action'), disposalsController.confirm);
+router.post('/disposals/:id/post', requireRole('disposals-post', 'action'), disposalsController.post);
+router.post('/disposals/:id/complete', requireRole('disposals-confirm', 'action'), disposalsController.complete);
+router.post('/disposals/:id/close', requireRole('disposals-confirm', 'action'), disposalsController.close);
 router.delete('/disposals/:id', requireRole('disposals'), disposalsController.remove);
 
 // ---------------------------------------------------------------------------

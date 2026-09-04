@@ -30,6 +30,7 @@ export default function CrudPage({
   emptyMessage = 'Create the first record to get started.',
   extraActions,
   validatePayload,
+  onSaved,
   entityType // e.g., 'users', 'stores', 'categories' - used for permission checks
 }) {
   const { push } = useToast()
@@ -143,6 +144,7 @@ export default function CrudPage({
       }
       setModalOpen(false)
       await load()
+      if (onSaved) await onSaved()
     } catch (err) {
       push(err.message || 'Something went wrong.', 'error')
     } finally {

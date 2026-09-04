@@ -14,6 +14,26 @@ const SELECT = `
 const LOCATION_TYPES = ['SECTION', 'RACK', 'SHELF', 'BIN'];
 const PARENT_TYPES = { RACK: 'SECTION', SHELF: 'RACK', BIN: 'SHELF' };
 
+async function assertLocationStoreAccess(user, storeId) {
+    if (!['Store Head', 'Storekeeper'].includes(user?.role)) return;
+    const assignmentColumn = user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
+    const { rows } = await query(
+        `SELECT 1 FROM stores WHERE id = $1 AND ${assignmentColumn} = $2 AND active = TRUE LIMIT 1`,
+        [storeId, user.name]
+    );
+    if (!rows[0]) throw new AppError('You may access locations only within your assigned store.', 403);
+}
+
+async function getLocationStoreScope(user) {
+    if (!['Store Head', 'Storekeeper'].includes(user?.role)) return null;
+    const assignmentColumn = user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
+    const { rows } = await query(
+        `SELECT id FROM stores WHERE ${assignmentColumn} = $1 AND active = TRUE ORDER BY id`,
+        [user.name]
+    );
+    return rows.map((row) => row.id);
+}
+
 async function validateLocationHierarchy({ storeId, parentId, type, locationId = null }) {
     if (!LOCATION_TYPES.includes(type)) throw new AppError('Location level must be SECTION, RACK, SHELF, or BIN.', 400);
     if (type === 'SECTION' && parentId) throw new AppError('A section cannot have a parent location.', 400);
@@ -33,13 +53,17 @@ async function validateLocationHierarchy({ storeId, parentId, type, locationId =
 }
 
 const list = asyncHandler(async (req, res) => {
-    const { rows } = await query(`${SELECT} ORDER BY l.store_id, l.type, l.name`);
+    const storeScope = await getLocationStoreScope(req.user);
+    const params = storeScope === null ? [] : [storeScope];
+    const scope = storeScope === null ? '' : ' WHERE l.store_id = ANY($1::int[])';
+    const { rows } = await query(`${SELECT}${scope} ORDER BY l.store_id, l.type, l.name`, params);
     res.json(rows.map(mapLocation));
 });
 
 const getOne = asyncHandler(async (req, res) => {
     const { rows } = await query(`${SELECT} WHERE l.id = $1`, [req.params.id]);
     if (!rows[0]) throw new AppError('Location not found.', 404);
+    await assertLocationStoreAccess(req.user, rows[0].store_id);
     res.json(mapLocation(rows[0]));
 });
 
@@ -49,6 +73,7 @@ const create = asyncHandler(async (req, res) => {
         throw new AppError('store or storeId, type, code, and name are required.', 400);
     }
     const resolvedStoreId = storeId || await resolveStoreId(store);
+    await assertLocationStoreAccess(req.user, resolvedStoreId);
     await validateLocationHierarchy({ storeId: resolvedStoreId, parentId, type });
 
     const { rows } = await query(
@@ -75,6 +100,7 @@ const update = asyncHandler(async (req, res) => {
     const { parentId, type, code, name, active } = req.body;
     const { rows: currentRows } = await query('SELECT store_id, parent_id, type FROM locations WHERE id = $1', [req.params.id]);
     if (!currentRows[0]) throw new AppError('Location not found.', 404);
+    await assertLocationStoreAccess(req.user, currentRows[0].store_id);
     await validateLocationHierarchy({
         storeId: currentRows[0].store_id,
         parentId: parentId === undefined ? currentRows[0].parent_id : parentId,
@@ -104,7 +130,14 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-    const { rows } = await query('DELETE FROM locations WHERE id = $1 RETURNING code', [req.params.id]);
+    const { rows: locationRows } = await query('SELECT id, store_id, code FROM locations WHERE id = $1', [req.params.id]);
+    if (!locationRows[0]) throw new AppError('Location not found.', 404);
+    await assertLocationStoreAccess(req.user, locationRows[0].store_id);
+    const { rows: childRows } = await query('SELECT 1 FROM locations WHERE parent_id = $1 LIMIT 1', [req.params.id]);
+    if (childRows[0]) throw new AppError('This location has child locations. Deactivate it instead of deleting it.', 409);
+    const { rows: itemRows } = await query('SELECT 1 FROM items WHERE location_id = $1 LIMIT 1', [req.params.id]);
+    if (itemRows[0]) throw new AppError('This location is assigned to stock items. Deactivate it instead of deleting it.', 409);
+    const { rows } = await query('UPDATE locations SET active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING code', [req.params.id]);
     if (!rows[0]) throw new AppError('Location not found.', 404);
 
     await logAudit(query, {

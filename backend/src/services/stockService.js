@@ -808,7 +808,8 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
   const { rows } = await client.query('SELECT * FROM disposals WHERE id = $1 FOR UPDATE', [disposalId]);
   const disposal = rows[0];
   if (!disposal) throw new AppError('Disposal request not found.', 404);
-  assertTransition('disposal', disposal.status, 'Executed');
+  const executedStatus = disposal.status === 'Ready for Disposal' ? 'Disposed' : 'Executed';
+  assertTransition('disposal', disposal.status, executedStatus);
 
   const item = await getItemForUpdate(client, disposal.item_id);
   if (Number(item.qty_on_hand) < Number(disposal.qty)) {
@@ -846,12 +847,38 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
   });
 
   await client.query(
-    `UPDATE disposals SET status = 'Executed', executed_by = $1, executed_at = NOW(),
+    `UPDATE disposals SET status = $6, executed_by = $1, executed_at = NOW(),
        disposal_date = COALESCE($2, CURRENT_DATE), disposal_method = $3, witness = $4, updated_at = NOW()
      WHERE id = $5`,
-    [actorName, disposalDate || null, disposalMethod || null, witness || null, disposalId]
+    [actorName, disposalDate || null, disposalMethod || null, witness || null, disposalId, executedStatus]
   );
   await logAudit(client, { userName: actorName, action: `Executed disposal ${disposal.disposal_ref}`, module: 'Disposal Management' });
+}
+
+async function completeDisposal(client, { disposalId, actorName }) {
+  const { rows } = await client.query('SELECT * FROM disposals WHERE id = $1 FOR UPDATE', [disposalId]);
+  const disposal = rows[0];
+  if (!disposal) throw new AppError('Disposal request not found.', 404);
+  assertTransition('disposal', disposal.status, 'Completed');
+
+  await client.query(
+    `UPDATE disposals SET status = 'Completed', updated_at = NOW() WHERE id = $1`,
+    [disposalId]
+  );
+  await logAudit(client, { userName: actorName, action: `Confirmed disposal completion ${disposal.disposal_ref}`, module: 'Disposal Management' });
+}
+
+async function closeDisposal(client, { disposalId, actorName }) {
+  const { rows } = await client.query('SELECT * FROM disposals WHERE id = $1 FOR UPDATE', [disposalId]);
+  const disposal = rows[0];
+  if (!disposal) throw new AppError('Disposal request not found.', 404);
+  assertTransition('disposal', disposal.status, 'Closed');
+
+  await client.query(
+    `UPDATE disposals SET status = 'Closed', updated_at = NOW() WHERE id = $1`,
+    [disposalId]
+  );
+  await logAudit(client, { userName: actorName, action: `Closed disposal ${disposal.disposal_ref}`, module: 'Disposal Management' });
 }
 
 module.exports = {
@@ -874,5 +901,7 @@ module.exports = {
   reconcileStockTaking,
   postStockTaking,
   decideDisposal,
-  executeDisposal
+  executeDisposal,
+  completeDisposal,
+  closeDisposal
 };

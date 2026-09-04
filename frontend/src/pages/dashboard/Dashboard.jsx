@@ -362,7 +362,17 @@ export default function Dashboard() {
   )
 
   const pendingDisposals = useMemo(
-    () => disposals.filter((d) => [DISPOSAL_STATUS.FLAGGED, DISPOSAL_STATUS.REQUESTED, DISPOSAL_STATUS.PENDING_REVIEW].includes(d.status)),
+    () => disposals.filter((d) => [
+      DISPOSAL_STATUS.FLAGGED,
+      DISPOSAL_STATUS.QUARANTINED,
+      DISPOSAL_STATUS.UNDER_TECHNICAL_ASSESSMENT,
+      DISPOSAL_STATUS.REPAIRABLE,
+      DISPOSAL_STATUS.UNUSABLE,
+      DISPOSAL_STATUS.SEND_FOR_REPAIR,
+      DISPOSAL_STATUS.REQUESTED,
+      DISPOSAL_STATUS.PENDING_REVIEW,
+      DISPOSAL_STATUS.RETURNED_FOR_CORRECTION
+    ].includes(d.status)),
     [disposals]
   )
 

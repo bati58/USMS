@@ -196,6 +196,27 @@ test('stock-taking follows the amended operational review flow', () => {
     );
 });
 
+test('disposal follows the full quarantine, assessment, review, execution, and closure lifecycle', () => {
+    assert.doesNotThrow(() => assertTransition('disposal', 'Flagged', 'Quarantined'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Quarantined', 'Under Technical Assessment'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Under Technical Assessment', 'Repairable'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Repairable', 'Send for Repair'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Under Technical Assessment', 'Unusable'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Unusable', 'Requested'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Requested', 'Pending Review'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Pending Review', 'Approved'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Pending Review', 'Rejected'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Pending Review', 'Returned for Correction'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Returned for Correction', 'Requested'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Approved', 'Executed'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Executed', 'Completed'));
+    assert.doesNotThrow(() => assertTransition('disposal', 'Completed', 'Closed'));
+    assert.throws(
+        () => assertTransition('disposal', 'Requested', 'Closed'),
+        (error) => error.statusCode === 409
+    );
+});
+
 test('administrator has system-admin access but no operational transaction write or action rights', () => {
     assert.equal(canRead('goods-receipts', 'Administrator'), true);
     assert.equal(canWrite('goods-receipts', 'Administrator'), false);
@@ -246,8 +267,8 @@ test('store head is the primary stock-taking owner and may create, approve, and 
     assert.equal(canRead('suppliers', 'Store Head'), true);
     assert.equal(canWrite('stores', 'Store Head'), true);
     assert.equal(canWrite('categories', 'Store Head'), false);
-    assert.equal(canWrite('items', 'Store Head'), false);
-    assert.equal(canWrite('locations', 'Store Head'), false);
+    assert.equal(canWrite('items', 'Store Head'), true);
+    assert.equal(canWrite('locations', 'Store Head'), true);
     assert.equal(canWrite('goods-receipts', 'Store Head'), false);
     assert.equal(canWrite('stock-taking', 'Store Head'), true);
     assert.equal(canAct('goods-receipts-notify-tec', 'Store Head'), true);

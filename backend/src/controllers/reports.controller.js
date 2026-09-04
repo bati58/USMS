@@ -185,13 +185,13 @@ const dashboardSummary = asyncHandler(async (req, res) => {
         (SELECT COUNT(*) FROM material_transfers WHERE status IN ('Submitted', 'Pending', 'Pending Approval')) AS pending_material_transfers,
         (SELECT COUNT(*) FROM stock_taking_sessions WHERE status IN ('Submitted', 'Pending Approval', 'Approved')) AS pending_stock_taking,
         (SELECT COUNT(*) FROM stock_taking_items sti JOIN stock_taking_sessions st ON st.id = sti.session_id WHERE sti.variance <> 0 AND st.status IN ('Submitted', 'Pending Approval', 'Approved')) AS pending_reconciliation,
-        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Requested', 'Pending Review')) AS pending_disposal_requests,
+        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction')) AS pending_disposal_requests,
         (SELECT COALESCE((SELECT COUNT(*) FROM goods_receipts WHERE gate_verified = FALSE AND status IN ('GRN Generated', 'Posted')), 0) + COALESCE((SELECT COUNT(*) FROM issue_vouchers WHERE gate_verified = FALSE AND status IN ('Approved', 'Posted')), 0) + COALESCE((SELECT COUNT(*) FROM material_transfers WHERE gate_verified = FALSE AND status IN ('Approved', 'Dispatched', 'Received')), 0)) AS pending_gate_verification,
         (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE) AS expiring_items,
         (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE) AS expired_items,
         (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%damaged%') AS damaged_items,
         (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%quarantine%') AS quarantine_items,
-        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Requested', 'Pending Review', 'Approved', 'Executed', 'Completed')) AS disposal_flags,
+        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction', 'Approved', 'Executed', 'Completed', 'Closed')) AS disposal_flags,
         (SELECT COUNT(*) FROM audit_logs WHERE outcome = 'FAILED' AND created_at >= NOW() - INTERVAL '7 days') AS failed_operations
     `);
     const overview = overviewQ.rows[0];

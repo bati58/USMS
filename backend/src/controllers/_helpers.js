@@ -119,6 +119,7 @@ function mapItem(row) {
     name: row.name,
     category: row.category_name || null,
     store: row.store_name || null,
+    storeId: row.store_id || null,
     locationId: row.location_id || null,
     location: row.location_name || null,
     bin: row.bin,
@@ -331,7 +332,15 @@ function mapDisposal(row) {
     disposalDate: row.disposal_date || null,
     disposalMethod: row.disposal_method || null,
     witness: row.witness || null,
-    supportingDocument: row.supporting_document || null
+    supportingDocument: row.supporting_document || null,
+    assessmentResult: row.assessment_result || null,
+    assessmentNotes: row.assessment_notes || null,
+    reviewedBy: row.reviewed_by || null,
+    reviewedAt: row.reviewed_at || null,
+    confirmedBy: row.confirmed_by || null,
+    confirmedAt: row.confirmed_at || null,
+    postedBy: row.posted_by || null,
+    postedAt: row.posted_at || null
   };
 }
 

@@ -36,23 +36,43 @@ export default function DisposalList() {
   const canDelete = canPerformAction(user?.role, 'delete', 'disposals')
   const canApprove = canPerformAction(user?.role, 'approve', 'disposals')
   const canExecute = user?.role === ROLES.STOREKEEPER
+  const canCommittee = user?.role === ROLES.DISPOSAL_COMMITTEE
 
   // Operational disposal approvals belong to the store leadership; admin is read-only.
   const isStoreHead = user?.role === ROLES.STORE_HEAD
+  const assignedStoreNames = Array.isArray(user?.assignedStores) ? user.assignedStores.filter(Boolean) : []
+  const assignedStoreName = user?.store || (assignedStoreNames.length === 1 ? assignedStoreNames[0] : '')
+  const isScopedStoreHead = isStoreHead && Boolean(assignedStoreName)
+  const disposalStores = isScopedStoreHead ? stores.filter((store) => store.name === assignedStoreName) : stores
+  const selectedStore = stores.find((store) => store.name === formData.store)
   const availableItems = useMemo(() => {
-    if (!formData.store) return items
-    return items.filter((item) => item.store === formData.store)
-  }, [items, formData.store])
+    if (!formData.store) return []
+    return items.filter((item) => {
+      const belongsToSelectedStore = selectedStore?.id
+        ? Number(item.storeId) === Number(selectedStore.id)
+        : item.store === formData.store
+      return belongsToSelectedStore && Number(item.qtyOnHand) > 0
+    })
+  }, [items, formData.store, selectedStore?.id])
 
   async function load() {
     setLoading(true)
     try {
-      const [dsps, storeList, itemList] = await Promise.all([disposalService.list(), storeService.list(), itemService.list()])
-      setRows(dsps)
-      setStores(storeList.filter((store) => store.active !== false))
-      setItems(itemList)
-    } catch (err) {
-      push(err.message || 'Could not load disposals.', 'error')
+      const results = await Promise.allSettled([disposalService.list(), storeService.list(), itemService.list()])
+      const [disposalResult, storeResult, itemResult] = results
+      if (disposalResult.status === 'fulfilled') setRows(disposalResult.value)
+      else push(disposalResult.reason?.message || 'Could not load disposal records.', 'error')
+
+      if (storeResult.status === 'fulfilled') {
+        const activeStores = storeResult.value.filter((store) => store.active !== false)
+        setStores(activeStores.length ? activeStores : assignedStoreNames.map((name) => ({ name, active: true })))
+      } else {
+        setStores(assignedStoreNames.map((name) => ({ name, active: true })))
+        push(storeResult.reason?.message || 'Could not load store options.', 'error')
+      }
+
+      if (itemResult.status === 'fulfilled') setItems(itemResult.value)
+      else push(itemResult.reason?.message || 'Could not load item options.', 'error')
     } finally {
       setLoading(false)
     }
@@ -73,7 +93,7 @@ export default function DisposalList() {
       push('You do not have permission to flag items for disposal.', 'error')
       return
     }
-    setFormData({ item: '', store: '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10), supportingDocument: '' })
+    setFormData({ item: '', store: isScopedStoreHead ? assignedStoreName : '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10), supportingDocument: '' })
     setModalOpen(true)
   }
 
@@ -83,7 +103,7 @@ export default function DisposalList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    const selectedItem = availableItems.find((item) => item.name === formData.item)
+    const selectedItem = availableItems.find((item) => String(item.id) === String(formData.item))
     const requestedQty = Number(formData.qty)
     if (!selectedItem || !Number.isFinite(requestedQty) || requestedQty <= 0) {
       push('Select a valid item and enter a positive quantity.', 'error')
@@ -96,7 +116,8 @@ export default function DisposalList() {
     setSaving(true)
     try {
       await disposalService.create({
-        item: formData.item,
+        itemId: selectedItem.id,
+        item: selectedItem.name,
         store: formData.store,
         qty: formData.qty,
         reason: formData.reason,
@@ -147,6 +168,24 @@ export default function DisposalList() {
     }
   }
 
+  async function runDisposalAction(action, data = {}, successMessage = 'Disposal updated.') {
+    try {
+      await api.action('disposals', viewing.id, action, data)
+      push(successMessage, 'success')
+      setViewing(null)
+      await load()
+    } catch (err) {
+      push(err.message, 'error')
+    }
+  }
+
+  function assessDisposal() {
+    const result = window.prompt('Assessment result: Repairable, Unusable, or Return to Stock')
+    if (!result?.trim()) return
+    const notes = window.prompt('Assessment notes') || ''
+    runDisposalAction('assess', { result: result.trim(), notes })
+  }
+
   async function handleDelete() {
     try {
       await disposalService.remove(deleteTarget.id)
@@ -160,17 +199,21 @@ export default function DisposalList() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <PageHeader title="Disposal Management" subtitle="Flag obsolete or damaged stock and manage the disposal workflow.">
-        <div className="flex items-center gap-4">
-          <SearchInput value={query} onChange={setQuery} placeholder="Search disposals..." />
-          {canCreate && (
-            <Button onClick={openCreate} className="gap-2 shadow-md">
-              <Plus size={18} />
-              Flag for Disposal
-            </Button>
-          )}
-        </div>
-      </PageHeader>
+      <PageHeader
+        title="Disposal Management"
+        subtitle="Flag obsolete or damaged stock and manage the disposal workflow."
+        actions={
+          <div className="flex items-center gap-4">
+            <SearchInput value={query} onChange={setQuery} placeholder="Search disposals..." />
+            {canCreate && (
+              <Button onClick={openCreate} className="gap-2 shadow-md">
+                <Plus size={18} />
+                Flag for Disposal
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       <Table
         loading={loading}
@@ -190,7 +233,7 @@ export default function DisposalList() {
                 <Button variant="ghost" size="sm" onClick={() => handleOpenView(r)}>
                   <Eye size={18} />
                 </Button>
-                {canDelete && ['Pending', 'Flagged', 'Requested', 'Pending Review'].includes(r.status) && (
+                {canDelete && ['Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Disposal Requested', 'Pending Store Head Review', 'Store Head Review', 'Recommended for Disposal', 'Requested', 'Pending Review', 'Returned for Correction'].includes(r.status) && (
                   <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(r)} className="text-red-500 hover:text-red-700">
                     <Trash2 size={18} />
                   </Button>
@@ -204,13 +247,20 @@ export default function DisposalList() {
       <Modal open={modalOpen} onClose={() => !saving && setModalOpen(false)} title="Flag Item for Disposal" size="lg">
         <form onSubmit={handleCreate} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Select label="Store" value={formData.store} onChange={(e) => setFormData({ ...formData, store: e.target.value })} required>
-              <option value="">-- Select Store --</option>
-              {stores.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </Select>
+            {isScopedStoreHead ? (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-ink-700">Store <span className="text-danger-600">*</span></label>
+                <div className="input bg-ink-50 text-ink-700">{assignedStoreName}</div>
+              </div>
+            ) : (
+              <Select label="Store" value={formData.store} onChange={(e) => setFormData({ ...formData, store: e.target.value, item: '' })} required>
+                <option value="">-- Select Store --</option>
+                {disposalStores.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </Select>
+            )}
             <Select label="Item" value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} required>
-              <option value="">-- Select Item --</option>
-              {availableItems.map(i => <option key={i.id} value={i.name}>{i.name} (qt: {i.qtyOnHand})</option>)}
+              <option value="">{formData.store ? '-- Select Item --' : 'Select a store first'}</option>
+              {availableItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.code}) - available: {i.qtyOnHand}</option>)}
             </Select>
             <Input label="Quantity" type="number" min="0.01" step="0.01" value={formData.qty} onChange={(e) => setFormData({ ...formData, qty: e.target.value })} required />
             <Input label="Date Flagged" type="date" value={formData.dateFlagged} onChange={(e) => setFormData({ ...formData, dateFlagged: e.target.value })} required />
@@ -278,7 +328,7 @@ export default function DisposalList() {
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
               <Button variant="secondary" onClick={() => setViewing(null)}>Close</Button>
 
-              {canApprove && (['Pending', 'Flagged', 'Requested', 'Pending Review'].includes(viewing.status)) && (
+              {canApprove && (['Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction'].includes(viewing.status)) && (
                 <>
                   <Button variant="danger" onClick={() => decide('Rejected')} className="gap-2">
                     <XCircle size={18} /> Reject
@@ -292,11 +342,33 @@ export default function DisposalList() {
                 </>
               )}
 
-              {canExecute && viewing.status === 'Approved' && (
+              {canExecute && ['Approved', 'Ready for Disposal', 'Executed'].includes(viewing.status) && (
                 <Button variant="primary" onClick={executeDisposal} className="gap-2 bg-blue-600 hover:bg-blue-700 border-transparent text-white">
                   <Play size={18} /> Execute Disposal (Remove Stock)
                 </Button>
               )}
+
+              {['Flagged'].includes(viewing.status) && (canExecute || isStoreHead) && <Button onClick={() => runDisposalAction('quarantine')}>Quarantine</Button>}
+              {viewing.status === 'Quarantined' && user?.role === ROLES.TEC && <Button onClick={() => runDisposalAction('start-assessment')}>Start Assessment</Button>}
+              {viewing.status === 'Under Technical Assessment' && user?.role === ROLES.TEC && <Button onClick={assessDisposal}>Record Assessment</Button>}
+              {viewing.status === 'Repairable' && canExecute && <Button onClick={() => runDisposalAction('repair')}>Send for Repair</Button>}
+              {viewing.status === 'Send for Repair' && user?.role === ROLES.TEC && <Button onClick={() => runDisposalAction('reassess')}>Reassess Repair</Button>}
+              {viewing.status === 'Unusable' && isStoreHead && <Button onClick={() => runDisposalAction('request')}>Create Disposal Request</Button>}
+              {viewing.status === 'Disposal Requested' && isStoreHead && <Button onClick={() => runDisposalAction('review')}>Start Store Head Review</Button>}
+              {viewing.status === 'Store Head Review' && isStoreHead && <Button onClick={() => runDisposalAction('recommend')}>Recommend Disposal</Button>}
+              {viewing.status === 'Recommended for Disposal' && isStoreHead && <Button onClick={() => runDisposalAction('submit-authorization')}>Submit Authorization</Button>}
+              {['Pending Authorization', 'Pending Review', 'Requested'].includes(viewing.status) && (canApprove || canCommittee) && (
+                <>
+                  <Button variant="danger" onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Rejected' }, 'Disposal rejected.')}>Reject</Button>
+                  <Button variant="secondary" onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Returned for Correction' }, 'Disposal returned for correction.')}>Return</Button>
+                  <Button onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Approved' }, 'Disposal authorized.')}>Authorize</Button>
+                </>
+              )}
+              {viewing.status === 'Disposed' && canExecute && <Button onClick={() => runDisposalAction('submit-confirmation')}>Submit Confirmation</Button>}
+              {viewing.status === 'Pending Confirmation' && (canApprove || canCommittee) && <Button onClick={() => runDisposalAction('confirm')}>Confirm Disposal</Button>}
+              {viewing.status === 'Confirmed' && (canApprove || canCommittee) && <Button onClick={() => runDisposalAction('post')}>Post Disposal</Button>}
+              {viewing.status === 'Posted' && (canApprove || canCommittee) && <Button onClick={() => runDisposalAction('complete')}>Complete</Button>}
+              {viewing.status === 'Completed' && (canApprove || canCommittee) && <Button onClick={() => runDisposalAction('close')}>Close</Button>}
             </div>
           </div>
         )}

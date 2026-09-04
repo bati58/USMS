@@ -10,7 +10,8 @@ export const ROLES = {
   TEC: 'Technical Evaluation Committee',
   DEPT_HEAD: 'Department Head',
   ACCOUNTANT: 'Accountant',
-  SECURITY: 'Security Officer'
+  SECURITY: 'Security Officer',
+  DISPOSAL_COMMITTEE: 'Disposal Committee'
 }
 
 export const ALL_ROLES = Object.values(ROLES)
@@ -91,12 +92,30 @@ export const RETURN_STATUS = {
 
 export const DISPOSAL_STATUS = {
   FLAGGED: 'Flagged',
+  QUARANTINED: 'Quarantined',
+  UNDER_TECHNICAL_ASSESSMENT: 'Under Technical Assessment',
+  REPAIRABLE: 'Repairable',
+  UNUSABLE: 'Unusable',
+  SEND_FOR_REPAIR: 'Send for Repair',
+  RETURNED_TO_STOCK: 'Returned to Stock',
+  DISPOSAL_REQUESTED: 'Disposal Requested',
+  PENDING_STORE_HEAD_REVIEW: 'Pending Store Head Review',
+  STORE_HEAD_REVIEW: 'Store Head Review',
+  RECOMMENDED_FOR_DISPOSAL: 'Recommended for Disposal',
+  PENDING_AUTHORIZATION: 'Pending Authorization',
+  READY_FOR_DISPOSAL: 'Ready for Disposal',
+  DISPOSED: 'Disposed',
+  PENDING_CONFIRMATION: 'Pending Confirmation',
+  CONFIRMED: 'Confirmed',
+  POSTED: 'Posted',
   REQUESTED: 'Requested',
   PENDING_REVIEW: 'Pending Review',
+  RETURNED_FOR_CORRECTION: 'Returned for Correction',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
   EXECUTED: 'Executed',
-  COMPLETED: 'Completed'
+  COMPLETED: 'Completed',
+  CLOSED: 'Closed'
 }
 
 export const ASSET_STATUS = {
@@ -164,8 +183,17 @@ export const STATUS_COLOR = {
 
   // Disposal
   [DISPOSAL_STATUS.FLAGGED]: 'bg-warning-50 text-warning-700',
+  [DISPOSAL_STATUS.QUARANTINED]: 'bg-orange-50 text-orange-700',
+  [DISPOSAL_STATUS.UNDER_TECHNICAL_ASSESSMENT]: 'bg-indigo-50 text-indigo-700',
+  [DISPOSAL_STATUS.REPAIRABLE]: 'bg-cyan-50 text-cyan-700',
+  [DISPOSAL_STATUS.UNUSABLE]: 'bg-red-50 text-red-700',
+  [DISPOSAL_STATUS.SEND_FOR_REPAIR]: 'bg-amber-50 text-amber-700',
   [DISPOSAL_STATUS.REQUESTED]: 'bg-info-50 text-info-700',
+  [DISPOSAL_STATUS.PENDING_REVIEW]: 'bg-warning-50 text-warning-700',
+  [DISPOSAL_STATUS.RETURNED_FOR_CORRECTION]: 'bg-orange-50 text-orange-700',
   [DISPOSAL_STATUS.EXECUTED]: 'bg-success-50 text-success-700',
+  [DISPOSAL_STATUS.COMPLETED]: 'bg-emerald-50 text-emerald-700',
+  [DISPOSAL_STATUS.CLOSED]: 'bg-slate-200 text-slate-700',
 
   // Assets
   [ASSET_STATUS.REGISTERED]: 'bg-ink-100 text-ink-600',

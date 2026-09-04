@@ -99,7 +99,7 @@ const ROLE_NAV = {
     ['Requisitions & Issues', ['requisitions', 'issueVouchers']],
     ['Returns & Transfers', ['materialReturn', 'materialTransfer']],
     ['Stock Control', ['stockTaking', 'reconciliation']],
-    ['Assets', ['userCards']],
+    ['Assets & Disposal', ['userCards', 'disposal']],
     ['Reports', ['reports']],
   ],
 
@@ -112,7 +112,7 @@ const ROLE_NAV = {
     ['Returns', ['materialReturn']],
     ['Transfers', ['materialTransfer']],
     ['Stock Control', ['stockTaking']],
-    ['Assets', ['userCards']],
+    ['Assets & Disposal', ['userCards', 'disposal']],
     ['Reports', ['reports']],
   ],
 

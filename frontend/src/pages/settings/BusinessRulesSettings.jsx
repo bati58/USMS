@@ -151,13 +151,14 @@ export default function BusinessRulesSettings() {
                     </select>
                 )
 
-            case 'enum':
-                let allowedValues = []
-                try {
-                    allowedValues = rule.allowed_values ? JSON.parse(rule.allowed_values) : []
-                } catch {
-                    allowedValues = []
-                }
+            case 'enum': {
+                const allowedValues = (() => {
+                    try {
+                        return rule.allowed_values ? JSON.parse(rule.allowed_values) : []
+                    } catch {
+                        return []
+                    }
+                })()
                 return (
                     <select
                         value={currentValue}
@@ -172,6 +173,7 @@ export default function BusinessRulesSettings() {
                         ))}
                     </select>
                 )
+            }
 
             case 'text':
             default:

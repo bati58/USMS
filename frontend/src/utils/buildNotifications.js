@@ -30,7 +30,12 @@ export function buildNotifications(user, data) {
     'Pending Evaluation',
     STATUS.UNDER_EVALUATION
   ].includes(g.status))
-  const pendingDisposals = disposals.filter((d) => [STATUS.PENDING, STATUS.APPROVED].includes(d.status))
+  const pendingDisposals = disposals.filter((d) => [
+    'Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable',
+    'Send for Repair', 'Disposal Requested', 'Pending Store Head Review', 'Store Head Review',
+    'Recommended for Disposal', 'Pending Authorization', 'Ready for Disposal', 'Disposed',
+    'Pending Confirmation', STATUS.PENDING, STATUS.APPROVED, 'Returned for Correction'
+  ].includes(d.status))
   const pendingTransfers = transfers.filter((t) => ![STATUS.COMPLETED, STATUS.CANCELLED, STATUS.REJECTED].includes(t.status))
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
   const approvedAwaitingIssue = reqs.filter((r) => [STATUS.APPROVED, 'Partially Approved'].includes(r.status))
@@ -216,6 +221,10 @@ export function buildNotifications(user, data) {
     }
 
     case ROLES.STOREKEEPER:
+      pendingDisposals
+        .filter((d) => ['Ready for Disposal', 'Disposed'].includes(d.status))
+        .slice(0, 6)
+        .forEach((d) => push(`disposal-${d.id}`, 'Disposal Execution', `${d.disposalRef} is ready for store action (${d.status})`, 'warning', '/disposal', d.dateFlagged))
       pendingGrns.slice(0, 6).forEach((g) => {
         push(
           `grn-${g.id}`,
@@ -298,6 +307,20 @@ export function buildNotifications(user, data) {
             r.date
           )
         })
+      break
+
+    case ROLES.TEC:
+      pendingDisposals
+        .filter((d) => ['Quarantined', 'Under Technical Assessment', 'Send for Repair'].includes(d.status))
+        .slice(0, 8)
+        .forEach((d) => push(`disposal-${d.id}`, 'Disposal Assessment', `${d.disposalRef} requires technical assessment (${d.status})`, 'info', '/disposal', d.dateFlagged))
+      break
+
+    case ROLES.DISPOSAL_COMMITTEE:
+      pendingDisposals
+        .filter((d) => ['Pending Authorization', 'Pending Confirmation', 'Confirmed'].includes(d.status))
+        .slice(0, 8)
+        .forEach((d) => push(`disposal-${d.id}`, 'Disposal Review', `${d.disposalRef} requires committee action (${d.status})`, 'warning', '/disposal', d.dateFlagged))
       break
 
     case ROLES.STOCK_CLERK:

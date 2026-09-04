@@ -25,6 +25,7 @@ import {
   reportService
 } from '../../services'
 import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 import { formatCurrency, formatDate, formatNumber } from '../../utils/formatters'
 import { canPerformAction } from '../../utils/rolePermissions'
 import { ROLES } from '../../utils/constants'
@@ -142,6 +143,7 @@ function computeFifoValue(itemName, qtyOnHand, transactions, fallbackUnitPrice =
 }
 
 export default function Reports() {
+  const { push } = useToast()
   const { user } = useAuth()
   const canViewFifo = canPerformAction(user?.role, 'viewFifoValuation')
 

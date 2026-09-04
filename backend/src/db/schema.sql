@@ -443,8 +443,8 @@ CREATE TABLE IF NOT EXISTS disposals (
   qty            NUMERIC(14,2) NOT NULL CHECK (qty > 0),
   reason         TEXT NOT NULL,
   date_flagged   DATE NOT NULL DEFAULT CURRENT_DATE,
-  status         TEXT NOT NULL DEFAULT 'Pending'
-                   CHECK (status IN ('Flagged','Requested','Pending','Pending Review','Approved','Rejected','Returned for Correction','Executed','Completed')),
+  status         TEXT NOT NULL DEFAULT 'Flagged'
+                   CHECK (status IN ('Flagged','Quarantined','Under Technical Assessment','Repairable','Unusable','Send for Repair','Returned to Stock','Disposal Requested','Pending Store Head Review','Store Head Review','Recommended for Disposal','Pending Authorization','Ready for Disposal','Disposed','Pending Confirmation','Confirmed','Posted','Requested','Pending','Pending Review','Approved','Rejected','Returned for Correction','Executed','Completed','Closed')),
   created_by     TEXT,
   approved_by    TEXT,
   approved_at    TIMESTAMP,
@@ -454,6 +454,14 @@ CREATE TABLE IF NOT EXISTS disposals (
   disposal_method TEXT,
   witness        TEXT,
   supporting_document TEXT,
+  assessment_result TEXT,
+  assessment_notes TEXT,
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMP,
+  confirmed_by TEXT,
+  confirmed_at TIMESTAMP,
+  posted_by TEXT,
+  posted_at TIMESTAMP,
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -466,6 +474,19 @@ ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_date DATE;
 ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_method TEXT;
 ALTER TABLE disposals ADD COLUMN IF NOT EXISTS witness TEXT;
 ALTER TABLE disposals ADD COLUMN IF NOT EXISTS supporting_document TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS assessment_result TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS assessment_notes TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS confirmed_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS posted_by TEXT;
+ALTER TABLE disposals ADD COLUMN IF NOT EXISTS posted_at TIMESTAMP;
+DO $$
+BEGIN
+  ALTER TABLE disposals DROP CONSTRAINT IF EXISTS disposals_status_check;
+  ALTER TABLE disposals ADD CONSTRAINT disposals_status_check CHECK (status IN ('Flagged','Quarantined','Under Technical Assessment','Repairable','Unusable','Send for Repair','Returned to Stock','Disposal Requested','Pending Store Head Review','Store Head Review','Recommended for Disposal','Pending Authorization','Ready for Disposal','Disposed','Pending Confirmation','Confirmed','Posted','Requested','Pending','Pending Review','Approved','Rejected','Returned for Correction','Executed','Completed','Closed'));
+END $$;
 UPDATE disposals SET reason = 'Reason not recorded' WHERE reason IS NULL OR BTRIM(reason) = '';
 ALTER TABLE disposals ALTER COLUMN reason SET NOT NULL;
 

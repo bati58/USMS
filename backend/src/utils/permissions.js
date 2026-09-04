@@ -22,10 +22,11 @@ const ROLES = {
   TEC: 'Technical Evaluation Committee',
   DEPT_HEAD: 'Department Head',
   ACCOUNTANT: 'Accountant',
-  SECURITY: 'Security Officer'
+  SECURITY: 'Security Officer',
+  DISPOSAL_COMMITTEE: 'Disposal Committee'
 };
 
-const { ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, TEC, DEPT_HEAD, ACCOUNTANT, SECURITY } = ROLES;
+const { ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, TEC, DEPT_HEAD, ACCOUNTANT, SECURITY, DISPOSAL_COMMITTEE } = ROLES;
 const REPORT_READERS = [ADMIN, PAO, STORE_HEAD, STOCK_CLERK, TEC, DEPT_HEAD, ACCOUNTANT];
 
 // Who can GET this resource. `null` = every authenticated role.
@@ -47,7 +48,7 @@ const READ_PERMISSIONS = {
   'material-returns': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
   'material-transfers': [...REPORT_READERS, STOREKEEPER],
   'fixed-assets': REPORT_READERS,
-  disposals: [...REPORT_READERS, STOREKEEPER],
+  disposals: [...REPORT_READERS, STOREKEEPER, DISPOSAL_COMMITTEE],
   users: [ADMIN],
   'audit-logs': [ADMIN, PAO, ACCOUNTANT, SECURITY],
   reports: [...REPORT_READERS, STOREKEEPER, SECURITY],
@@ -87,6 +88,16 @@ ACTION_PERMISSIONS['stock-taking-approve-adjustment'] = [PAO];
 ACTION_PERMISSIONS['business-rules'] = [ADMIN];
 ACTION_PERMISSIONS['disposals-approve'] = [PAO];
 ACTION_PERMISSIONS['disposals-execute'] = [STOREKEEPER];
+ACTION_PERMISSIONS['disposals-quarantine'] = [STOREKEEPER, STORE_HEAD];
+ACTION_PERMISSIONS['disposals-assess'] = [TEC];
+ACTION_PERMISSIONS['disposals-repair'] = [STOREKEEPER];
+ACTION_PERMISSIONS['disposals-reassess'] = [TEC];
+ACTION_PERMISSIONS['disposals-request'] = [STORE_HEAD];
+ACTION_PERMISSIONS['disposals-review'] = [STORE_HEAD];
+ACTION_PERMISSIONS['disposals-authorize'] = [PAO, DISPOSAL_COMMITTEE];
+ACTION_PERMISSIONS['disposals-submit-confirmation'] = [STOREKEEPER];
+ACTION_PERMISSIONS['disposals-confirm'] = [PAO, DISPOSAL_COMMITTEE];
+ACTION_PERMISSIONS['disposals-post'] = [PAO, DISPOSAL_COMMITTEE];
 
 // Who can POST/PUT/DELETE this resource. If a resource has no entry here,
 // every role in READ_PERMISSIONS for it may also write. If a resource's
@@ -95,8 +106,8 @@ ACTION_PERMISSIONS['disposals-execute'] = [STOREKEEPER];
 const WRITE_PERMISSIONS = {
   stores: [ADMIN, PAO, STORE_HEAD],
   categories: [ADMIN, PAO],
-  items: [ADMIN],
-  locations: [ADMIN],
+  items: [ADMIN, STORE_HEAD],
+  locations: [ADMIN, STORE_HEAD],
   suppliers: [ADMIN, PAO],
   departments: [ADMIN, PAO],
   'stock-taking': [STORE_HEAD, STOCK_CLERK],
@@ -120,6 +131,8 @@ const WRITE_PERMISSIONS = {
 };
 
 const DELETE_PERMISSIONS = {
+  items: [ADMIN],
+  locations: [ADMIN, STORE_HEAD],
   users: [],
   requisitions: [],
   'material-returns': [],
