@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Eye, X } from 'lucide-react'
+import { Download, Eye, RefreshCw, X } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Select from '../../components/ui/Select'
@@ -11,6 +11,7 @@ import Badge from '../../components/ui/Badge'
 import { auditLogService } from '../../services'
 import { canPerformAction } from '../../utils/rolePermissions'
 import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 import { formatDateTime } from '../../utils/formatters'
 import { AUDIT_OUTCOME_COLOR } from '../../utils/constants'
 
@@ -29,6 +30,7 @@ function OutcomeBadge({ value }) {
 
 export default function AuditLog() {
   const { user } = useAuth()
+  const { push } = useToast()
   const canExport = canPerformAction(user?.role, 'exportAuditLog')
 
   const [rows, setRows] = useState([])
@@ -38,13 +40,23 @@ export default function AuditLog() {
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
   const [selectedRow, setSelectedRow] = useState(null)
   const [showRaw, setShowRaw] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
-    auditLogService.list().then((data) => {
-      setRows(data)
-      setLoading(false)
-    })
-  }, [])
+    let active = true
+    setLoading(true)
+    auditLogService.list()
+      .then((data) => {
+        if (active) setRows(data)
+      })
+      .catch((error) => {
+        if (active) push(error.message || 'Could not load the audit log.', 'error')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [push, refreshKey])
 
   const moduleOptions = useMemo(() => {
     const uniqueModules = [...new Set(rows.map((row) => row.module).filter(Boolean))]
@@ -151,11 +163,16 @@ export default function AuditLog() {
         title="Audit Log"
         subtitle="Operational audit trail for inventory movements, approvals, user actions, and security events."
         actions={
-          canExport ? (
-            <Button icon={Download} variant="secondary" onClick={handleExport} disabled={!filtered.length}>
-              Export CSV
+          <div className="flex gap-2">
+            <Button variant="secondary" icon={RefreshCw} onClick={() => setRefreshKey((value) => value + 1)}>
+              Refresh
             </Button>
-          ) : null
+            {canExport && (
+              <Button icon={Download} variant="secondary" onClick={handleExport} disabled={!filtered.length}>
+                Export CSV
+              </Button>
+            )}
+          </div>
         }
       />
 

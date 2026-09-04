@@ -1302,7 +1302,7 @@ export default function Dashboard() {
         </Card>
 
         <Card title="FIFO Inventory Valuation" subtitle="First-In-First-Out method per SRS business rules">
-          <div className="flex h-full flex-col justify-between gap-4">
+          <div className="flex flex-col gap-4">
             <p className="text-sm text-ink-600">Run the FIFO valuation report to record the financial value of inventory using receipt layers.</p>
             <Link to="/reports" className="inline-flex items-center gap-2 self-start rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
               Open FIFO report <ArrowRight size={16} />
