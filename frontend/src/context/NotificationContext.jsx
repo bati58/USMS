@@ -77,7 +77,37 @@ export function NotificationProvider({ children }) {
 
       setDismissedIds(dismissed)
       setReadIds(read)
-      const combined = [...persisted, ...built].filter((notification, index, all) =>
+      const persistedGoodsReceiptIds = new Set(
+        persisted
+          .filter((notification) => notification.entityType === 'goods_receipt' && notification.entityId != null)
+          .map((notification) => String(notification.entityId))
+      )
+      const persistedRequisitionIds = new Set(
+        persisted
+          .filter((notification) => notification.entityType === 'requisition' && notification.entityId != null)
+          .map((notification) => String(notification.entityId))
+      )
+      const persistedIssueVoucherIds = new Set(
+        persisted
+          .filter((notification) => notification.entityType === 'issue_voucher' && notification.entityId != null)
+          .map((notification) => String(notification.entityId))
+      )
+      const persistedMaterialTransferIds = new Set(
+        persisted
+          .filter((notification) => notification.entityType === 'material-transfer' && notification.entityId != null)
+          .map((notification) => String(notification.entityId))
+      )
+      const builtWithoutPersistedGoodsReceipt = built.filter((notification) => {
+        const match = String(notification.id).match(/^(?:grn|eval-grn|gate-in)(?:-accepted)?-(\d+)$/)
+        if (match && persistedGoodsReceiptIds.has(match[1])) return false
+        const requisitionMatch = String(notification.id).match(/^(?:req|dept-approve|dept-approved|req-next)-(\d+)$/)
+        if (requisitionMatch && persistedRequisitionIds.has(requisitionMatch[1])) return false
+        const voucherMatch = String(notification.id).match(/^(?:voucher-(?:authorize|issue|gate))-(\d+)$/)
+        if (voucherMatch && persistedIssueVoucherIds.has(voucherMatch[1])) return false
+        const transferMatch = String(notification.id).match(/^transfer-(\d+)$/)
+        return !transferMatch || !persistedMaterialTransferIds.has(transferMatch[1])
+      })
+      const combined = [...persisted, ...builtWithoutPersistedGoodsReceipt].filter((notification, index, all) =>
         all.findIndex((candidate) => String(candidate.id) === String(notification.id)) === index
       )
       setNotifications(

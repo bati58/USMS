@@ -103,4 +103,12 @@ function assertTransition(workflow, currentStatus, nextStatus) {
     }
 }
 
-module.exports = { TRANSITIONS, assertTransition };
+function canEditStockTakingCounts(status) {
+    return ['Draft', 'Scheduled', 'In Progress', 'Recount Required'].includes(status);
+}
+
+function isOpenStockTakingSession(status) {
+    return ['Draft', 'Scheduled', 'In Progress', 'Submitted', 'Under Review', 'Recount Required', 'Variance Detected', 'Investigation', 'Adjustment Proposed', 'Pending Approval', 'Approved'].includes(status);
+}
+
+module.exports = { TRANSITIONS, assertTransition, canEditStockTakingCounts, isOpenStockTakingSession };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye } from 'lucide-react'
+import { Eye, RefreshCw } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -8,20 +8,32 @@ import Button from '../../components/ui/Button'
 import Badge from '../../components/ui/Badge'
 import { binCardService } from '../../services'
 import { formatDate, formatNumber } from '../../utils/formatters'
+import { useToast } from '../../context/ToastContext'
 
 export default function BinCardList() {
+  const { push } = useToast()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [viewing, setViewing] = useState(null)
   const [movements, setMovements] = useState([])
   const [movementLoading, setMovementLoading] = useState(false)
+  const [movementError, setMovementError] = useState('')
+
+  async function load() {
+    setLoading(true)
+    try {
+      const data = await binCardService.list()
+      setRows(data)
+    } catch (err) {
+      push(err.message || 'Could not load bin cards.', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    binCardService.list().then((data) => {
-      setRows(data)
-      setLoading(false)
-    })
+    load()
   }, [])
 
   const filtered = useMemo(() => {
@@ -33,8 +45,11 @@ export default function BinCardList() {
   async function viewMovements(row) {
     setViewing(row)
     setMovementLoading(true)
+    setMovementError('')
     try {
       setMovements(await binCardService.movements(row.id))
+    } catch (err) {
+      setMovementError(err.message || 'Could not load bin movement history.')
     } finally {
       setMovementLoading(false)
     }
@@ -54,6 +69,7 @@ export default function BinCardList() {
       <PageHeader
         title="Bin Cards"
         subtitle="Auto-generated per bin and location, recording inbound and outbound movement with the running balance."
+        actions={<Button variant="secondary" icon={RefreshCw} loading={loading} onClick={load}>Refresh</Button>}
       />
       <div className="card p-5">
         <div className="mb-4">
@@ -63,21 +79,29 @@ export default function BinCardList() {
       </div>
       <Modal open={Boolean(viewing)} onClose={() => setViewing(null)} title={viewing ? `${viewing.bin} Movement History` : ''} size="xl">
         {viewing && (
-          <Table
-            columns={[
-              { key: 'movement_date', header: 'Date', render: (row) => formatDate(row.movement_date) },
-              { key: 'reference', header: 'Reference' },
-              { key: 'type', header: 'Type' },
-              { key: 'qty_in', header: 'In', render: (row) => formatNumber(row.qty_in) },
-              { key: 'qty_out', header: 'Out', render: (row) => formatNumber(row.qty_out) },
-              { key: 'balance', header: 'Balance', render: (row) => formatNumber(row.balance) },
-              { key: 'actor_name', header: 'Actor' }
-            ]}
-            rows={movements}
-            loading={movementLoading}
-            emptyTitle="No movement history"
-            emptyMessage="This bin has no recorded movements yet."
-          />
+          <div className="space-y-4">
+            {viewing.itemQtyOnHand != null && Math.abs(Number(viewing.balance) - Number(viewing.itemQtyOnHand)) > 0.0001 && (
+              <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-800">
+                Bin balance ({formatNumber(viewing.balance)}) does not match the item balance ({formatNumber(viewing.itemQtyOnHand)}). Investigate the movement history.
+              </div>
+            )}
+            {movementError && <p className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-sm text-danger-700">{movementError}</p>}
+            <Table
+              columns={[
+                { key: 'movement_date', header: 'Date', render: (row) => formatDate(row.movement_date) },
+                { key: 'reference', header: 'Reference' },
+                { key: 'type', header: 'Type' },
+                { key: 'qty_in', header: 'In', render: (row) => formatNumber(row.qty_in) },
+                { key: 'qty_out', header: 'Out', render: (row) => formatNumber(row.qty_out) },
+                { key: 'balance', header: 'Balance', render: (row) => formatNumber(row.balance) },
+                { key: 'actor_name', header: 'Actor' }
+              ]}
+              rows={movements}
+              loading={movementLoading}
+              emptyTitle="No movement history"
+              emptyMessage="This bin has no recorded movements yet."
+            />
+          </div>
         )}
       </Modal>
     </div>

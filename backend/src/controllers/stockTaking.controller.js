@@ -6,6 +6,7 @@ const { logAudit } = require('../utils/audit');
 const { resolveStoreId, resolveItemId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 const stockService = require('../services/stockService');
 const { notify } = require('../utils/notify');
+const { canEditStockTakingCounts, isOpenStockTakingSession } = require('../utils/workflow');
 
 const SELECT = `
   SELECT st.*, s.name AS store_name
@@ -211,7 +212,7 @@ const update = asyncHandler(async (req, res) => {
         const session = sessions[0];
         if (!session) throw new AppError('Stock-taking session not found.', 404);
         await assertUserCanAccessStoreRecord(req.user, session.store_id, client);
-        if (!['Draft', 'Recount Required', 'Approved'].includes(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
+        if (!canEditStockTakingCounts(session.status)) throw new AppError('Submitted stock counts are historical and cannot be edited.', 409);
         if (req.user.role === 'Stock Clerk' && session.assigned_user_id !== req.user.id) {
             throw new AppError('You are not assigned to this stock-taking session.', 403);
         }
@@ -238,6 +239,10 @@ const update = asyncHandler(async (req, res) => {
 
         if (['Draft', 'Scheduled'].includes(session.status)) {
             await client.query("UPDATE stock_taking_sessions SET status = 'In Progress', updated_at = NOW() WHERE id = $1", [req.params.id]);
+        }
+
+        if (session.status === 'Recount Required') {
+            await client.query("UPDATE stock_taking_sessions SET status = 'Submitted', updated_at = NOW() WHERE id = $1", [req.params.id]);
         }
 
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Saved stock-taking counts for ${session.session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: req.params.id, entityReference: session.session_ref });

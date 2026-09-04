@@ -156,6 +156,9 @@ function mapGoodsReceipt(row, items = []) {
     grnRef: row.grn_ref,
     supplier: row.supplier,
     poRef: row.po_ref,
+    type: row.material_type,
+    docRef: row.supporting_document_ref,
+    condition: row.condition_on_arrival,
     receivedDate: row.received_date,
     receivedBy: row.received_by,
     store: row.store_name || null,
@@ -178,10 +181,10 @@ function mapGoodsReceipt(row, items = []) {
     }))
   };
 }
-
 function mapStockTransaction(row) {
   return {
     id: row.id,
+    itemId: row.item_id,
     item: row.item_name,
     date: row.date,
     type: row.type,
@@ -192,6 +195,7 @@ function mapStockTransaction(row) {
     balance: Number(row.balance),
     actorName: row.actor_name || null,
     store: row.store_name || null,
+    storeId: row.store_id || null,
     bin: row.bin || null,
     reason: row.reason || null,
     sourceType: row.source_type || null,
@@ -203,8 +207,11 @@ function mapBinCard(row) {
   return {
     id: row.id,
     bin: row.bin,
+    itemId: row.item_id,
+    storeId: row.store_id,
     store: row.store_name || null,
     item: row.item_name || null,
+    itemQtyOnHand: row.item_qty_on_hand == null ? null : Number(row.item_qty_on_hand),
     lastMovement: row.last_movement,
     balance: Number(row.balance)
   };
@@ -247,6 +254,7 @@ function mapIssueVoucher(row, items = []) {
     srRef: row.sr_ref,
     issuedTo: row.issued_to,
     issuedBy: row.issued_by,
+    store: row.store_name || null,
     date: row.date,
     status: row.status,
     gateVerified: row.gate_verified,
@@ -276,9 +284,17 @@ function mapMaterialReturn(row) {
     srnRef: row.srn_ref,
     department: row.department,
     store: row.store_name || null,
+    returnedBy: row.created_by || null,
     item: row.item_name || null,
     qty: Number(row.qty),
     qtyApproved: row.qty_approved == null ? null : Number(row.qty_approved),
+    qtyReceived: row.qty_received == null ? null : Number(row.qty_received),
+    qtyAccepted: row.qty_accepted == null ? null : Number(row.qty_accepted),
+    qtyRejected: row.qty_rejected == null ? null : Number(row.qty_rejected),
+    receivingBy: row.receiving_by || null,
+    receivingAt: row.receiving_at || null,
+    receivingCondition: row.receiving_condition || null,
+    receivingRemarks: row.receiving_remarks || null,
     reason: row.reason,
     condition: row.condition,
     originalIssueRef: row.original_issue_ref,

@@ -1,12 +1,13 @@
 const { query } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
+const AppError = require('../utils/AppError');
 const { mapBinCard, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 
 // Read-only — rows are created/updated as a side effect of stockService.js.
 const list = asyncHandler(async (req, res) => {
   const visibility = await getUserStoreVisibility(req.user, { query });
   let sql = `
-    SELECT bc.*, s.name AS store_name, i.name AS item_name
+    SELECT bc.*, s.name AS store_name, i.name AS item_name, i.qty_on_hand AS item_qty_on_hand
     FROM bin_cards bc
     LEFT JOIN stores s ON s.id = bc.store_id
     LEFT JOIN items i ON i.id = bc.item_id

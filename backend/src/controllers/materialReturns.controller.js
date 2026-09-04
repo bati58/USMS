@@ -125,6 +125,7 @@ const submit = asyncHandler(async (req, res) => {
     const { rows } = await client.query(
       `SELECT mr.status, mr.srn_ref, mr.department, mr.created_by,
               COALESCE(rs.name, source_store.name) AS store_name,
+              COALESCE(rs.id, source_store.id) AS store_id,
               sh.id AS store_head_id
        FROM material_returns mr
        LEFT JOIN items i ON i.id = mr.item_id
@@ -137,7 +138,10 @@ const submit = asyncHandler(async (req, res) => {
     );
     const ret = rows[0];
     if (!ret) throw new AppError('Material return not found.', 404);
-    if (req.user.role === 'Department Head' && ret.department !== req.user.department && ret.created_by !== req.user.name) {
+    if (ret.created_by !== req.user.name) {
+      throw new AppError('Only the requester can submit this material return.', 403);
+    }
+    if (req.user.role === 'Department Head' && ret.department !== req.user.department) {
       throw new AppError('You can only submit returns from your department.', 403);
     }
     if (ret.status !== 'Draft' && ret.status !== 'Pending') {
@@ -148,7 +152,7 @@ const submit = asyncHandler(async (req, res) => {
     await notify(client, {
       userId: ret.store_head_id || undefined,
       role: ret.store_head_id ? undefined : 'Store Head',
-      storeId: rows[0]?.store_id || null,
+      storeId: ret.store_id,
       title: 'Material return awaiting inspection',
       message: `${ret.srn_ref} for ${ret.store_name || 'the store'} is ready for Store Head review.`,
       type: 'warning',
@@ -185,7 +189,8 @@ const decide = asyncHandler(async (req, res) => {
 
     if (decision === 'Approved') {
       const { rows } = await client.query(
-        `SELECT mr.srn_ref, COALESCE(rs.head_of_store, source_store.head_of_store) AS receiving_operator
+        `SELECT mr.srn_ref, COALESCE(rs.storekeeper, source_store.storekeeper) AS receiving_operator,
+          COALESCE(rs.id, source_store.id) AS receiving_store_id
          FROM material_returns mr
          LEFT JOIN items i ON i.id = mr.item_id
          LEFT JOIN stores source_store ON source_store.id = i.store_id
@@ -202,7 +207,7 @@ const decide = asyncHandler(async (req, res) => {
       await notify(client, {
         userId: operatorRows[0]?.id,
         role: operatorRows[0]?.id ? undefined : 'Storekeeper',
-        storeId: rows[0]?.store_id,
+        storeId: rows[0]?.receiving_store_id,
         title: 'Material return approved for receipt',
         message: `${rows[0]?.srn_ref} was approved by the Store Head. Receive the material and post it back to stock.`,
         type: 'success',

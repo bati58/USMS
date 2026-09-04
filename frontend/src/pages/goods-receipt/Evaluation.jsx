@@ -6,26 +6,29 @@ import Modal from '../../components/ui/Modal'
 import Button from '../../components/ui/Button'
 import Textarea from '../../components/ui/Textarea'
 import Input from '../../components/ui/Input'
+import Select from '../../components/ui/Select'
 import StatusBadge from '../../components/ui/StatusBadge'
 import { goodsReceiptService } from '../../services'
 import { api } from '../../services/apiClient'
 import { useToast } from '../../context/ToastContext'
-import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../utils/formatters'
 import { GRN_STATUS } from '../../utils/constants'
 
 export default function Evaluation() {
   const { push } = useToast()
-  const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [target, setTarget] = useState(null)
   const [note, setNote] = useState('')
+  const [condition, setCondition] = useState('')
+  const [evidence, setEvidence] = useState('')
   const [saving, setSaving] = useState(false)
   const [acceptedQuantities, setAcceptedQuantities] = useState([])
+  const successToast = { duration: 180000 }
 
   const pendingRows = rows.filter((row) => row.status === GRN_STATUS.PENDING_EVAL || row.status === GRN_STATUS.UNDER_EVAL)
   const historyRows = rows.filter((row) => !pendingRows.includes(row) && row.evaluatedBy)
+  const targetIsPending = Boolean(target && [GRN_STATUS.PENDING_EVAL, GRN_STATUS.UNDER_EVAL].includes(target.status))
 
   async function load() {
     setLoading(true)
@@ -46,6 +49,8 @@ export default function Evaluation() {
   async function startReview(row) {
     setTarget(row)
     setNote(row.evaluationNote || '')
+    setCondition(row.evaluationCondition || '')
+    setEvidence(row.evaluationEvidence || '')
     setAcceptedQuantities((row.items || []).map((line) => ({ item: line.item, qtyAccepted: line.qty })))
 
     if (row.status === GRN_STATUS.PENDING_EVAL) {
@@ -73,13 +78,16 @@ export default function Evaluation() {
       await api.action('goodsReceipts', target.id, 'evaluate', {
         decision: decision === GRN_STATUS.ACCEPTED ? 'Approved' : decision === GRN_STATUS.PARTIALLY_ACCEPTED ? 'Partially Approved' : 'Rejected',
         items: acceptedQuantities,
-        evaluationNote: note || (decision === GRN_STATUS.ACCEPTED ? 'Inspected and accepted.' : 'Rejected - does not meet specification.')
+        evaluationNote: note || (decision === GRN_STATUS.ACCEPTED ? 'Inspected and accepted.' : 'Rejected - does not meet specification.'),
+        condition,
+        evidence
       })
       push(
         decision === GRN_STATUS.ACCEPTED
-          ? 'Materials accepted. Store head notified to generate the official receipt.'
-          : 'Materials rejected. Store head notified to arrange return to supplier.',
-        decision === GRN_STATUS.ACCEPTED ? 'success' : 'warning'
+          ? 'Materials accepted. The receiving Storekeeper is notified to generate the official GRN and post accepted stock.'
+          : 'Materials rejected. The receiving Store Head is notified to arrange the supplier return.',
+        decision === GRN_STATUS.ACCEPTED ? 'success' : 'warning',
+        successToast
       )
       setTarget(null)
       await load()
@@ -146,7 +154,7 @@ export default function Evaluation() {
             <Button variant="secondary" onClick={() => setTarget(null)}>
               Cancel
             </Button>
-            {target && pendingRows.includes(target) && (
+            {target && targetIsPending && (
               <>
                 <Button variant="danger" icon={XCircle} loading={saving} onClick={() => decide(GRN_STATUS.REJECTED)}>
                   Reject (Return to Supplier)
@@ -223,6 +231,22 @@ export default function Evaluation() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
+            {targetIsPending && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Select
+                  label="Evaluated Condition"
+                  options={['New', 'Good', 'Fair', 'Damaged', 'Rejected']}
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                />
+                <Input
+                  label="Evidence / Document Reference"
+                  placeholder="e.g. Inspection Report IR-2026-001"
+                  value={evidence}
+                  onChange={(e) => setEvidence(e.target.value)}
+                />
+              </div>
+            )}
           </div>
         )}
       </Modal>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye } from 'lucide-react'
+import { Eye, RefreshCw } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -7,20 +7,31 @@ import Modal from '../../components/ui/Modal'
 import Button from '../../components/ui/Button'
 import { itemService, stockTransactionService } from '../../services'
 import { formatCurrency, formatDate, formatNumber } from '../../utils/formatters'
+import { useToast } from '../../context/ToastContext'
 
 export default function StockCardList() {
+  const { push } = useToast()
   const [items, setItems] = useState([])
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [viewing, setViewing] = useState(null)
 
-  useEffect(() => {
-    Promise.all([itemService.list(), stockTransactionService.list()]).then(([i, t]) => {
+  async function load() {
+    setLoading(true)
+    try {
+      const [i, t] = await Promise.all([itemService.list(), stockTransactionService.list()])
       setItems(i)
       setTransactions(t)
+    } catch (err) {
+      push(err.message || 'Could not load stock cards.', 'error')
+    } finally {
       setLoading(false)
-    })
+    }
+  }
+
+  useEffect(() => {
+    load()
   }, [])
 
   const filtered = useMemo(() => {
@@ -31,8 +42,13 @@ export default function StockCardList() {
 
   const ledger = useMemo(() => {
     if (!viewing) return []
-    return transactions.filter((t) => t.item === viewing.name)
+    return transactions
+      .filter((t) => viewing.itemId ? Number(t.itemId) === Number(viewing.itemId) : t.item === viewing.name && t.store === viewing.store)
+      .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0) || Number(a.id) - Number(b.id))
   }, [viewing, transactions])
+
+  const ledgerBalance = ledger.length ? ledger[ledger.length - 1].balance : null
+  const balanceMismatch = ledgerBalance != null && Math.abs(Number(ledgerBalance) - Number(viewing?.qtyOnHand || 0)) > 0.0001
 
   const columns = [
     { key: 'code', header: 'Item Code' },
@@ -58,6 +74,7 @@ export default function StockCardList() {
       <PageHeader
         title="Stock Cards"
         subtitle="Auto-updated cost and quantity ledger for every item, valued using FIFO."
+        actions={<Button variant="secondary" icon={RefreshCw} loading={loading} onClick={load}>Refresh</Button>}
       />
 
       <div className="card p-5">
@@ -76,6 +93,11 @@ export default function StockCardList() {
               <Field label="Bin" value={viewing.bin} />
               <Field label="Balance" value={`${formatNumber(viewing.qtyOnHand)} ${viewing.unit}`} />
             </div>
+            {balanceMismatch && (
+              <div className="rounded-lg border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-800">
+                Ledger balance ({formatNumber(ledgerBalance)}) does not match item balance ({formatNumber(viewing.qtyOnHand)}). Investigate the transaction history before issuing stock.
+              </div>
+            )}
             <div className="overflow-x-auto rounded-lg border border-ink-100">
               <table className="min-w-full divide-y divide-ink-100 text-sm">
                 <thead className="bg-ink-50 text-ink-600">

@@ -32,6 +32,8 @@ export default function MaterialReturnList() {
   const [viewing, setViewing] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [receiveInput, setReceiveInput] = useState({ actualQty: '', acceptedQty: '', rejectedQty: '', condition: '', remarks: '', rejectionReason: '' })
+  const successToast = { duration: 180000 }
 
   const [header, setHeader] = useState({ department: '', store: '', date: '', originalIssueRef: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -41,7 +43,8 @@ export default function MaterialReturnList() {
   const canReceive = user?.role === ROLES.STOREKEEPER
   const canCreate = canPerformAction(user?.role, 'create', 'materialReturns')
   const canDelete = canPerformAction(user?.role, 'delete', 'materialReturns')
-  const canReviewRow = (row) => [RETURN_STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(row.status) && canReview
+  const REVIEWABLE_RETURN_STATUSES = [RETURN_STATUS.SUBMITTED, RETURN_STATUS.PENDING_REVIEW, STATUS.PENDING]
+  const canReviewRow = (row) => REVIEWABLE_RETURN_STATUSES.includes(row.status) && canReview
 
   const userAssignedStore = user?.store || ''
   const isScopedStoreUser = user?.role === ROLES.STOREKEEPER && !!userAssignedStore
@@ -171,10 +174,17 @@ export default function MaterialReturnList() {
   }
 
   async function handleReceive() {
+    const actualQty = Number(receiveInput.actualQty)
+    const acceptedQty = Number(receiveInput.acceptedQty)
+    const rejectedQty = Number(receiveInput.rejectedQty)
+    if (!Number.isFinite(actualQty) || actualQty < 0 || !Number.isFinite(acceptedQty) || acceptedQty < 0 || !Number.isFinite(rejectedQty) || rejectedQty < 0 || Math.abs(acceptedQty + rejectedQty - actualQty) > 0.0001) {
+      push('Actual, accepted, and rejected quantities must be valid and accepted plus rejected must equal actual received.', 'error')
+      return
+    }
     setSaving(true)
     try {
-      await api.action('materialReturns', viewing.id, 'receive', {})
-      push(`${viewing.srnRef} received and returned to stock.`, 'success')
+      await api.action('materialReturns', viewing.id, 'receive', receiveInput)
+      push(`${viewing.srnRef} received. Accepted quantity was returned to stock and Stock Cards, Bin Cards, and FIFO lots were updated.`, 'success', successToast)
       setViewing(null)
       await load()
     } catch (err) {
@@ -185,10 +195,27 @@ export default function MaterialReturnList() {
   }
 
   async function handleDelete() {
-    await materialReturnService.remove(deleteTarget.id)
-    push('Return request deleted.', 'success')
-    setDeleteTarget(null)
-    await load()
+    try {
+      await materialReturnService.remove(deleteTarget.id)
+      push(`Draft ${deleteTarget.srnRef} deleted. No stock changed.`, 'success', successToast)
+      setDeleteTarget(null)
+      await load()
+    } catch (err) {
+      push(err.message || 'Could not delete return.', 'error')
+    }
+  }
+
+  function openView(row) {
+    setViewing(row)
+    setRejectReason('')
+    setReceiveInput({
+      actualQty: row.qtyApproved ?? row.qty,
+      acceptedQty: row.qtyApproved ?? row.qty,
+      rejectedQty: 0,
+      condition: row.condition || 'Good',
+      remarks: '',
+      rejectionReason: ''
+    })
   }
 
   const hasAnyAction = filtered.some((row) => {
@@ -211,10 +238,10 @@ export default function MaterialReturnList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1 items-center">
-          <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
+          <button onClick={() => openView(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>
-          {row.status === RETURN_STATUS.DRAFT && canCreate && (
+          {row.status === RETURN_STATUS.DRAFT && canCreate && row.returnedBy === user?.name && (
             <button onClick={() => handleSubmit(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50" title="Submit return">
               <Send size={15} />
             </button>
@@ -372,6 +399,20 @@ export default function MaterialReturnList() {
                   </tr>
                 </tbody>
               </table>
+              {viewing.status === RETURN_STATUS.APPROVED && canReceive && (
+                <div className="mt-4 rounded-lg border border-success-100 bg-success-50 p-3 text-success-900">
+                  <p className="mb-2 text-sm font-medium">Receiving Verification</p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <Input label="Actual Received Qty" type="number" min="0" value={receiveInput.actualQty} onChange={(e) => setReceiveInput((current) => ({ ...current, actualQty: e.target.value }))} />
+                    <Input label="Accepted Qty" type="number" min="0" value={receiveInput.acceptedQty} onChange={(e) => setReceiveInput((current) => ({ ...current, acceptedQty: e.target.value }))} />
+                    <Input label="Rejected Qty" type="number" min="0" value={receiveInput.rejectedQty} onChange={(e) => setReceiveInput((current) => ({ ...current, rejectedQty: e.target.value }))} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Select label="Received Condition" options={['Good', 'Usable', 'Damaged', 'Rejected']} value={receiveInput.condition} onChange={(e) => setReceiveInput((current) => ({ ...current, condition: e.target.value }))} />
+                    <Input label="Receiving Remarks" value={receiveInput.remarks} onChange={(e) => setReceiveInput((current) => ({ ...current, remarks: e.target.value }))} />
+                  </div>
+                </div>
+              )}
               {canReviewRow(viewing) && (
                 <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-brand-800">
                   <p className="font-medium text-sm mb-1">Store Head Review Required</p>

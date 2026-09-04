@@ -12,8 +12,8 @@ const SELECT = `
   LEFT JOIN stores s ON s.id = r.store_id
 `;
 
-async function fetchWithLines(id, dbClient = { query }) {
-  const { rows } = await dbClient.query(`${SELECT} WHERE iv.id = $1`, [id]);
+async function fetchWithLines(id, dbClient = { query }, extraWhere = '', extraParams = []) {
+  const { rows } = await dbClient.query(`${SELECT} WHERE iv.id = $1${extraWhere}`, [id, ...extraParams]);
   if (!rows[0]) return null;
   const { rows: lines } = await dbClient.query(
     `SELECT ivi.*, i.name AS item_name FROM issue_voucher_items ivi JOIN items i ON i.id = ivi.item_id WHERE ivi.issue_voucher_id = $1`,
@@ -76,12 +76,7 @@ const getOne = asyncHandler(async (req, res) => {
     }
   }
 
-  const v = await fetchWithLines(req.params.id, {
-    query: async (sql, values) => {
-      const { rows } = await query(`${SELECT} WHERE iv.id = $1${scope}`, params);
-      return { rows };
-    }
-  });
+  const v = await fetchWithLines(req.params.id, { query }, scope, params.slice(1));
   if (!v) throw new AppError('Issue voucher not found.', 404);
   res.json(v);
 });
@@ -99,12 +94,15 @@ const create = asyncHandler(async (req, res) => {
     // The Storekeeper prepares the preliminary voucher from an approved requisition.
     const { id, sivRef } = await stockService.createPreliminaryIssueVoucher(client, {
       srRef,
+      items: req.body.items,
       issuedBy: req.user.name,
-      actorName: req.user.name
+      actorName: req.user.name,
+      actorRole: req.user.role
     });
     // AUTHORIZED REVIEW: the Store Head must authorize the voucher before issue.
     await notify(client, {
       role: 'Store Head',
+      storeId: requisitionRows[0].store_id,
       title: 'Issue Voucher Awaiting Authorization',
       message: `Issue voucher ${sivRef} (from requisition ${srRef}) was prepared and needs your authorization.`,
       type: 'info',
@@ -121,7 +119,7 @@ const create = asyncHandler(async (req, res) => {
 const approve = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
     await assertVoucherStoreAccess(req.user, req.params.id, client);
-    await stockService.approveIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
+    await stockService.approveIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name, actorRole: req.user.role });
     const { rows } = await client.query('SELECT siv_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     const { rows: voucherRows } = await client.query(
       `SELECT iv.*, r.store_id
@@ -134,9 +132,18 @@ const approve = asyncHandler(async (req, res) => {
       role: 'Storekeeper',
       storeId: voucherRows[0]?.store_id,
       title: 'Issue Voucher Approved',
-      message: `SIV ${rows[0]?.siv_ref} has been approved and is ready for posting.`,
+      message: `SIV ${rows[0]?.siv_ref} has been approved. Security must verify the outgoing materials before posting.`,
       type: 'success',
       route: '/issue-vouchers',
+      entityType: 'issue_voucher',
+      entityId: req.params.id
+    });
+    await notify(client, {
+      role: 'Security Officer',
+      title: 'Outgoing materials awaiting gate verification',
+      message: `SIV ${rows[0]?.siv_ref} is approved and requires gate verification before stock can be posted and materials can leave the premises.`,
+      type: 'info',
+      route: '/gate-pass',
       entityType: 'issue_voucher',
       entityId: req.params.id
     });
@@ -147,20 +154,13 @@ const approve = asyncHandler(async (req, res) => {
 const post = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
     await assertVoucherStoreAccess(req.user, req.params.id, client);
-    await stockService.postIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name });
+    const { rows: gateRows } = await client.query('SELECT gate_verified, siv_ref FROM issue_vouchers WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!gateRows[0]) throw new AppError('Issue voucher not found.', 404);
+    if (!gateRows[0].gate_verified) throw new AppError(`Security must verify ${gateRows[0].siv_ref} at the gate before stock can be posted.`, 409);
+    await stockService.postIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name, actorRole: req.user.role });
     const { rows } = await client.query('SELECT siv_ref, sr_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     const sivRef = rows[0]?.siv_ref;
     const srRef = rows[0]?.sr_ref;
-    await notify(client, {
-      role: 'Security Officer',
-      title: 'Issue Voucher Posted',
-      message: `SIV ${sivRef} has been posted and stock movement is complete.`,
-      type: 'success',
-      route: `/issue-vouchers/${req.params.id}`,
-      entityType: 'issue_voucher',
-      entityId: req.params.id
-    });
-
     // FULFILLED / COMPLETE: notify the original requester that their requisition was issued.
     if (srRef) {
       const { rows: reqRows } = await client.query('SELECT requested_by FROM requisitions WHERE sr_ref = $1', [srRef]);
@@ -187,7 +187,7 @@ const post = asyncHandler(async (req, res) => {
 const amend = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     await assertVoucherStoreAccess(req.user, req.params.id, client);
-    await stockService.amendIssueVoucher(client, { voucherId: req.params.id, items: req.body.items, reason: req.body.reason, actorName: req.user.name });
+    await stockService.amendIssueVoucher(client, { voucherId: req.params.id, items: req.body.items, reason: req.body.reason, actorName: req.user.name, actorRole: req.user.role });
 
     // Amend is the Store Head's revise-and-resubmit step (status -> 'Pending Approval').
     // Persist a notification for the PAO (the authorizer) so the event does not live only in the browser (Phase 5).

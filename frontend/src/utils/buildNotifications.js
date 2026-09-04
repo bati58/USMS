@@ -38,8 +38,8 @@ export function buildNotifications(user, data) {
   ].includes(d.status))
   const pendingTransfers = transfers.filter((t) => ![STATUS.COMPLETED, STATUS.CANCELLED, STATUS.REJECTED].includes(t.status))
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
-  const approvedAwaitingIssue = reqs.filter((r) => [STATUS.APPROVED, 'Partially Approved'].includes(r.status))
   const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
+  const pendingGateOut = vouchers.filter((v) => !v.gateVerified && ['Approved', 'Posted'].includes(v.status))
 
   function push(id, title, message, type, route, timestamp) {
     notes.push({ id, title, message, type, route, timestamp: timestamp || new Date(), read: false })
@@ -105,22 +105,6 @@ export function buildNotifications(user, data) {
             'info',
             '/goods-receipt',
             g.receivedDate
-          )
-        })
-
-      // The Store Head no longer approves requisitions — once the PAO approves one, the
-      // Store Head's job is to generate the issue voucher for it.
-      approvedAwaitingIssue
-        .filter((r) => !userStore || r.store === userStore)
-        .slice(0, 6)
-        .forEach((r) => {
-          push(
-            `req-generate-${r.id}`,
-            'Generate Issue Voucher',
-            `${r.srRef} from ${r.department} is approved — generate the issue voucher`,
-            'success',
-            '/issue-vouchers',
-            r.date
           )
         })
 
@@ -284,6 +268,22 @@ export function buildNotifications(user, data) {
             v.date
           )
         })
+      reqs
+        .filter((r) => [STATUS.APPROVED, 'Partially Approved'].includes(r.status) && (!userStore || r.store === userStore))
+        .slice(0, 6)
+        .forEach((r) => {
+          const isReplenishment = r.requesterRole === ROLES.STOREKEEPER
+          push(
+            `req-next-${r.id}`,
+            isReplenishment ? 'Replenishment Transfer Required' : 'Generate Issue Voucher',
+            isReplenishment
+              ? `${r.srRef} is approved — prepare the replenishment through Material Transfers`
+              : `${r.srRef} is approved — generate the preliminary issue voucher`,
+            'success',
+            isReplenishment ? '/material-transfer' : '/issue-vouchers',
+            r.date
+          )
+        })
       pendingReturns.slice(0, 6).forEach((r) => {
         push(
           `eval-return-${r.id}`,
@@ -314,6 +314,16 @@ export function buildNotifications(user, data) {
         .filter((d) => ['Quarantined', 'Under Technical Assessment', 'Send for Repair'].includes(d.status))
         .slice(0, 8)
         .forEach((d) => push(`disposal-${d.id}`, 'Disposal Assessment', `${d.disposalRef} requires technical assessment (${d.status})`, 'info', '/disposal', d.dateFlagged))
+      grns.filter((g) => ['Under Evaluation', 'Pending Evaluation'].includes(g.status)).slice(0, 6).forEach((g) => {
+        push(
+          `eval-grn-${g.id}`,
+          'Technical Evaluation',
+          `${g.grnRef} at ${g.store} awaiting evaluation`,
+          'info',
+          '/goods-receipt/evaluation',
+          g.receivedDate
+        )
+      })
       break
 
     case ROLES.DISPOSAL_COMMITTEE:
@@ -360,19 +370,6 @@ export function buildNotifications(user, data) {
       })
       break
 
-    case ROLES.TEC:
-      grns.filter((g) => [STATUS.UNDER_EVALUATION, 'Pending Evaluation'].includes(g.status)).slice(0, 6).forEach((g) => {
-        push(
-          `eval-grn-${g.id}`,
-          'Technical Evaluation',
-          `${g.grnRef} at ${g.store} awaiting evaluation`,
-          'info',
-          '/goods-receipt/evaluation',
-          g.receivedDate
-        )
-      })
-      break
-
     case ROLES.DEPT_HEAD:
       reqs
         .filter((r) => [STATUS.PENDING, 'Submitted'].includes(r.status) && r.department === userDept && r.requestedBy !== user.name)
@@ -388,7 +385,7 @@ export function buildNotifications(user, data) {
           )
         })
       reqs
-        .filter((r) => r.requestedBy === user.name && r.status === STATUS.APPROVED)
+        .filter((r) => r.requestedBy === user.name && [STATUS.APPROVED, 'Partially Approved'].includes(r.status))
         .slice(0, 4)
         .forEach((r) => {
           push(
@@ -432,6 +429,16 @@ export function buildNotifications(user, data) {
           'info',
           '/gate-pass',
           g.receivedDate
+        )
+      })
+      pendingGateOut.slice(0, 6).forEach((v) => {
+        push(
+          `voucher-gate-${v.id}`,
+          'Outgoing Materials',
+          `${v.sivRef} for ${v.issuedTo || 'the destination'} — verify at gate before posting`,
+          'info',
+          '/gate-pass',
+          v.date
         )
       })
       break

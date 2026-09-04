@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { pathToFileURL } = require('node:url');
 const { assertTransition } = require('../src/utils/workflow');
+const { canEditStockTakingCounts, isOpenStockTakingSession } = require('../src/utils/workflow');
 const { canRead, canWrite, canAct, canDelete } = require('../src/utils/permissions');
 
 test('only reusable return conditions can be restocked', () => {
@@ -170,6 +171,9 @@ test('material returns follow the real return lifecycle with review, receiving, 
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Submitted', 'Returned for Correction'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Returned for Correction', 'Submitted'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Submitted', 'Approved'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Submitted', 'Pending Review'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Pending Review', 'Approved'));
+    assert.doesNotThrow(() => assertTransition('materialReturn', 'Pending Review', 'Rejected'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Approved', 'Under Receiving'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Under Receiving', 'Fully Accepted'));
     assert.doesNotThrow(() => assertTransition('materialReturn', 'Fully Accepted', 'Returned to Stock'));
@@ -375,6 +379,10 @@ test('stock-taking supports a controlled recount loop without skipping review', 
         () => assertTransition('stockTaking', 'Recount Required', 'Approved'),
         (error) => error.statusCode === 409
     );
+    assert.equal(canEditStockTakingCounts('Recount Required'), true);
+    assert.equal(canEditStockTakingCounts('Approved'), false);
+    assert.equal(isOpenStockTakingSession('Pending Approval'), true);
+    assert.equal(isOpenStockTakingSession('Closed'), false);
 });
 
 test('resolveItemId respects the selected store when names are duplicated across stores', async () => {
@@ -543,6 +551,31 @@ test('Department Head is alerted to endorse a submitted requisition from their o
     assert.ok(!notifications.some((n) => n.message.includes('SR-1003')));
 });
 
+test('approved requisitions route the next action according to the requester role', async () => {
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+
+    const notifications = buildNotifications(
+        { role: 'Storekeeper', store: 'Electrical Engineering Dept. Store' },
+        {
+            items: [],
+            grns: [],
+            reqs: [
+                { id: 10, status: 'Approved', requesterRole: 'Department Head', srRef: 'SR-2010', department: 'Electrical Engineering', store: 'Electrical Engineering Dept. Store', date: '2026-09-04' },
+                { id: 11, status: 'Approved', requesterRole: 'Storekeeper', srRef: 'SR-2011', department: 'Electrical Engineering', store: 'Electrical Engineering Dept. Store', date: '2026-09-04' }
+            ],
+            returns: [],
+            transfers: [],
+            disposals: [],
+            vouchers: []
+        }
+    );
+
+    assert.ok(notifications.some((n) => n.title === 'Generate Issue Voucher' && n.route === '/issue-vouchers' && n.message.includes('SR-2010')));
+    assert.ok(notifications.some((n) => n.title === 'Replenishment Transfer Required' && n.route === '/material-transfer' && n.message.includes('SR-2011')));
+});
+
 test('store-requisition and issue-voucher permissions enforce segregation of duties', () => {
     // Department Head can endorse, and Store Head approves for the issuing store.
     assert.equal(canAct('requisitions', 'Department Head'), true);
@@ -565,6 +598,105 @@ test('store-requisition and issue-voucher permissions enforce segregation of dut
     assert.equal(canAct('issue-voucher-post', 'Storekeeper'), true);
     assert.equal(canAct('issue-voucher-post', 'Store Head'), false);
     assert.equal(canAct('issue-voucher-post', 'Property Administration Officer'), false);
+});
+
+test('issue vouchers require authorization before posting and notify the Storekeeper', async () => {
+    assert.doesNotThrow(() => assertTransition('issueVoucher', 'Preliminary', 'Approved'));
+    assert.doesNotThrow(() => assertTransition('issueVoucher', 'Approved', 'Posted'));
+    assert.throws(
+        () => assertTransition('issueVoucher', 'Preliminary', 'Posted'),
+        (error) => error.statusCode === 409
+    );
+
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+    const notifications = buildNotifications(
+        { role: 'Storekeeper', store: 'Main Store' },
+        {
+            items: [],
+            grns: [],
+            reqs: [],
+            returns: [],
+            transfers: [],
+            disposals: [],
+            vouchers: [{ id: 21, status: 'Approved', sivRef: 'SIV-2026-0021', date: '2026-09-04' }]
+        }
+    );
+    assert.ok(notifications.some((n) => n.title === 'Issue Authorized Voucher' && n.route === '/issue-vouchers'));
+});
+
+test('Gate Pass is Security-only and covers outgoing approved vouchers', async () => {
+    assert.equal(canAct('gate-pass', 'Security Officer'), true);
+    assert.equal(canAct('gate-pass', 'Store Head'), false);
+    assert.equal(canAct('gate-pass', 'Property Administration Officer'), false);
+
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+    const notifications = buildNotifications(
+        { role: 'Security Officer' },
+        {
+            items: [],
+            grns: [],
+            reqs: [],
+            returns: [],
+            transfers: [],
+            disposals: [],
+            vouchers: [{ id: 31, status: 'Approved', sivRef: 'SIV-2026-0031', issuedTo: 'Electrical Engineering', gateVerified: false, date: '2026-09-04' }]
+        }
+    );
+    assert.ok(notifications.some((n) => n.title === 'Outgoing Materials' && n.route === '/gate-pass' && n.message.includes('SIV-2026-0031')));
+});
+
+test('stock card ledger rows retain item and store identity', () => {
+    const { mapStockTransaction } = require('../src/controllers/_helpers');
+    const mapped = mapStockTransaction({
+        id: 41,
+        item_id: 7,
+        item_name: 'Shared Item Name',
+        store_id: 2,
+        store_name: 'Main Store',
+        date: '2026-09-04',
+        type: 'Receipt',
+        ref: 'GRN-2026-0041',
+        qty_in: '10',
+        qty_out: '0',
+        unit_price: '25',
+        balance: '110'
+    });
+    assert.equal(mapped.itemId, 7);
+    assert.equal(mapped.storeId, 2);
+    assert.equal(mapped.balance, 110);
+});
+
+test('bin card rows retain item/store identity and compareable item balance', () => {
+    const { mapBinCard } = require('../src/controllers/_helpers');
+    const mapped = mapBinCard({
+        id: 51,
+        bin: 'SEC-2026-01-R01-S01-B01',
+        item_id: 7,
+        store_id: 2,
+        store_name: 'Main Store',
+        item_name: 'Shared Item Name',
+        item_qty_on_hand: '110',
+        last_movement: '2026-09-04',
+        balance: '110'
+    });
+    assert.equal(mapped.itemId, 7);
+    assert.equal(mapped.storeId, 2);
+    assert.equal(mapped.itemQtyOnHand, 110);
+    assert.equal(mapped.balance, 110);
+});
+
+test('material transfer requires approval, dispatch, and receipt in order', () => {
+    assert.doesNotThrow(() => assertTransition('materialTransfer', 'Pending Approval', 'Approved'));
+    assert.doesNotThrow(() => assertTransition('materialTransfer', 'Approved', 'Dispatched'));
+    assert.doesNotThrow(() => assertTransition('materialTransfer', 'Dispatched', 'Received'));
+    assert.throws(
+        () => assertTransition('materialTransfer', 'Pending Approval', 'Received'),
+        (error) => error.statusCode === 409
+    );
 });
 
 test('accountant is read-only financial observer with no operational permissions', () => {

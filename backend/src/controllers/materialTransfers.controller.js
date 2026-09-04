@@ -91,8 +91,9 @@ const create = asyncHandler(async (req, res) => {
     }
     const fromStoreId = sourceStores[0].id;
     const { rows: requests } = await client.query(
-      `SELECT r.*, s.type AS destination_type
+      `SELECT r.*, s.type AS destination_type, requester.role AS requester_role
        FROM requisitions r JOIN stores s ON s.id = r.store_id
+       LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
        WHERE r.id = $1 FOR UPDATE`,
       [requisitionId]
     );
@@ -104,6 +105,16 @@ const create = asyncHandler(async (req, res) => {
     if (request.destination_type === 'Main Store') {
       throw new AppError('Material transfers can only fulfil Sub-Store requisitions.', 400);
     }
+    if (request.requester_role !== 'Storekeeper') {
+      throw new AppError('Material transfers can only fulfil Storekeeper replenishment requisitions.', 400);
+    }
+    const { rows: existingTransfers } = await client.query(
+      `SELECT 1 FROM material_transfers
+       WHERE requisition_id = $1 AND status NOT IN ('Rejected', 'Returned for Correction')
+       LIMIT 1`,
+      [requisitionId]
+    );
+    if (existingTransfers[0]) throw new AppError('This requisition already has an active material transfer.', 409);
     const { rows: requestLines } = await client.query(
       `SELECT ri.qty, ri.qty_approved, i.id, i.name
        FROM requisition_items ri JOIN items i ON i.id = ri.item_id
@@ -138,7 +149,17 @@ const create = asyncHandler(async (req, res) => {
       );
       await client.query('UPDATE material_transfers SET requisition_id = $1 WHERE id = $2', [requisitionId, rows[0].id]);
 
-      await logAudit(client, { userName: req.user.name, action: `Created transfer ${transferRef}`, module: 'Material Transfer' });
+      await logAudit(client, {
+        userId: req.user.id,
+        userName: req.user.name,
+        userRole: req.user.role,
+        action: `Created transfer ${transferRef}`,
+        module: 'Material Transfer',
+        entityType: 'material-transfer',
+        entityId: rows[0].id,
+        entityReference: transferRef,
+        afterData: { status: 'Pending Approval' }
+      });
       await notify(client, {
         role: 'Property Administration Officer',
         title: 'Store transfer awaiting approval',
@@ -175,7 +196,7 @@ const decide = asyncHandler(async (req, res) => {
       await assertUserCanAccessStoreRecord(req.user, transfer.from_store_id, client);
     }
 
-    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
+    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name, actorRole: req.user.role });
 
     // Keep the workflow decision and its handoff notification atomic.
     if (decision === 'Approved' || decision === 'Returned for Correction' || decision === 'Rejected') {
@@ -222,7 +243,7 @@ const execute = asyncHandler(async (req, res) => {
       await assertUserCanAccessStoreRecord(req.user, requiredStoreId, client);
     }
 
-    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name });
+    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name, actorRole: req.user.role });
 
     const { rows: executeTransferRows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
     const executeTransfer = executeTransferRows[0];
@@ -286,7 +307,17 @@ const resubmit = asyncHandler(async (req, res) => {
 
     await assertUserCanAccessStoreRecord(req.user, transfer.from_store_id, client);
 
-    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name });
+    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name, actorRole: req.user.role });
+    const { rows: transferDetails } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
+    await notify(client, {
+      role: 'Property Administration Officer',
+      title: 'Store transfer awaiting approval',
+      message: `Transfer ${transferDetails[0]?.transfer_ref} was resubmitted and is awaiting review.`,
+      type: 'info',
+      route: '/material-transfer',
+      entityType: 'material-transfer',
+      entityId: req.params.id
+    });
   });
   const { rows } = await query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
   res.json(mapMaterialTransfer(rows[0]));

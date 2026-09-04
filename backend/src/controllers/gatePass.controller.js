@@ -37,6 +37,8 @@ const verify = asyncHandler(async (req, res) => {
             entityId: rows[0].id,
             entityReference: rows[0].reference,
             description: `${req.user.name} verified ${rows[0].reference} at the gate.`,
+            beforeData: { gateVerified: false },
+            afterData: { gateVerified: true, gateVerifiedBy: req.user.name },
             metadata: { resource: req.params.resource }
         });
 

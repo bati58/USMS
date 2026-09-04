@@ -16,11 +16,14 @@ import { GRN_STATUS } from '../../utils/constants'
 export default function GatePassVerification() {
   const { push } = useToast()
   const { user } = useAuth()
+  const canVerify = user?.role === 'Security Officer'
   const [tab, setTab] = useState('incoming')
   const [grns, setGrns] = useState([])
   const [vouchers, setVouchers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [actionBusy, setActionBusy] = useState('')
+  const successToast = { duration: 180000 }
 
   async function load() {
     setLoading(true)
@@ -40,9 +43,17 @@ export default function GatePassVerification() {
   }, [])
 
   async function verifyRecord(resource, row, label) {
-    await api.verifyGate(resource, row.id)
-    push(`${label} verified at gate.`, 'success')
-    await load()
+    if (!canVerify || actionBusy) return
+    setActionBusy(`${resource}-${row.id}`)
+    try {
+      await api.verifyGate(resource, row.id)
+      push(`${label} gate verification recorded. The next workflow action may proceed.`, 'success', successToast)
+      await load()
+    } catch (err) {
+      push(err.message || 'Could not record gate verification.', 'error')
+    } finally {
+      setActionBusy('')
+    }
   }
 
   const incomingRows = useMemo(() => {
@@ -96,8 +107,10 @@ export default function GatePassVerification() {
       header: 'Actions',
       className: 'text-right',
       render: (row) =>
-        !row.gateVerified ? (
-          <Button variant="secondary" icon={ShieldCheck} onClick={() => verifyRecord('goodsReceipts', row, row.grnRef)}>
+        !canVerify ? (
+          <span className="text-xs text-ink-400">Security verification only</span>
+        ) : !row.gateVerified ? (
+          <Button variant="secondary" icon={ShieldCheck} loading={actionBusy === `goodsReceipts-${row.id}`} disabled={Boolean(actionBusy)} onClick={() => verifyRecord('goodsReceipts', row, row.grnRef)}>
             Verify Entry
           </Button>
         ) : (
@@ -126,10 +139,14 @@ export default function GatePassVerification() {
       header: 'Actions',
       className: 'text-right',
       render: (row) =>
-        !row.gateVerified ? (
+        !canVerify ? (
+          <span className="text-xs text-ink-400">Security verification only</span>
+        ) : !row.gateVerified ? (
           <Button
             variant="secondary"
             icon={ShieldCheck}
+            loading={actionBusy === `${row.resource}-${row.serviceId}`}
+            disabled={Boolean(actionBusy)}
             onClick={() => verifyRecord(row.resource, { id: row.serviceId }, row.ref)}
           >
             Clear Exit
@@ -146,6 +163,12 @@ export default function GatePassVerification() {
         title="Gate Pass Verification"
         subtitle="Monitor and verify materials entering or leaving the organization's premises."
       />
+
+      {!canVerify && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Read-only monitoring: only Security Officers can record gate verification.
+        </div>
+      )}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card className="p-5">

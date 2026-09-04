@@ -141,7 +141,7 @@ async function ensureSourceBinCard(client, { bin, storeId, itemId, balance, date
 // §6.1 Goods Receipt approval -> stock increases
 // ---------------------------------------------------------------------------
 
-async function recordGoodsReceiptEvaluation(client, { grnId, decision, evaluationNote, findings, condition, evidence, items = [], evaluatedBy, actorName }) {
+async function recordGoodsReceiptEvaluation(client, { grnId, decision, evaluationNote, findings, condition, evidence, items = [], evaluatedBy, actorName, actorRole }) {
   const { rows: receiptRows } = await client.query('SELECT * FROM goods_receipts WHERE id = $1 FOR UPDATE', [grnId]);
   const receipt = receiptRows[0];
   if (!receipt) throw new AppError('Goods receipt not found.', 404);
@@ -172,10 +172,20 @@ async function recordGoodsReceiptEvaluation(client, { grnId, decision, evaluatio
        evaluation_evidence = $6, evaluated_by = $7, updated_at = NOW() WHERE id = $8`,
     [nextStatus, decision, evaluationNote || null, findings || evaluationNote || null, condition || null, evidence || null, evaluatedBy, grnId]
   );
-  await logAudit(client, { userName: actorName, action: `${decision} evaluation for ${receipt.grn_ref}`, module: 'Technical Evaluation', entityType: 'goods_receipt', entityId: grnId, entityReference: receipt.grn_ref });
+  await logAudit(client, {
+    userName: actorName,
+    userRole: actorRole,
+    action: `${decision} evaluation for ${receipt.grn_ref}`,
+    module: 'Technical Evaluation',
+    entityType: 'goods_receipt',
+    entityId: grnId,
+    entityReference: receipt.grn_ref,
+    beforeData: { status: receipt.status },
+    afterData: { status: nextStatus, evaluationStatus: decision }
+  });
 }
 
-async function generateGrn(client, { grnId, generatedBy, actorName }) {
+async function generateGrn(client, { grnId, generatedBy, actorName, actorRole }) {
   const { rows: receiptRows } = await client.query('SELECT * FROM goods_receipts WHERE id = $1 FOR UPDATE', [grnId]);
   const receipt = receiptRows[0];
   if (!receipt) throw new AppError('Goods receipt not found.', 404);
@@ -199,10 +209,20 @@ async function generateGrn(client, { grnId, generatedBy, actorName }) {
     await client.query('INSERT INTO grn_items (grn_id, item_id, qty, unit_price) VALUES ($1, $2, $3, $4)', [grnRows[0].id, line.item_id, accepted, line.unit_price]);
   }
   await client.query("UPDATE goods_receipts SET status = 'GRN Generated', updated_at = NOW() WHERE id = $1", [grnId]);
-  await logAudit(client, { userName: actorName, action: `Generated ${grnNumber}`, module: 'GRN', entityType: 'grn', entityId: grnRows[0].id, entityReference: grnNumber });
+  await logAudit(client, {
+    userName: actorName,
+    userRole: actorRole,
+    action: `Generated ${grnNumber}`,
+    module: 'GRN',
+    entityType: 'grn',
+    entityId: grnRows[0].id,
+    entityReference: grnNumber,
+    beforeData: { status: receipt.status },
+    afterData: { status: 'GRN Generated' }
+  });
 }
 
-async function postGrn(client, { grnId, actorName }) {
+async function postGrn(client, { grnId, actorName, actorRole }) {
   const { rows: receiptRows } = await client.query('SELECT * FROM goods_receipts WHERE id = $1 FOR UPDATE', [grnId]);
   const receipt = receiptRows[0];
   if (!receipt) throw new AppError('Goods receipt not found.', 404);
@@ -220,14 +240,24 @@ async function postGrn(client, { grnId, actorName }) {
     await upsertBinCard(client, { bin: item.bin, storeId: item.store_id, itemId: item.id, delta: accepted, date: receipt.received_date, reference: grnRows[0].grn_number, type: 'Receipt', actorName });
   }
   await client.query("UPDATE goods_receipts SET status = 'Posted', updated_at = NOW() WHERE id = $1", [grnId]);
-  await logAudit(client, { userName: actorName, action: `Posted ${grnRows[0].grn_number}`, module: 'GRN', entityType: 'grn', entityId: grnRows[0].id, entityReference: grnRows[0].grn_number });
+  await logAudit(client, {
+    userName: actorName,
+    userRole: actorRole,
+    action: `Posted ${grnRows[0].grn_number}`,
+    module: 'GRN',
+    entityType: 'grn',
+    entityId: grnRows[0].id,
+    entityReference: grnRows[0].grn_number,
+    beforeData: { status: receipt.status },
+    afterData: { status: 'Posted' }
+  });
 }
 
 // ---------------------------------------------------------------------------
 // §6.2 Requisition approval (no stock change) + Issue Voucher (stock decreases)
 // ---------------------------------------------------------------------------
 
-async function createPreliminaryIssueVoucher(client, { srRef, issuedBy, actorName }) {
+async function createPreliminaryIssueVoucher(client, { srRef, items = null, issuedBy, actorName, actorRole }) {
   const { rows: reqRows } = await client.query(
     `SELECT r.*, s.type AS destination_store_type, s.name AS destination_store_name, requester.role AS requester_role
      FROM requisitions r
@@ -252,6 +282,9 @@ async function createPreliminaryIssueVoucher(client, { srRef, issuedBy, actorNam
     'SELECT ri.*, i.name AS item_name FROM requisition_items ri JOIN items i ON i.id = ri.item_id WHERE ri.requisition_id = $1',
     [requisition.id]
   );
+  if (Array.isArray(items) && items.length !== lines.length) {
+    throw new AppError('Issue quantities must be provided exactly once for every approved requisition line.', 400);
+  }
   if (!lines.length) throw new AppError('This requisition has no line items.', 400);
 
   const { nextRef } = require('../utils/refGenerator');
@@ -265,7 +298,19 @@ async function createPreliminaryIssueVoucher(client, { srRef, issuedBy, actorNam
   );
 
   for (const line of lines) {
-    const issueQty = line.qty_approved == null ? Number(line.qty) : Number(line.qty_approved);
+    const requestedLine = Array.isArray(items)
+      ? items.find((entry) => entry.item === line.item_name || String(entry.itemId) === String(line.item_id))
+      : null;
+    if (Array.isArray(items) && !requestedLine) throw new AppError(`Issue quantity is missing for "${line.item_name}".`, 400);
+    const issueQty = requestedLine ? Number(requestedLine.qtyIssued ?? requestedLine.qty) : (line.qty_approved == null ? Number(line.qty) : Number(line.qty_approved));
+    const approvedQty = line.qty_approved == null ? Number(line.qty) : Number(line.qty_approved);
+    if (!Number.isFinite(issueQty) || issueQty <= 0 || issueQty > approvedQty) {
+      throw new AppError(`Issue quantity for "${line.item_name}" must be greater than zero and no more than the approved quantity (${approvedQty}).`, 400);
+    }
+    const { rows: stockRows } = await client.query('SELECT qty_on_hand FROM items WHERE id = $1', [line.item_id]);
+    if (Number(stockRows[0]?.qty_on_hand || 0) < issueQty) {
+      throw new AppError(`Insufficient stock for "${line.item_name}". Available: ${stockRows[0]?.qty_on_hand || 0}; requested: ${issueQty}.`, 400);
+    }
     if (issueQty > 0) {
       await client.query(
         'INSERT INTO issue_voucher_items (issue_voucher_id, item_id, qty, unit_price) VALUES ($1, $2, $3, 0)',
@@ -273,20 +318,20 @@ async function createPreliminaryIssueVoucher(client, { srRef, issuedBy, actorNam
       );
     }
   }
-  await logAudit(client, { userName: actorName, action: `Created preliminary ${sivRef}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherRows[0].id, entityReference: sivRef });
+  await logAudit(client, { userName: actorName, userRole: actorRole, action: `Created preliminary ${sivRef}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherRows[0].id, entityReference: sivRef, afterData: { status: 'Preliminary' } });
   return { id: voucherRows[0].id, sivRef };
 }
 
-async function approveIssueVoucher(client, { voucherId, actorName }) {
+async function approveIssueVoucher(client, { voucherId, actorName, actorRole }) {
   const { rows } = await client.query('SELECT * FROM issue_vouchers WHERE id = $1 FOR UPDATE', [voucherId]);
   const voucher = rows[0];
   if (!voucher) throw new AppError('Issue voucher not found.', 404);
   assertTransition('issueVoucher', voucher.status, 'Approved');
   await client.query('UPDATE issue_vouchers SET status = \'Approved\', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2', [actorName, voucherId]);
-  await logAudit(client, { userName: actorName, action: `Approved ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref });
+  await logAudit(client, { userName: actorName, userRole: actorRole, action: `Approved ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref, beforeData: { status: voucher.status }, afterData: { status: 'Approved' } });
 }
 
-async function amendIssueVoucher(client, { voucherId, items = [], reason, actorName }) {
+async function amendIssueVoucher(client, { voucherId, items = [], reason, actorName, actorRole }) {
   const { rows: voucherRows } = await client.query('SELECT * FROM issue_vouchers WHERE id = $1 FOR UPDATE', [voucherId]);
   const voucher = voucherRows[0];
   if (!voucher) throw new AppError('Issue voucher not found.', 404);
@@ -301,14 +346,15 @@ async function amendIssueVoucher(client, { voucherId, items = [], reason, actorN
       [voucherId, entry.item || '', String(entry.itemId || '')]
     );
     if (!lineRows[0]) throw new AppError(`Voucher line not found for "${entry.item || entry.itemId}".`, 400);
+    if (qty > Number(lineRows[0].qty)) throw new AppError(`Amended quantity for "${lineRows[0].item_name}" cannot exceed the approved quantity (${lineRows[0].qty}).`, 400);
     await client.query('INSERT INTO issue_voucher_amendments (issue_voucher_id, item_id, previous_qty, amended_qty, reason, amended_by) VALUES ($1, $2, $3, $4, $5, $6)', [voucherId, lineRows[0].item_id, lineRows[0].qty, qty, reason || null, actorName]);
     await client.query('UPDATE issue_voucher_items SET qty = $1 WHERE id = $2', [qty, lineRows[0].id]);
   }
   await client.query("UPDATE issue_vouchers SET status = 'Pending Approval', updated_at = NOW() WHERE id = $1", [voucherId]);
-  await logAudit(client, { userName: actorName, action: `Amended ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref, metadata: { reason } });
+  await logAudit(client, { userName: actorName, userRole: actorRole, action: `Amended ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref, beforeData: { status: voucher.status }, afterData: { status: 'Pending Approval' }, metadata: { reason } });
 }
 
-async function postIssueVoucher(client, { voucherId, actorName }) {
+async function postIssueVoucher(client, { voucherId, actorName, actorRole }) {
   const { rows: voucherRows } = await client.query('SELECT * FROM issue_vouchers WHERE id = $1 FOR UPDATE', [voucherId]);
   const voucher = voucherRows[0];
   if (!voucher) throw new AppError('Issue voucher not found.', 404);
@@ -327,10 +373,10 @@ async function postIssueVoucher(client, { voucherId, actorName }) {
   }
   await client.query("UPDATE issue_vouchers SET status = 'Posted', posted_by = $1, posted_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, voucherId]);
   await client.query("UPDATE requisitions SET status = 'Fulfilled', updated_at = NOW() WHERE sr_ref = $1", [voucher.sr_ref]);
-  await logAudit(client, { userName: actorName, action: `Posted ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref });
+  await logAudit(client, { userName: actorName, userRole: actorRole, action: `Posted ${voucher.siv_ref}`, module: 'Issue Voucher', entityType: 'issue_voucher', entityId: voucherId, entityReference: voucher.siv_ref, beforeData: { status: voucher.status }, afterData: { status: 'Posted' } });
 }
 
-async function decideRequisition(client, { requisitionId, decision, items = [], comments, actorName }) {
+async function decideRequisition(client, { requisitionId, decision, items = [], comments, actorName, actorRole }) {
   const { rows } = await client.query('SELECT * FROM requisitions WHERE id = $1 FOR UPDATE', [requisitionId]);
   const req = rows[0];
   if (!req) throw new AppError('Requisition not found.', 404);
@@ -357,8 +403,15 @@ async function decideRequisition(client, { requisitionId, decision, items = [], 
 
   await logAudit(client, {
     userName: actorName,
+    userRole: actorRole,
     action: `${decision} requisition ${req.sr_ref}`,
-    module: 'Store Requisition'
+    module: 'Store Requisition',
+    entityType: 'requisition',
+    entityId: requisitionId,
+    entityReference: req.sr_ref,
+    beforeData: { status: req.status },
+    afterData: { status: decision },
+    metadata: comments ? { comments } : {}
   });
 }
 
@@ -367,7 +420,7 @@ async function decideRequisition(client, { requisitionId, decision, items = [], 
 // ONLY to audit_logs: a requisition_approvals row is written only for a decision in the
 // schema CHECK set (Approved/Partially Approved/Rejected/Returned for Correction), which
 // for this stage happens on reject/return via decideRequisition — never for the endorse.
-async function endorseRequisition(client, { requisitionId, comments, actorName }) {
+async function endorseRequisition(client, { requisitionId, comments, actorName, actorRole }) {
   const { rows } = await client.query('SELECT * FROM requisitions WHERE id = $1 FOR UPDATE', [requisitionId]);
   const req = rows[0];
   if (!req) throw new AppError('Requisition not found.', 404);
@@ -375,11 +428,14 @@ async function endorseRequisition(client, { requisitionId, comments, actorName }
   await client.query("UPDATE requisitions SET status = 'Pending Approval', updated_at = NOW() WHERE id = $1", [requisitionId]);
   await logAudit(client, {
     userName: actorName,
+    userRole: actorRole,
     action: `Endorsed requisition ${req.sr_ref} — forwarded to Property Administration Officer`,
     module: 'Store Requisition',
     entityType: 'requisition',
     entityId: String(requisitionId),
     entityReference: req.sr_ref,
+    beforeData: { status: req.status },
+    afterData: { status: 'Pending Approval' },
     metadata: comments ? { comments } : {}
   });
   return req;
@@ -519,7 +575,7 @@ async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty,
 // §6.4 Material Transfer (store-to-store) approval -> dual stock update
 // ---------------------------------------------------------------------------
 
-async function decideMaterialTransfer(client, { transferId, decision, actorName }) {
+async function decideMaterialTransfer(client, { transferId, decision, actorName, actorRole }) {
   const { rows } = await client.query('SELECT * FROM material_transfers WHERE id = $1 FOR UPDATE', [transferId]);
   const transfer = rows[0];
   if (!transfer) throw new AppError('Material transfer not found.', 404);
@@ -670,8 +726,14 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName 
 
   await logAudit(client, {
     userName: actorName,
+    userRole: actorRole,
     action: `${decision} transfer ${transfer.transfer_ref}`,
-    module: 'Material Transfer'
+    module: 'Material Transfer',
+    entityType: 'material-transfer',
+    entityId: transferId,
+    entityReference: transfer.transfer_ref,
+    beforeData: { status: transfer.status },
+    afterData: { status: nextStatus }
   });
 }
 

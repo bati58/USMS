@@ -15,7 +15,6 @@ import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, formatCurrency } from '../../utils/formatters'
 import { GRN_STATUS, ROLES } from '../../utils/constants'
-import { canPerformAction } from '../../utils/rolePermissions'
 
 const EMPTY_LINE = { item: '', qty: '', unitPrice: '' }
 
@@ -32,6 +31,7 @@ export default function GoodsReceiptList() {
   const [viewing, setViewing] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [actionBusy, setActionBusy] = useState('')
 
   const [header, setHeader] = useState({ supplier: '', poRef: '', store: '', receivedDate: '', type: 'Consumable', docRef: '', condition: 'New' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -59,8 +59,10 @@ export default function GoodsReceiptList() {
     return Array.from(uniqueItems.values())
   }, [items, stores, header.store])
   const canManage = isStorekeeper && hasMainStoreAssignment
-  const canPost = isStorekeeper
+  const canPost = canManage
   const canNotifyTec = isStoreHead
+  const successToast = { duration: 180000 }
+  const canManageRow = (row) => !isStoreHead || !userAssignedStore || assignedStoreNames.includes(row.store)
 
   async function load() {
     setLoading(true)
@@ -153,7 +155,7 @@ export default function GoodsReceiptList() {
         evaluationNote: '',
         evaluatedBy: ''
       })
-      push(`Temporary receipt ${grnRef} created. You can now notify the Technical Evaluation Committee.`, 'success')
+      push(`Draft ${grnRef} created. No stock changed. Submit it next so the Store Head and Security Officer can act.`, 'success', successToast)
       setFieldErrors({})
       setModalOpen(false)
       await load()
@@ -165,46 +167,75 @@ export default function GoodsReceiptList() {
   }
 
   async function handleSubmit(row) {
+    if (actionBusy) return
+    setActionBusy(`submit-${row.id}`)
     try {
       await api.action('goodsReceipts', row.id, 'status', { status: GRN_STATUS.SUBMITTED })
-      push(`${row.grnRef} submitted for Store Head review.`, 'success')
+      push(`${row.grnRef} submitted. Store Head review and Security gate verification are now required.`, 'success', successToast)
       await load()
     } catch (e) {
       push(e.message, 'error')
+    } finally {
+      setActionBusy('')
     }
   }
 
   async function handleNotifyTEC(row) {
-    await api.action('goodsReceipts', row.id, 'status', { status: GRN_STATUS.PENDING_EVAL })
-    push(`TEC notified for ${row.grnRef}`, 'success')
-    await load()
-  }
-
-  async function handleGenerateGRN(row) {
+    if (actionBusy) return
+    setActionBusy(`tec-${row.id}`)
     try {
-      await api.action('goodsReceipts', row.id, 'generate-grn', {})
-      push(`Official Model 19 GRN Generated for ${row.grnRef}. Review it before posting stock.`, 'success')
+      await api.action('goodsReceipts', row.id, 'status', { status: GRN_STATUS.PENDING_EVAL })
+      push(`${row.grnRef} sent to Technical Evaluation. TEC is the next responsible actor.`, 'success', successToast)
       await load()
     } catch (e) {
       push(e.message, 'error')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  async function handleGenerateGRN(row) {
+    if (actionBusy) return
+    setActionBusy(`generate-${row.id}`)
+    try {
+      await api.action('goodsReceipts', row.id, 'generate-grn', {})
+      push(`Official GRN generated for ${row.grnRef}. No stock changed yet. Review it, then post accepted stock.`, 'success', successToast)
+      await load()
+    } catch (e) {
+      push(e.message, 'error')
+    } finally {
+      setActionBusy('')
     }
   }
 
   async function handlePostStock(row) {
+    if (actionBusy) return
+    setActionBusy(`post-${row.id}`)
     try {
       await api.action('goodsReceipts', row.id, 'post-stock', {})
-      push(`Accepted stock for ${row.grnRef} has been posted.`, 'success')
+      const acceptedQty = (row.items || []).reduce((sum, line) => sum + Number(line.qtyAccepted ?? line.qty ?? 0), 0)
+      push(`${acceptedQty} accepted unit(s) from ${row.grnRef} posted. Item balances, Stock Cards, Bin Cards, and FIFO lots were updated.`, 'success', successToast)
       await load()
     } catch (e) {
       push(e.message, 'error')
+    } finally {
+      setActionBusy('')
     }
   }
 
   async function handleDelete() {
-    await goodsReceiptService.remove(deleteTarget.id)
-    push('Receipt record removed.', 'success')
-    setDeleteTarget(null)
-    await load()
+    if (actionBusy) return
+    setActionBusy(`delete-${deleteTarget.id}`)
+    try {
+      await goodsReceiptService.remove(deleteTarget.id)
+      push(`Draft ${deleteTarget.grnRef} deleted. No stock was changed.`, 'success', successToast)
+      setDeleteTarget(null)
+      await load()
+    } catch (e) {
+      push(e.message, 'error')
+    } finally {
+      setActionBusy('')
+    }
   }
 
   const columns = [
@@ -220,31 +251,31 @@ export default function GoodsReceiptList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1 items-center">
-          {canNotifyTec && row.status === GRN_STATUS.SUBMITTED && (
-            <button onClick={() => handleNotifyTEC(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50" title="Notify TEC">
+          {canNotifyTec && canManageRow(row) && row.status === GRN_STATUS.SUBMITTED && row.gateVerified && (
+            <button disabled={Boolean(actionBusy)} onClick={() => handleNotifyTEC(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50 disabled:cursor-not-allowed disabled:opacity-50" title="Notify TEC">
               <Send size={15} />
             </button>
           )}
-          {canManage && row.status === GRN_STATUS.DRAFT && (
-            <button onClick={() => handleSubmit(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50" title="Submit for review">
+          {canManage && canManageRow(row) && row.status === GRN_STATUS.DRAFT && (
+            <button disabled={Boolean(actionBusy)} onClick={() => handleSubmit(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50 disabled:cursor-not-allowed disabled:opacity-50" title="Submit for review">
               <Send size={15} />
             </button>
           )}
-          {canManage && (row.status === GRN_STATUS.ACCEPTED || row.status === GRN_STATUS.PARTIALLY_ACCEPTED) && (
-            <button onClick={() => handleGenerateGRN(row)} className="rounded-md p-1.5 text-success-600 hover:bg-success-50" title="Generate GRN">
+          {canManage && canManageRow(row) && (row.status === GRN_STATUS.ACCEPTED || row.status === GRN_STATUS.PARTIALLY_ACCEPTED) && (
+            <button disabled={Boolean(actionBusy)} onClick={() => handleGenerateGRN(row)} className="rounded-md p-1.5 text-success-600 hover:bg-success-50 disabled:cursor-not-allowed disabled:opacity-50" title="Generate GRN">
               <FileText size={15} />
             </button>
           )}
-          {canPost && row.status === GRN_STATUS.GRN_GENERATED && (
-            <button onClick={() => handlePostStock(row)} className="rounded-md p-1.5 text-success-600 hover:bg-success-50" title="Post accepted stock">
+          {canPost && canManageRow(row) && row.status === GRN_STATUS.GRN_GENERATED && (
+            <button disabled={Boolean(actionBusy)} onClick={() => handlePostStock(row)} className="rounded-md p-1.5 text-success-600 hover:bg-success-50 disabled:cursor-not-allowed disabled:opacity-50" title="Post accepted stock">
               <PackageCheck size={15} />
             </button>
           )}
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600" title="View">
             <Eye size={15} />
           </button>
-          {canManage && [GRN_STATUS.DRAFT, GRN_STATUS.SUBMITTED, GRN_STATUS.PENDING, GRN_STATUS.PENDING_EVAL].includes(row.status) && (
-            <button onClick={() => setDeleteTarget(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700" title="Delete">
+          {canManage && canManageRow(row) && [GRN_STATUS.DRAFT, GRN_STATUS.SUBMITTED, GRN_STATUS.PENDING, GRN_STATUS.PENDING_EVAL].includes(row.status) && (
+            <button disabled={Boolean(actionBusy)} onClick={() => setDeleteTarget(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700 disabled:cursor-not-allowed disabled:opacity-50" title="Delete">
               <Trash2 size={15} />
             </button>
           )}

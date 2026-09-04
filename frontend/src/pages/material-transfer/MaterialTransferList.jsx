@@ -9,7 +9,7 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import StatusBadge from '../../components/ui/StatusBadge'
-import { materialTransferService, storeService, itemService, requisitionService } from '../../services'
+import { materialTransferService, storeService, requisitionService } from '../../services'
 import { api } from '../../services/apiClient'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
@@ -24,7 +24,6 @@ export default function MaterialTransferList() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [stores, setStores] = useState([])
-  const [items, setItems] = useState([])
   const [requisitions, setRequisitions] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -32,6 +31,8 @@ export default function MaterialTransferList() {
   const [viewing, setViewing] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [actionBusy, setActionBusy] = useState('')
+  const successToast = { duration: 180000 }
 
   const [header, setHeader] = useState({ requisitionId: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -40,7 +41,6 @@ export default function MaterialTransferList() {
   const canCreate = canPerformAction(user?.role, 'create', 'materialTransfers')
   const userAssignedStore = user?.store || ''
   const assignedStoreNames = user?.assignedStores?.length ? user.assignedStores : (userAssignedStore ? [userAssignedStore] : [])
-  const isDepartmentHead = user?.role === ROLES.DEPT_HEAD
   const isStoreOperator = ['Storekeeper', 'Store Head'].includes(user?.role)
   const isScopedStoreUser = isStoreOperator && assignedStoreNames.length > 0
   const isMainStoreOperator = isStoreOperator && assignedStoreNames.some((name) => stores.find((store) => store.name === name)?.type === 'Main Store')
@@ -50,7 +50,7 @@ export default function MaterialTransferList() {
   const canDispatchViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.fromStore))
   const canReceiveViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.toStore))
   const approvedRequisitions = useMemo(
-    () => requisitions.filter((request) => ['Approved', 'Partially Approved'].includes(request.status)),
+    () => requisitions.filter((request) => ['Approved', 'Partially Approved'].includes(request.status) && request.requesterRole === ROLES.STOREKEEPER),
     [requisitions]
   )
   const selectedRequisition = approvedRequisitions.find((request) => String(request.id) === String(header.requisitionId))
@@ -59,10 +59,9 @@ export default function MaterialTransferList() {
   async function load() {
     setLoading(true)
     try {
-      const [transfers, storeList, itemList, requisitionList] = await Promise.all([materialTransferService.list(), storeService.list(), itemService.list(), requisitionService.list()])
+      const [transfers, storeList, requisitionList] = await Promise.all([materialTransferService.list(), storeService.list(), requisitionService.list()])
       setRows(transfers)
       setStores(storeList.filter((store) => store.active !== false))
-      setItems(itemList)
       setRequisitions(requisitionList)
     } catch (err) {
       push(err.message || 'Could not load material transfers.', 'error')
@@ -121,7 +120,7 @@ export default function MaterialTransferList() {
         lines: lines.map((line) => ({ ...line, qty: Number(line.qty), destinationBin: line.destinationBin.trim() }))
       })
       const transferCount = Array.isArray(created) ? created.length : 1
-      push(`${transferCount} transfer${transferCount === 1 ? '' : 's'} submitted for PAO approval.`, 'success')
+      push(`${transferCount} transfer${transferCount === 1 ? '' : 's'} submitted for PAO approval. No stock changed. PAO is the next responsible actor.`, 'success', successToast)
       setModalOpen(false)
       await load()
     } catch (err) {
@@ -132,23 +131,25 @@ export default function MaterialTransferList() {
   }
 
   async function handleDecide(status) {
+    if (!viewing || actionBusy) return
+    setActionBusy(`${status}-${viewing.id}`)
     setSaving(true)
     try {
       if (status === TRANSFER_STATUS.APPROVED) {
         await api.action('materialTransfers', viewing.id, 'approve', { decision: 'Approved' })
-        push(`${viewing.transferRef} approved. Source store can now dispatch materials.`, 'success')
+        push(`${viewing.transferRef} approved. The source Storekeeper is the next actor and can dispatch materials.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.DISPATCHED) {
         await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Dispatched' })
-        push(`${viewing.transferRef} dispatched.`, 'success')
+        push(`${viewing.transferRef} dispatched. The destination Storekeeper is the next actor and must receive it.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RECEIVED) {
         await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Received' })
-        push(`${viewing.transferRef} completed and stock levels updated.`, 'success')
+        push(`${viewing.transferRef} received. Destination stock, Stock Cards, Bin Cards, and FIFO lots were updated.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RETURNED) {
         await api.action('materialTransfers', viewing.id, 'approve', { decision: 'Returned for Correction' })
-        push(`${viewing.transferRef} returned for correction.`, 'info')
+        push(`${viewing.transferRef} returned for correction. The requester must update and resubmit it.`, 'info', successToast)
       } else {
         await api.action('materialTransfers', viewing.id, 'approve', { decision: 'Rejected' })
-        push(`${viewing.transferRef} rejected.`, 'info')
+        push(`${viewing.transferRef} rejected. The requester was notified.`, 'info', successToast)
       }
 
       setViewing(null)
@@ -157,29 +158,37 @@ export default function MaterialTransferList() {
       push(err.message, 'error')
     } finally {
       setSaving(false)
+      setActionBusy('')
     }
   }
 
   // Re-open a corrected transfer for approval — closes the "Returned for Correction" loop.
   async function handleResubmit() {
+    if (!viewing || actionBusy) return
+    setActionBusy(`resubmit-${viewing.id}`)
     setSaving(true)
     try {
       await api.action('materialTransfers', viewing.id, 'resubmit', {})
-      push(`${viewing.transferRef} resubmitted for approval.`, 'success')
+      push(`${viewing.transferRef} resubmitted. PAO approval is the next step.`, 'success', successToast)
       setViewing(null)
       await load()
     } catch (err) {
       push(err.message, 'error')
     } finally {
       setSaving(false)
+      setActionBusy('')
     }
   }
 
   async function handleDelete() {
-    await materialTransferService.remove(deleteTarget.id)
-    push('Transfer request deleted.', 'success')
-    setDeleteTarget(null)
-    await load()
+    try {
+      await materialTransferService.remove(deleteTarget.id)
+      push(`Draft ${deleteTarget.transferRef} deleted. No stock changed.`, 'success', successToast)
+      setDeleteTarget(null)
+      await load()
+    } catch (err) {
+      push(err.message || 'Could not delete transfer.', 'error')
+    }
   }
 
   const hasAnyAction = filtered.some((row) => {

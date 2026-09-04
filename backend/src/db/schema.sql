@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
   supplier                  TEXT NOT NULL,
   supplier_id               INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
   po_ref                    TEXT,
+  material_type              TEXT NOT NULL DEFAULT 'Consumable',
+  supporting_document_ref    TEXT,
+  condition_on_arrival       TEXT NOT NULL DEFAULT 'New',
   received_date             DATE NOT NULL,
   received_by               TEXT,
   store_id                  INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
@@ -162,6 +165,9 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
   created_at                TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS material_type TEXT NOT NULL DEFAULT 'Consumable';
+ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS supporting_document_ref TEXT;
+ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS condition_on_arrival TEXT NOT NULL DEFAULT 'New';
 CREATE INDEX IF NOT EXISTS idx_grn_status ON goods_receipts(status);
 CREATE INDEX IF NOT EXISTS idx_receipts_supplier ON goods_receipts(supplier_id);
 

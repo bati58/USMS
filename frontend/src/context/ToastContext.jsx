@@ -23,10 +23,10 @@ export function ToastProvider({ children }) {
   }, [])
 
   const push = useCallback(
-    (message, type = 'success') => {
+    (message, type = 'success', options = {}) => {
       const id = Date.now() + Math.random()
       setToasts((prev) => [...prev, { id, message, type }])
-      setTimeout(() => remove(id), 4000)
+      setTimeout(() => remove(id), options.duration ?? 4000)
     },
     [remove]
   )

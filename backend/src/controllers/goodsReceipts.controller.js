@@ -103,9 +103,24 @@ const create = asyncHandler(async (req, res) => {
     throw new AppError('Only the Storekeeper can create or edit a goods receipt draft.', 403);
   }
 
-  const { supplier, poRef, receivedDate, receivedBy, store, items } = req.body;
+  const { supplier, poRef, materialType, supportingDocumentRef, conditionOnArrival, receivedDate, store, items } = req.body;
+  if (!supplier?.trim()) throw new AppError('Supplier is required.', 400);
+  if (!poRef?.trim()) throw new AppError('PO or donation reference is required.', 400);
+  if (!receivedDate || Number.isNaN(Date.parse(receivedDate))) throw new AppError('A valid received date is required.', 400);
+  if (!store?.trim()) throw new AppError('Receiving store is required.', 400);
+  if (!['Consumable', 'Fixed Asset'].includes(materialType || 'Consumable')) throw new AppError('Material type must be Consumable or Fixed Asset.', 400);
+  if (!['New', 'Good', 'Damaged'].includes(conditionOnArrival || 'New')) throw new AppError('Arrival condition must be New, Good, or Damaged.', 400);
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new AppError('At least one received item is required.', 400);
+  }
+  items.forEach((line, index) => {
+    if (!line.item?.trim()) throw new AppError(`Item is required on line ${index + 1}.`, 400);
+    if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new AppError(`Quantity must be greater than zero on line ${index + 1}.`, 400);
+    if (!Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0) throw new AppError(`Unit price must be zero or greater on line ${index + 1}.`, 400);
+  });
+
   if (!supplier || !receivedDate || !store || !Array.isArray(items) || items.length === 0) {
-    throw new AppError('supplier, receivedDate, store, and at least one item are required.', 400);
+    throw new AppError('Goods receipt details are incomplete.', 400);
   }
 
   const result = await withTransaction(async (client) => {
@@ -122,9 +137,9 @@ const create = asyncHandler(async (req, res) => {
     const grnRef = await nextRef(client, 'GRN');
 
     const { rows } = await client.query(
-      `INSERT INTO goods_receipts (grn_ref, supplier, supplier_id, po_ref, received_date, received_by, store_id, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,'Draft') RETURNING id`,
-      [grnRef, supplier, supplierId, poRef || null, receivedDate, receivedBy || req.user.name, storeId]
+      `INSERT INTO goods_receipts (grn_ref, supplier, supplier_id, po_ref, material_type, supporting_document_ref, condition_on_arrival, received_date, received_by, store_id, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Draft') RETURNING id`,
+      [grnRef, supplier.trim(), supplierId, poRef.trim(), materialType || 'Consumable', supportingDocumentRef?.trim() || null, conditionOnArrival || 'New', receivedDate, req.user.name, storeId]
     );
     const grnId = rows[0].id;
 
@@ -137,17 +152,18 @@ const create = asyncHandler(async (req, res) => {
       );
     }
 
-    await notify(client, {
-      role: 'Security Officer',
-      title: 'External delivery awaiting gate verification',
-      message: `${grnRef} from ${supplier} for ${store} has arrived at the ASTU gate and requires Security verification before the receiving process continues.`,
-      type: 'info',
-      route: '/gate-pass',
+    await logAudit(client, {
+      userId: req.user.id,
+      userName: req.user.name,
+      userRole: req.user.role,
+      action: `Created ${grnRef}`,
+      module: 'Goods Receipt',
       entityType: 'goods_receipt',
-      entityId: grnId
+      entityId: grnId,
+      entityReference: grnRef,
+      beforeData: {},
+      afterData: { status: 'Draft' }
     });
-
-    await logAudit(client, { userName: req.user.name, action: `Created ${grnRef}`, module: 'Goods Receipt' });
     return fetchWithLines(grnId, client);
   });
 
@@ -181,7 +197,8 @@ const evaluate = asyncHandler(async (req, res) => {
       evidence,
       items,
       evaluatedBy: req.user.name,
-      actorName: req.user.name
+      actorName: req.user.name,
+      actorRole: req.user.role
     });
     const { rows } = await client.query(
       `SELECT g.grn_ref, g.store_id, s.head_of_store
@@ -192,9 +209,12 @@ const evaluate = asyncHandler(async (req, res) => {
     );
     const storeHeadId = rows[0]?.store_id ? await resolveStoreHeadForStore(rows[0].store_id, client) : null;
     const isAccepted = decision === 'Approved' || decision === 'Partially Approved';
+    if (!storeHeadId && !isAccepted) {
+      throw new AppError('No active Store Head is configured for the receiving store.', 409);
+    }
     await notify(client, {
       userId: isAccepted ? undefined : storeHeadId || undefined,
-      role: isAccepted ? 'Storekeeper' : storeHeadId ? undefined : 'Property Administration Officer',
+      role: isAccepted ? 'Storekeeper' : undefined,
       storeId: rows[0]?.store_id || null,
       title: isAccepted ? 'Goods receipt accepted' : 'Goods receipt rejected',
       message: isAccepted
@@ -224,7 +244,8 @@ const generateGrn = asyncHandler(async (req, res) => {
     await stockService.generateGrn(client, {
       grnId: req.params.id,
       generatedBy: req.user.name,
-      actorName: req.user.name
+      actorName: req.user.name,
+      actorRole: req.user.role
     });
   });
   res.json(await fetchWithLines(req.params.id));
@@ -240,7 +261,7 @@ const postStock = asyncHandler(async (req, res) => {
     const { rows: receiptRows } = await client.query('SELECT store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
     if (!receiptRows[0]) throw new AppError('Goods receipt not found.', 404);
     await assertUserCanAccessStoreRecord(req.user, receiptRows[0].store_id, client);
-    await stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name });
+    await stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name, actorRole: req.user.role });
   });
   res.json(await fetchWithLines(req.params.id));
 });
@@ -260,7 +281,7 @@ const setStatus = asyncHandler(async (req, res) => {
   }
   await withTransaction(async (client) => {
     const { rows: currentRows } = await client.query(
-      `SELECT g.status, g.grn_ref, g.store_id, s.name AS store_name
+      `SELECT g.status, g.grn_ref, g.store_id, g.gate_verified, s.name AS store_name
        FROM goods_receipts g
        LEFT JOIN stores s ON s.id = g.store_id
        WHERE g.id = $1 FOR UPDATE OF g`,
@@ -270,6 +291,7 @@ const setStatus = asyncHandler(async (req, res) => {
     if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
       await assertUserCanAccessStoreRecord(req.user, currentRows[0].store_id, client);
     }
+    if (req.body.status === 'Submitted') await assertMainStoreOperator(req.user, client);
     assertTransition('goodsReceipt', currentRows[0].status, req.body.status);
     const storeHeadId = currentRows[0]?.store_id ? await resolveStoreHeadForStore(currentRows[0].store_id, client) : null;
     await client.query(
@@ -304,15 +326,19 @@ const setStatus = asyncHandler(async (req, res) => {
       await notify(client, {
         role: 'Security Officer',
         title: 'External delivery awaiting gate verification',
-        message: `${currentRows[0].grn_ref} from ${currentRows[0].store_name || 'supplier'} has arrived at the ASTU gate and requires Security verification before the receiving process continues.`,
+        message: `${currentRows[0].grn_ref} for ${currentRows[0].store_name || 'the receiving store'} has arrived at the ASTU gate and requires Security verification before technical evaluation.`,
         type: 'info',
         route: '/gate-pass',
         entityType: 'goods_receipt',
         entityId: req.params.id
       });
+
     }
 
-    if (req.body.status === 'Pending Evaluation') {
+    if (['Pending Evaluation', 'Under Evaluation'].includes(req.body.status)) {
+      if (!currentRows[0].gate_verified) {
+        throw new AppError('Security must verify the incoming delivery before it can be sent for technical evaluation.', 409);
+      }
       await notify(client, {
         role: 'Technical Evaluation Committee',
         title: 'Goods receipt awaiting evaluation',

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Eye, CheckCircle2, XCircle, Trash2, Edit, Send, RotateCcw } from 'lucide-react'
+import { Plus, Eye, CheckCircle2, XCircle, Trash2, Send, RotateCcw } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
@@ -40,6 +40,7 @@ export default function RequisitionList() {
   const [approveLines, setApproveLines] = useState([])
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
+  const successToast = { duration: 180000 }
 
   const [header, setHeader] = useState({ department: '', store: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -54,12 +55,11 @@ export default function RequisitionList() {
 
   const userAssignedStore = user?.store || user?.assignedStores?.[0] || ''
   const isScopedStoreUser = (isStoreHead || isStorekeeper) && !!userAssignedStore
-  const isMainStoreHead = isStoreHead && !userAssignedStore
   const isMainStoreStorekeeper = isStorekeeper && stores.some((store) => store.name === userAssignedStore && store.type === 'Main Store')
   const mainStoreName = stores.find((store) => store.type === 'Main Store')?.name
   const requestableItems = isStorekeeper
     ? items.filter((item) => item.store === mainStoreName)
-    : items
+    : items.filter((item) => item.store === header.store)
 
   const canEditApprovedQty = (isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL) ||
     (isStoreHead && viewing?.status === REQUISITION_STATUS.SUBMITTED)
@@ -149,7 +149,7 @@ export default function RequisitionList() {
 
     lines.forEach((line, idx) => {
       if (!line.item) nextErrors[`line_${idx}_item`] = `Line ${idx + 1}: Item is required.`
-      if (!line.qty || Number(line.qty) <= 0) nextErrors[`line_${idx}_qty`] = `Line ${idx + 1}: Quantity must be greater than zero.`
+      if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) nextErrors[`line_${idx}_qty`] = `Line ${idx + 1}: Quantity must be greater than zero.`
     })
 
     if (!lines.some((line) => line.item && line.qty)) {
@@ -176,7 +176,7 @@ export default function RequisitionList() {
         reason: header.reason,
         items: lines.filter((l) => l.item && l.qty)
       })
-      push(`Requisition ${srRef} submitted for approval.`, 'success')
+      push(`Draft ${srRef} created. No stock changed. Submit it next for the correct approval stage.`, 'success', successToast)
       setFieldErrors({})
       setModalOpen(false)
       await load()
@@ -215,17 +215,19 @@ export default function RequisitionList() {
       let message
       let tone = 'success'
       if (finalStatus === REQUISITION_STATUS.REJECTED) {
-        message = `${viewing.srRef} rejected.`
+        message = `${viewing.srRef} rejected. The requester was notified.`
         tone = 'info'
       } else if (finalStatus === REQUISITION_STATUS.RETURNED) {
-        message = `${viewing.srRef} returned for correction.`
+        message = `${viewing.srRef} returned for correction. The requester must update and resubmit it.`
         tone = 'info'
       } else if (isDeptHead) {
-        message = `${viewing.srRef} endorsed and forwarded to the Property Administration Officer.`
+        message = `${viewing.srRef} endorsed. The Property Administration Officer is the next approver.`
+      } else if (viewing.requesterRole === ROLES.STOREKEEPER) {
+        message = `${viewing.srRef} approved. The Storekeeper must prepare the replenishment through Material Transfers.`
       } else {
-        message = `${viewing.srRef} approved. The Storekeeper can now create the preliminary issue voucher.`
+        message = `${viewing.srRef} approved. The Storekeeper must create the preliminary issue voucher next.`
       }
-      push(message, tone)
+      push(message, tone, successToast)
       setViewing(null)
       await load()
     } catch (err) {
@@ -239,7 +241,7 @@ export default function RequisitionList() {
     setSaving(true)
     try {
       await api.action('requisitions', viewing.id, 'submit', {})
-      push(`${viewing.srRef} submitted for approval.`, 'success')
+      push(`${viewing.srRef} submitted. The next assigned approver has been notified.`, 'success', successToast)
       setViewing(null)
       await load()
     } catch (err) {
@@ -250,10 +252,14 @@ export default function RequisitionList() {
   }
 
   async function handleDelete() {
-    await requisitionService.remove(deleteTarget.id)
-    push('Requisition deleted.', 'success')
-    setDeleteTarget(null)
-    await load()
+    try {
+      await requisitionService.remove(deleteTarget.id)
+      push(`Draft ${deleteTarget.srRef} deleted. No stock changed.`, 'success', successToast)
+      setDeleteTarget(null)
+      await load()
+    } catch (err) {
+      push(err.message || 'Could not delete requisition.', 'error')
+    }
   }
 
   const columns = [
@@ -414,7 +420,7 @@ export default function RequisitionList() {
         size="lg"
         footer={
           <>
-            {viewing?.status === REQUISITION_STATUS.DRAFT && canCreate && (
+            {viewing?.status === REQUISITION_STATUS.DRAFT && canCreate && viewing.requestedBy === user?.name && (
               <Button icon={Send} loading={saving} onClick={submitRequisition}>
                 Submit for Approval
               </Button>

@@ -27,6 +27,8 @@ export default function IssueVoucherList() {
   const [selectedSr, setSelectedSr] = useState('')
   const [viewing, setViewing] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [actionBusy, setActionBusy] = useState('')
+  const successToast = { duration: 180000 }
   const [amendLines, setAmendLines] = useState([])
   const canGenerate = canPerformAction(user?.role, 'create', 'issueVouchers')
   const canApprove = canPerformAction(user?.role, 'approve', 'issueVouchers')
@@ -40,6 +42,10 @@ export default function IssueVoucherList() {
   const selectedReqHasStockWarning = useMemo(
     () => (selectedReq ? amendLines.some((line) => Number(line.qtyIssued || 0) > Number(line.stockAvailable || 0)) : false),
     [selectedReq, amendLines]
+  )
+  const selectedReqHasInvalidQuantity = useMemo(
+    () => amendLines.some((line) => !Number.isFinite(Number(line.qtyIssued)) || Number(line.qtyIssued) <= 0 || Number(line.qtyIssued) > Number(line.qtyApproved)),
+    [amendLines]
   )
 
   async function load() {
@@ -106,7 +112,7 @@ export default function IssueVoucherList() {
     const req = selectedReq
     if (!req) return
 
-    const invalidLines = amendLines.filter((line) => Number(line.qtyIssued || 0) > Number(line.stockAvailable || 0))
+    const invalidLines = amendLines.filter((line) => !Number.isFinite(Number(line.qtyIssued)) || Number(line.qtyIssued) <= 0 || Number(line.qtyIssued) > Number(line.stockAvailable || 0) || Number(line.qtyIssued) > Number(line.qtyApproved))
     if (invalidLines.length > 0) {
       const itemNames = invalidLines.map((line) => line.item).join(', ')
       push(`Not enough stock available to issue the selected quantity for: ${itemNames}. Reduce the issue quantity or update stock before creating the voucher.`, 'error')
@@ -115,11 +121,11 @@ export default function IssueVoucherList() {
 
     setSaving(true)
     try {
-      const count = rows.length + 1
-      const sivRef = `SIV-2026-${String(9 + count).padStart(4, '0')}`
-
-      await issueVoucherService.create({ srRef: req.srRef })
-      push(`Preliminary Model 22 Issue Voucher ${sivRef} created. Stock remains unchanged until posting.`, 'success')
+      const created = await issueVoucherService.create({
+        srRef: req.srRef,
+        items: amendLines.map((line) => ({ item: line.item, qtyIssued: Number(line.qtyIssued) }))
+      })
+      push(`Preliminary Model 22 Issue Voucher ${created.sivRef} created. Stock remains unchanged. Store Head authorization is next.`, 'success', successToast)
       setModalOpen(false)
       setSelectedSr('')
       await load()
@@ -131,19 +137,25 @@ export default function IssueVoucherList() {
   }
 
   async function handleApprove(row) {
+    if (actionBusy) return
+    setActionBusy(`approve-${row.id}`)
     try {
       await api.action('issueVouchers', row.id, 'approve', {})
-      push(`${row.sivRef} approved and ready for posting.`, 'success')
+      push(`${row.sivRef} approved. Security gate verification is required before Storekeeper posting.`, 'success', successToast)
       await load()
     } catch (err) {
       push(err.message, 'error')
+    } finally {
+      setActionBusy('')
     }
   }
 
   async function handlePost(row) {
+    if (actionBusy) return
+    setActionBusy(`post-${row.id}`)
     try {
       const stockIssues = (row.items || []).map((line) => {
-        const stockItem = itemsCatalog.find((item) => item.name === line.item)
+        const stockItem = itemsCatalog.find((item) => item.name === line.item && (!row.store || item.store === row.store))
         return {
           item: line.item,
           qtyRequested: Number(line.qty || 0),
@@ -159,10 +171,12 @@ export default function IssueVoucherList() {
       }
 
       await api.action('issueVouchers', row.id, 'post', {})
-      push(`${row.sivRef} posted. Stock levels updated.`, 'success')
+      push(`${row.sivRef} posted after gate verification. Stock Cards, Bin Cards, FIFO lots, and the linked requisition were updated.`, 'success', successToast)
       await load()
     } catch (err) {
       push(err.message, 'error')
+    } finally {
+      setActionBusy('')
     }
   }
 
@@ -179,8 +193,8 @@ export default function IssueVoucherList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1">
-          {canApprove && [SIV_STATUS.PRELIMINARY, SIV_STATUS.PENDING_APPROVAL].includes(row.status) && <Button variant="secondary" onClick={() => handleApprove(row)}>Approve</Button>}
-          {canPost && row.status === SIV_STATUS.APPROVED && <Button onClick={() => handlePost(row)}>Post</Button>}
+          {canApprove && [SIV_STATUS.PRELIMINARY, SIV_STATUS.PENDING_APPROVAL].includes(row.status) && <Button variant="secondary" loading={actionBusy === `approve-${row.id}`} disabled={Boolean(actionBusy)} onClick={() => handleApprove(row)}>Approve</Button>}
+          {canPost && row.status === SIV_STATUS.APPROVED && <Button title={row.gateVerified ? 'Post stock' : 'Security gate verification required'} loading={actionBusy === `post-${row.id}`} disabled={Boolean(actionBusy) || !row.gateVerified} onClick={() => handlePost(row)}>Post</Button>}
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>
@@ -214,7 +228,7 @@ export default function IssueVoucherList() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleGenerate} loading={saving} disabled={!selectedSr || selectedReqHasStockWarning}>
+            <Button onClick={handleGenerate} loading={saving} disabled={!selectedSr || selectedReqHasStockWarning || selectedReqHasInvalidQuantity}>
               Create Preliminary Voucher
             </Button>
           </>

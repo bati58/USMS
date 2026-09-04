@@ -33,8 +33,8 @@ const list = asyncHandler(async (req, res) => {
   let params = [];
 
   if (req.user.role === 'Department Head') {
-    scope = 'WHERE r.requested_by = $1';
-    params = [req.user.name];
+    scope = 'WHERE r.department = $1';
+    params = [req.user.department];
   } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
     const visibility = await getUserStoreVisibility(req.user, { query });
     if (visibility.canViewAllStores) {
@@ -63,8 +63,8 @@ const getOne = asyncHandler(async (req, res) => {
   let params = [req.params.id];
 
   if (req.user.role === 'Department Head') {
-    scope = ' AND r.requested_by = $2';
-    params.push(req.user.name);
+    scope = ' AND r.department = $2';
+    params.push(req.user.department);
   } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
     const visibility = await getUserStoreVisibility(req.user, { query });
     if (visibility.canViewAllStores) {
@@ -94,9 +94,17 @@ const getOne = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const { department, requestedBy, date, store, items, reason } = req.body;
   const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
+  if (req.user.role === 'Department Head' && department && department !== req.user.department) {
+    throw new AppError('You can only create requisitions for your own department.', 403);
+  }
   if ((!effectiveDepartment && req.user.role !== 'Storekeeper') || !store || !reason?.trim() || !Array.isArray(items) || items.length === 0) {
     throw new AppError('department, store, reason, and at least one item are required.', 400);
   }
+  if (date && Number.isNaN(Date.parse(date))) throw new AppError('Date must be a valid calendar date.', 400);
+  items.forEach((line, index) => {
+    if (!line.item?.trim()) throw new AppError(`Item is required on line ${index + 1}.`, 400);
+    if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new AppError(`Quantity must be greater than zero on line ${index + 1}.`, 400);
+  });
 
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
@@ -142,7 +150,17 @@ const create = asyncHandler(async (req, res) => {
       ]);
     }
 
-    await logAudit(client, { userName: req.user.name, action: `Created requisition ${srRef}`, module: 'Store Requisition' });
+    await logAudit(client, {
+      userId: req.user.id,
+      userName: req.user.name,
+      userRole: req.user.role,
+      action: `Created requisition ${srRef}`,
+      module: 'Store Requisition',
+      entityType: 'requisition',
+      entityId: reqId,
+      entityReference: srRef,
+      afterData: { status: 'Draft' }
+    });
     // No notification on create: a Draft requisition is not yet awaiting anyone.
     // The approver is notified when the requester submits it (see `submit`).
 
@@ -167,9 +185,9 @@ const submit = asyncHandler(async (req, res) => {
     );
     const reqDoc = rows[0];
     if (!reqDoc) throw new AppError('Requisition not found.', 404);
-    if (req.user.role === 'Department Head' && reqDoc.department !== req.user.department && reqDoc.requested_by !== req.user.name) {
-      throw new AppError('You can only submit requisitions from your department.', 403);
-    }
+    if (reqDoc.requested_by !== req.user.name) throw new AppError('Only the requester can submit this requisition.', 403);
+    if (req.user.role === 'Department Head' && reqDoc.department !== req.user.department) throw new AppError('You can only submit requisitions from your department.', 403);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) await assertUserCanAccessStoreRecord(req.user, reqDoc.store_id, client);
     if (!['Draft', 'Pending', 'Returned for Correction'].includes(reqDoc.status)) {
       throw new AppError(`Cannot submit requisition in status: ${reqDoc.status}`, 400);
     }
@@ -183,7 +201,18 @@ const submit = asyncHandler(async (req, res) => {
     const nextStatus = routeToDeptHead ? 'Submitted' : routeToStoreHead ? 'Submitted' : 'Pending Approval';
 
     await client.query('UPDATE requisitions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
-    await logAudit(client, { userName: req.user.name, action: `Submitted requisition ${reqDoc.sr_ref}`, module: 'Store Requisition' });
+    await logAudit(client, {
+      userId: req.user.id,
+      userName: req.user.name,
+      userRole: req.user.role,
+      action: `Submitted requisition ${reqDoc.sr_ref}`,
+      module: 'Store Requisition',
+      entityType: 'requisition',
+      entityId: req.params.id,
+      entityReference: reqDoc.sr_ref,
+      beforeData: { status: reqDoc.status },
+      afterData: { status: nextStatus }
+    });
 
     await notify(client, routeToDeptHead
       ? {
@@ -230,9 +259,15 @@ const decide = asyncHandler(async (req, res) => {
   }
 
   await withTransaction(async (client) => {
-    const { rows } = await client.query('SELECT status, department, requested_by, store_id, sr_ref FROM requisitions WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const { rows } = await client.query(
+      `SELECT r.status, r.department, r.requested_by, r.store_id, r.sr_ref, requester.role AS requester_role
+       FROM requisitions r
+       LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
+       WHERE r.id = $1 FOR UPDATE OF r`,
+      [req.params.id]
+    );
     if (!rows[0]) throw new AppError('Requisition not found.', 404);
-    const { status, department, requested_by: requestedBy, sr_ref: srRef } = rows[0];
+    const { status, department, requested_by: requestedBy, sr_ref: srRef, requester_role: requesterRole } = rows[0];
     const role = req.user.role;
     const isApproval = decision === 'Approved' || decision === 'Partially Approved';
 
@@ -244,7 +279,7 @@ const decide = asyncHandler(async (req, res) => {
 
       if (isApproval) {
         // Endorse only — forward to the PAO. Final quantities are set by the PAO at stage 2.
-        await stockService.endorseRequisition(client, { requisitionId: req.params.id, comments, actorName: req.user.name });
+        await stockService.endorseRequisition(client, { requisitionId: req.params.id, comments, actorName: req.user.name, actorRole: req.user.role });
         await notify(client, {
           role: 'Property Administration Officer',
           title: 'Requisition Awaiting Approval',
@@ -267,18 +302,19 @@ const decide = asyncHandler(async (req, res) => {
     }
 
     // Stage-2 approval, or a rejection/return from either stage — all four are CHECK-valid decisions.
-    await stockService.decideRequisition(client, { requisitionId: req.params.id, decision, items, comments, actorName: req.user.name });
+    await stockService.decideRequisition(client, { requisitionId: req.params.id, decision, items, comments, actorName: req.user.name, actorRole: req.user.role });
 
     if (isApproval) {
       // Approved by the issuing Store Head -> the Storekeeper prepares the issue voucher.
       await notify(client, {
         role: 'Storekeeper',
         storeId: rows[0].store_id,
-        storeId: rows[0]?.store_id,
         title: 'Requisition Approved',
-        message: `Requisition ${srRef} was ${decision.toLowerCase()}. Generate the issue voucher to fulfil it.`,
+        message: requesterRole === 'Storekeeper'
+          ? `Requisition ${srRef} was ${decision.toLowerCase()}. Prepare the replenishment through Material Transfers.`
+          : `Requisition ${srRef} was ${decision.toLowerCase()}. Generate the preliminary issue voucher for Store Head authorization.`,
         type: 'success',
-        route: `/requisitions/${req.params.id}`,
+        route: requesterRole === 'Storekeeper' ? '/material-transfer' : '/issue-vouchers',
         entityType: 'requisition',
         entityId: req.params.id
       });
@@ -314,7 +350,18 @@ const remove = asyncHandler(async (req, res) => {
   if (!['Draft', 'Pending'].includes(check[0].status)) throw new AppError('Cannot delete a requisition that has already been processed.', 400);
 
   const { rows } = await query('DELETE FROM requisitions WHERE id = $1 RETURNING sr_ref', [req.params.id]);
-  await logAudit(query, { userName: req.user.name, action: `Deleted requisition ${rows[0].sr_ref}`, module: 'Store Requisition' });
+  await logAudit(query, {
+    userId: req.user.id,
+    userName: req.user.name,
+    userRole: req.user.role,
+    action: `Deleted requisition ${rows[0].sr_ref}`,
+    module: 'Store Requisition',
+    entityType: 'requisition',
+    entityId: req.params.id,
+    entityReference: rows[0].sr_ref,
+    beforeData: { status: check[0].status },
+    afterData: { status: 'Deleted' }
+  });
   res.status(204).send();
 });
 
