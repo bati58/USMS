@@ -88,6 +88,7 @@ const ROLE_NAV = {
     ['Requisitions & Issues', ['requisitions', 'issueVouchers']],
     ['Returns & Transfers', ['materialReturn', 'materialTransfer']],
     ['Assets & Disposal', ['fixedAssets', 'userCards', 'disposal']],
+    ['Gate Verification', ['gatePass']],
     ['Reports & Audit', ['reports', 'auditLog']],
   ],
 
@@ -100,41 +101,49 @@ const ROLE_NAV = {
     ['Returns & Transfers', ['materialReturn', 'materialTransfer']],
     ['Stock Control', ['stockTaking', 'reconciliation']],
     ['Assets & Disposal', ['userCards', 'disposal']],
+    ['Gate Verification', ['gatePass']],
     ['Reports', ['reports']],
   ],
 
   [ROLES.STOREKEEPER]: [
     ['Overview', ['dashboard']],
-    ['Inventory', ['items', 'locations']],
+    ['Inventory', ['stores', 'categories', 'items', 'locations', 'suppliers', 'departments']],
     ['Receiving', ['goodsReceipt', 'grnDocuments']],
     ['Stock', ['stockCards', 'binCards', 'stockTransfer']],
     ['Issues', ['requisitions', 'issueVouchers']],
     ['Returns', ['materialReturn']],
     ['Transfers', ['materialTransfer']],
-    ['Stock Control', ['stockTaking']],
+    ['Stock Control', ['stockTaking', 'reconciliation']],
+    ['Gate Verification', ['gatePass']],
     ['Assets & Disposal', ['userCards', 'disposal']],
     ['Reports', ['reports']],
   ],
 
   [ROLES.STOCK_CLERK]: [
     ['Overview', ['dashboard']],
-    ['Inventory', ['items', 'locations']],
+    ['Inventory', ['stores', 'categories', 'items', 'locations', 'suppliers', 'departments']],
     ['Stock Records', ['stockCards', 'binCards']],
     ['Stock Control', ['stockTaking', 'reconciliation']],
+    ['Assets & Monitoring', ['fixedAssets', 'userCards', 'disposal']],
     ['Reports', ['reports']],
   ],
 
   [ROLES.DEPT_HEAD]: [
     ['Overview', ['dashboard']],
+    ['Master Data', ['stores', 'categories', 'items', 'suppliers', 'departments']],
+    ['Monitoring', ['stockCards', 'fixedAssets']],
     ['Requisitions', ['requisitions']],
     ['Returns', ['materialReturn']],
     ['Transfers', ['materialTransfer']],
+    ['Issue Requests', ['issueVouchers']],
     ['User Materials', ['userCards']],
     ['Reports', ['reports']],
   ],
 
   [ROLES.TEC]: [
     ['Overview', ['dashboard']],
+    ['Master Data', ['stores', 'categories', 'items', 'suppliers', 'departments']],
+    ['Monitoring', ['stockCards', 'fixedAssets', 'disposal']],
     ['Material Evaluation', ['evaluation']],
     ['Documents', ['grnDocuments']],
     ['Reports', ['reports']],
@@ -142,6 +151,8 @@ const ROLE_NAV = {
 
   [ROLES.ACCOUNTANT]: [
     ['Overview', ['dashboard']],
+    ['Master Data', ['stores', 'categories', 'items', 'suppliers', 'departments']],
+    ['Asset & Disposal Monitoring', ['fixedAssets', 'userCards', 'disposal']],
     ['Financial Inventory', ['goodsReceipt', 'issueVouchers', 'materialReturn', 'materialTransfer']],
     ['Reconciliation', ['reconciliation']],
     ['Reports & Audit', ['reports', 'auditLog']],
@@ -149,6 +160,7 @@ const ROLE_NAV = {
 
   [ROLES.SECURITY]: [
     ['Overview', ['dashboard']],
+    ['Master Data', ['stores', 'categories', 'departments']],
     ['Campus Movement', ['gatePass']],
     ['Reports & Audit', ['reports', 'auditLog']],
   ],

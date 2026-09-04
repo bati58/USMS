@@ -106,6 +106,7 @@ function mapCategory(row) {
     id: row.id,
     code: row.code,
     name: row.name,
+    storeId: row.store_id || null,
     store: row.store_name || null,
     description: row.description,
     active: row.active

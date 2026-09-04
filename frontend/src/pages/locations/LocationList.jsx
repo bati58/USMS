@@ -59,6 +59,7 @@ export default function LocationList() {
                     name: 'parentId',
                     label: 'Parent Location',
                     type: 'select',
+                    required: (form) => form.type !== 'SECTION',
                     options: (form) => {
                         const parentType = { RACK: 'SECTION', SHELF: 'RACK', BIN: 'SHELF' }[form.type]
                         if (!parentType) return []

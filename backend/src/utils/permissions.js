@@ -31,34 +31,34 @@ const REPORT_READERS = [ADMIN, PAO, STORE_HEAD, STOCK_CLERK, TEC, DEPT_HEAD, ACC
 
 // Who can GET this resource. `null` = every authenticated role.
 const READ_PERMISSIONS = {
-  stores: [...REPORT_READERS, STOREKEEPER, STOCK_CLERK],
-  categories: [...REPORT_READERS, STOREKEEPER, STOCK_CLERK],
-  items: [...REPORT_READERS, STOREKEEPER, STOCK_CLERK],
-  locations: [...REPORT_READERS, STOREKEEPER, STOCK_CLERK],
+  stores: [...REPORT_READERS, STOREKEEPER, SECURITY],
+  categories: [...REPORT_READERS, STOREKEEPER, SECURITY],
+  items: [...REPORT_READERS, STOREKEEPER],
+  locations: [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK],
   suppliers: [...REPORT_READERS, STOREKEEPER],
-  departments: [...REPORT_READERS, STOREKEEPER],
+  departments: [...REPORT_READERS, STOREKEEPER, SECURITY],
   'stock-taking': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK],
   reconciliation: [ADMIN, PAO, STORE_HEAD, STOCK_CLERK, ACCOUNTANT],
-  'goods-receipts': [...REPORT_READERS, STOREKEEPER, SECURITY],
-  'stock-transactions': REPORT_READERS.concat(STOREKEEPER),
-  'bin-cards': [...REPORT_READERS, STOREKEEPER],
+  'goods-receipts': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, TEC, ACCOUNTANT, SECURITY],
+  'stock-transactions': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT, TEC],
+  'bin-cards': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, ACCOUNTANT],
   'bin-transfers': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK],
-  requisitions: [...REPORT_READERS, STOREKEEPER],
-  'issue-vouchers': [...REPORT_READERS, STOREKEEPER, SECURITY],
-  'material-returns': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
-  'material-transfers': [...REPORT_READERS, STOREKEEPER],
+  requisitions: [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
+  'issue-vouchers': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT, SECURITY],
+  'material-returns': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT, TEC],
+  'material-transfers': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
   'fixed-assets': REPORT_READERS,
-  disposals: [...REPORT_READERS, STOREKEEPER, DISPOSAL_COMMITTEE],
+  disposals: [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, ACCOUNTANT, TEC, DISPOSAL_COMMITTEE],
   users: [ADMIN],
   'audit-logs': [ADMIN, PAO, ACCOUNTANT, SECURITY],
   reports: [...REPORT_READERS, STOREKEEPER, SECURITY],
-  'gate-pass': [ADMIN, SECURITY],
-  'user-cards': [...REPORT_READERS, STOREKEEPER],
+  'gate-pass': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, SECURITY],
+  'user-cards': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK, DEPT_HEAD, ACCOUNTANT],
   'stock-clerks': [ADMIN, PAO, STORE_HEAD, STOREKEEPER, STOCK_CLERK]
 };
 
 const ACTION_PERMISSIONS = {
-  'goods-receipts': [STORE_HEAD, STOREKEEPER, TEC], // Admin is monitoring-only for goods receipts; operational actions stay with store/TEC roles.
+  'goods-receipts': [STORE_HEAD, STOREKEEPER], // Admin and TEC monitor; technical evaluation uses its dedicated action.
   // Department requisitions are approved by the issuing Store Head. Storekeeper
   // replenishment requests continue to route through PAO for transfer approval.
   requisitions: [DEPT_HEAD, PAO, STORE_HEAD],
@@ -104,18 +104,18 @@ ACTION_PERMISSIONS['disposals-post'] = [PAO, DISPOSAL_COMMITTEE];
 // value here is an empty array, NO ONE writes directly — it only changes
 // as the side effect of another action (see services/stockService.js).
 const WRITE_PERMISSIONS = {
-  stores: [ADMIN, PAO, STORE_HEAD],
-  categories: [ADMIN, PAO],
+  stores: [ADMIN, PAO],
+  categories: [ADMIN, PAO, STORE_HEAD],
   items: [ADMIN, STORE_HEAD],
-  locations: [ADMIN, STORE_HEAD],
-  suppliers: [ADMIN, PAO],
+  locations: [ADMIN, STORE_HEAD, STOREKEEPER],
+  suppliers: [ADMIN, PAO, STORE_HEAD],
   departments: [ADMIN, PAO],
   'stock-taking': [STORE_HEAD, STOCK_CLERK],
   reconciliation: [],
   'goods-receipts': [STOREKEEPER],
   'stock-transactions': [], // system-generated only
   'bin-cards': [STOREKEEPER, STOCK_CLERK],
-  'bin-transfers': [STORE_HEAD, STOREKEEPER],
+  'bin-transfers': [STORE_HEAD, STOREKEEPER, STOCK_CLERK],
   requisitions: [PAO, STORE_HEAD, STOREKEEPER, DEPT_HEAD],
   'issue-vouchers': [STOREKEEPER], // Storekeeper prepares the preliminary voucher from an approved requisition
   'material-returns': [STORE_HEAD, DEPT_HEAD],
@@ -126,13 +126,17 @@ const WRITE_PERMISSIONS = {
   'audit-logs': [],
   reports: [],
   'gate-pass': [SECURITY],
-  'user-cards': [STOREKEEPER, PAO, STORE_HEAD],
+  'user-cards': [STOREKEEPER, PAO, STORE_HEAD, DEPT_HEAD],
   'business-rules': [ADMIN]
 };
 
 const DELETE_PERMISSIONS = {
+  stores: [ADMIN],
+  categories: [ADMIN],
   items: [ADMIN],
   locations: [ADMIN, STORE_HEAD],
+  suppliers: [ADMIN],
+  departments: [ADMIN],
   users: [],
   requisitions: [],
   'material-returns': [],

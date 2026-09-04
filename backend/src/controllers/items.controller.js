@@ -60,6 +60,12 @@ const create = asyncHandler(async (req, res) => {
   const categoryId = await resolveCategoryId(category);
   const storeId = await resolveStoreId(store);
   await assertItemStoreAccess(req.user, storeId);
+  if (categoryId) {
+    const { rows: categoryRows } = await query('SELECT store_id FROM categories WHERE id = $1', [categoryId]);
+    if (categoryRows[0]?.store_id && String(categoryRows[0].store_id) !== String(storeId)) {
+      throw new AppError('Category must belong to the selected store.', 400);
+    }
+  }
   const resolvedLocationId = await resolveLocationId(locationId, storeId);
   const { rows: locationRows } = await query('SELECT code FROM locations WHERE id = $1', [resolvedLocationId]);
 
@@ -84,6 +90,12 @@ const update = asyncHandler(async (req, res) => {
   await assertItemStoreAccess(req.user, currentRows[0].store_id);
   const nextStoreId = storeId === undefined ? currentRows[0].store_id : storeId;
   await assertItemStoreAccess(req.user, nextStoreId);
+  if (categoryId) {
+    const { rows: categoryRows } = await query('SELECT store_id FROM categories WHERE id = $1', [categoryId]);
+    if (categoryRows[0]?.store_id && String(categoryRows[0].store_id) !== String(nextStoreId)) {
+      throw new AppError('Category must belong to the selected store.', 400);
+    }
+  }
   if (storeId !== undefined && locationId === undefined && Number(nextStoreId) !== Number(currentRows[0].store_id)) {
     throw new AppError('Select a BIN location when moving an item to another store.', 400);
   }

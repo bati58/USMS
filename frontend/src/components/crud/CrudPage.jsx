@@ -263,7 +263,7 @@ export default function CrudPage({
           {fields.map((f) => {
             const { key: _ignoredKey, ...commonProps } = {
               label: f.label,
-              required: f.required,
+              required: typeof f.required === 'function' ? f.required(form, rows) : f.required,
               disabled: typeof f.disabled === 'function' ? f.disabled(form, rows) : f.disabled,
               className: f.fullWidth ? 'sm:col-span-2' : '',
               ...(f.type === 'checkbox' ? { checked: Boolean(form[f.name]) } : { value: form[f.name] ?? '' }),

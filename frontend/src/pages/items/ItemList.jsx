@@ -131,6 +131,10 @@ export default function ItemList() {
   const canDelete = canPerformAction(user?.role, 'delete', 'items')
   const assignedStoreNames = [user?.store, ...(user?.assignedStores || [])].filter(Boolean)
   const isSingleStoreHead = user?.role === 'Store Head' && assignedStoreNames.length === 1
+  const selectedStoreId = stores.find((store) => store.name === form.store)?.id
+  const selectedCategories = categories.filter((category) => (
+    selectedStoreId ? Number(category.storeId) === Number(selectedStoreId) : category.store === form.store
+  ))
 
   async function load() {
     setLoading(true)
@@ -344,7 +348,7 @@ export default function ItemList() {
           <Select
             label="Category"
             required
-            options={categories.map((c) => c.name)}
+            options={selectedCategories.map((c) => c.name)}
             value={form.category}
             onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
           />

@@ -86,6 +86,20 @@ test('all-store operational users must not be artificially scoped to a single st
 test('auth store resolver accepts the pg query function contract used in login', async () => {
     const { resolveAssignedStoreName } = require('../src/controllers/auth.controller');
 
+    test('operational monitoring access follows the role matrix boundaries', () => {
+        assert.equal(canRead('goods-receipts', 'Department Head'), false);
+        assert.equal(canRead('bin-cards', 'Technical Evaluation Committee'), false);
+        assert.equal(canRead('requisitions', 'Technical Evaluation Committee'), false);
+        assert.equal(canRead('issue-vouchers', 'Technical Evaluation Committee'), false);
+        assert.equal(canRead('material-transfers', 'Technical Evaluation Committee'), false);
+        assert.equal(canRead('user-cards', 'Technical Evaluation Committee'), false);
+        assert.equal(canRead('gate-pass', 'Property Administration Officer'), true);
+        assert.equal(canRead('gate-pass', 'Store Head'), true);
+        assert.equal(canRead('gate-pass', 'Storekeeper'), true);
+        assert.equal(canWrite('bin-transfers', 'Stock Clerk'), true);
+        assert.equal(canWrite('user-cards', 'Department Head'), true);
+    });
+
     const multiStoreResult = await resolveAssignedStoreName('Multi Store User', 'Store Head', async () => ({
         rows: [{ name: 'Main Store' }, { name: 'Department Store' }]
     }));
@@ -259,14 +273,15 @@ test('TEC evaluation workflow distinguishes pending work from completed history'
     );
 });
 
-test('store head is the primary stock-taking owner and may create, approve, and post sessions', () => {
+test('store head has scoped master-data access and owns stock-taking sessions', () => {
     assert.equal(canRead('stores', 'Store Head'), true);
     assert.equal(canRead('categories', 'Store Head'), true);
     assert.equal(canRead('items', 'Store Head'), true);
     assert.equal(canRead('locations', 'Store Head'), true);
     assert.equal(canRead('suppliers', 'Store Head'), true);
-    assert.equal(canWrite('stores', 'Store Head'), true);
-    assert.equal(canWrite('categories', 'Store Head'), false);
+    assert.equal(canWrite('stores', 'Store Head'), false);
+    assert.equal(canWrite('categories', 'Store Head'), true);
+    assert.equal(canWrite('suppliers', 'Store Head'), true);
     assert.equal(canWrite('items', 'Store Head'), true);
     assert.equal(canWrite('locations', 'Store Head'), true);
     assert.equal(canWrite('goods-receipts', 'Store Head'), false);
@@ -278,6 +293,12 @@ test('store head is the primary stock-taking owner and may create, approve, and 
 });
 
 test('security officer can view supporting gate documents but cannot create or modify stock records', () => {
+    assert.equal(canRead('stores', 'Security Officer'), true);
+    assert.equal(canRead('categories', 'Security Officer'), true);
+    assert.equal(canRead('departments', 'Security Officer'), true);
+    assert.equal(canRead('items', 'Security Officer'), false);
+    assert.equal(canRead('locations', 'Security Officer'), false);
+    assert.equal(canRead('suppliers', 'Security Officer'), false);
     assert.equal(canRead('gate-pass', 'Security Officer'), true);
     assert.equal(canRead('goods-receipts', 'Security Officer'), true);
     assert.equal(canRead('issue-vouchers', 'Security Officer'), true);
@@ -303,11 +324,15 @@ test('user material cards are managed by operational and supervisory roles, not 
     assert.equal(canWrite('user-cards', 'Property Administration Officer'), true);
 });
 
-test('storekeeper has operational inventory rights but not master-data or system-admin permissions', () => {
+test('storekeeper has limited location rights and read-only master-data visibility', () => {
+    assert.equal(canRead('stores', 'Storekeeper'), true);
+    assert.equal(canRead('categories', 'Storekeeper'), true);
     assert.equal(canRead('items', 'Storekeeper'), true);
     assert.equal(canRead('locations', 'Storekeeper'), true);
+    assert.equal(canRead('suppliers', 'Storekeeper'), true);
+    assert.equal(canRead('departments', 'Storekeeper'), true);
     assert.equal(canWrite('items', 'Storekeeper'), false);
-    assert.equal(canWrite('locations', 'Storekeeper'), false);
+    assert.equal(canWrite('locations', 'Storekeeper'), true);
     assert.equal(canWrite('stores', 'Storekeeper'), false);
     assert.equal(canWrite('categories', 'Storekeeper'), false);
     assert.equal(canWrite('suppliers', 'Storekeeper'), false);
@@ -325,11 +350,11 @@ test('department head can create but cannot approve or delete transfers', () => 
     assert.equal(canRead('user-cards', 'Department Head'), true);
 });
 
-test('stock clerk is limited to counting and cannot execute inventory transfers', () => {
+test('stock clerk has limited transfer support but cannot execute material transfers', () => {
     assert.equal(canRead('stock-taking', 'Stock Clerk'), true);
     assert.equal(canWrite('stock-taking', 'Stock Clerk'), true);
     assert.equal(canWrite('stock-taking', 'Storekeeper'), false);
-    assert.equal(canWrite('bin-transfers', 'Stock Clerk'), false);
+    assert.equal(canWrite('bin-transfers', 'Stock Clerk'), true);
     assert.equal(canAct('material-transfers-execute', 'Stock Clerk'), false);
     assert.equal(canAct('stock-taking-post', 'Stock Clerk'), false);
     assert.equal(canWrite('goods-receipts', 'Stock Clerk'), false);

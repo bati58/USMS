@@ -76,7 +76,8 @@ export const ROLE_PERMISSIONS = {
             '/reports',
             '/audit-log',
             '/stock-taking',
-            '/reconciliation'
+            '/reconciliation',
+            '/gate-pass'
         ],
         canCreate: ['stores', 'categories', 'suppliers', 'departments', 'fixedAssets', 'userCards'],
         canEdit: ['stores', 'categories', 'suppliers', 'departments', 'fixedAssets', 'userCards'],
@@ -117,10 +118,11 @@ export const ROLE_PERMISSIONS = {
             '/categories',
             '/stock-taking',
             '/reconciliation',
-            '/user-cards'
+            '/user-cards',
+            '/gate-pass'
         ],
-        canCreate: ['stockTaking', 'materialTransfers', 'fixedAssets', 'userCards', 'disposals', 'locations', 'items'],
-        canEdit: ['fixedAssets', 'userCards', 'locations', 'items'],
+        canCreate: ['stockTaking', 'materialTransfers', 'fixedAssets', 'userCards', 'disposals', 'locations', 'items', 'categories', 'suppliers'],
+        canEdit: ['fixedAssets', 'userCards', 'locations', 'items', 'categories', 'suppliers'],
         canDelete: ['locations'],
         canApprove: ['requisitions', 'issueVouchers', 'materialReturns', 'materialTransfers', 'stockTaking'],
         canReject: ['materialReturns', 'materialTransfers', 'stockTaking'],
@@ -136,9 +138,9 @@ export const ROLE_PERMISSIONS = {
     [ROLES.STOREKEEPER]: {
         name: 'Storekeeper',
         // SRS: receives and issues stock, updates inventory records (bin cards)
-        canAccessPages: ['/', '/settings', '/items', '/locations', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/disposal', '/stock-taking', '/reports'],
-        canCreate: ['goodsReceipts', 'requisitions', 'stockTransfer', 'materialTransfers', 'issueVouchers', 'userCards'],
-        canEdit: ['goodsReceipts', 'userCards'],
+        canAccessPages: ['/', '/settings', '/stores', '/categories', '/items', '/locations', '/suppliers', '/departments', '/goods-receipt', '/grn-documents', '/stock-cards', '/bin-cards', '/requisitions', '/issue-vouchers', '/stock-transfer', '/material-return', '/material-transfer', '/user-cards', '/disposal', '/stock-taking', '/reconciliation', '/gate-pass', '/reports'],
+        canCreate: ['goodsReceipts', 'requisitions', 'stockTransfer', 'materialTransfers', 'issueVouchers', 'userCards', 'locations'],
+        canEdit: ['goodsReceipts', 'userCards', 'locations'],
         canPostIssueVoucher: true, // ISSUE MATERIAL: posts a PAO-authorized voucher (mirrors backend issue-voucher-post)
         canDelete: [],
         canApprove: [],
@@ -172,7 +174,7 @@ export const ROLE_PERMISSIONS = {
     [ROLES.STOCK_CLERK]: {
         name: 'Stock Clerk',
         // SRS: maintains stock records, updates transactions, prepares reports
-        canAccessPages: ['/', '/settings', '/items', '/locations', '/stock-cards', '/bin-cards', '/reports', '/stock-taking', '/reconciliation'],
+        canAccessPages: ['/', '/settings', '/stores', '/categories', '/items', '/locations', '/suppliers', '/departments', '/stock-cards', '/bin-cards', '/reports', '/stock-taking', '/reconciliation', '/fixed-assets', '/user-cards', '/disposal'],
         canCreate: [],
         canEdit: [],
         canDelete: [],
@@ -189,7 +191,7 @@ export const ROLE_PERMISSIONS = {
 
     [ROLES.TEC]: {
         name: 'Technical Evaluation Committee',
-        canAccessPages: ['/', '/goods-receipt/evaluation', '/grn-documents', '/reports'],
+        canAccessPages: ['/', '/stores', '/categories', '/items', '/suppliers', '/departments', '/stock-cards', '/fixed-assets', '/disposal', '/goods-receipt/evaluation', '/grn-documents', '/reports'],
         canCreate: [],
         canEdit: [],
         canDelete: [],
@@ -207,9 +209,9 @@ export const ROLE_PERMISSIONS = {
     [ROLES.DEPT_HEAD]: {
         name: 'Department Head',
         // SRS: approves requisitions from their department
-        canAccessPages: ['/', '/settings', '/items', '/requisitions', '/material-return', '/material-transfer', '/user-cards', '/reports'],
-        canCreate: ['requisitions', 'materialReturns', 'materialTransfers'],
-        canEdit: [],
+        canAccessPages: ['/', '/settings', '/stores', '/categories', '/items', '/suppliers', '/departments', '/stock-cards', '/fixed-assets', '/requisitions', '/issue-vouchers', '/material-return', '/material-transfer', '/user-cards', '/reports'],
+        canCreate: ['requisitions', 'materialReturns', 'materialTransfers', 'userCards'],
+        canEdit: ['userCards'],
         canDelete: [],
         canApprove: ['requisitions'],
         canReject: ['requisitions'],
@@ -225,7 +227,7 @@ export const ROLE_PERMISSIONS = {
     [ROLES.ACCOUNTANT]: {
         name: 'Accountant',
         // SRS: views financial reports and manages inventory valuation (FIFO)
-        canAccessPages: ['/', '/settings', '/stores', '/categories', '/items', '/stock-cards', '/bin-cards', '/goods-receipt', '/grn-documents', '/issue-vouchers', '/material-return', '/material-transfer', '/reports', '/audit-log', '/suppliers', '/reconciliation'],
+        canAccessPages: ['/', '/settings', '/stores', '/categories', '/items', '/stock-cards', '/bin-cards', '/goods-receipt', '/grn-documents', '/issue-vouchers', '/material-return', '/material-transfer', '/fixed-assets', '/user-cards', '/disposal', '/reports', '/audit-log', '/suppliers', '/departments', '/reconciliation'],
         canCreate: [],
         canEdit: [],
         canDelete: [],
@@ -244,7 +246,7 @@ export const ROLE_PERMISSIONS = {
     [ROLES.SECURITY]: {
         name: 'Security Officer',
         // SRS: gate verification only; view supporting delivery and issue docs at the campus boundary
-        canAccessPages: ['/', '/settings', '/gate-pass', '/goods-receipt', '/issue-vouchers', '/reports', '/audit-log'],
+        canAccessPages: ['/', '/settings', '/stores', '/categories', '/departments', '/gate-pass', '/goods-receipt', '/issue-vouchers', '/reports', '/audit-log'],
         canCreate: [],
         canEdit: [],
         canDelete: [],
