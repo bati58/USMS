@@ -37,10 +37,27 @@ async function ensureStoreColumns() {
   }
 }
 
+async function ensureRequisitionColumns() {
+  await query('ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS issuing_store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT');
+  await query(`
+    UPDATE requisitions r
+    SET issuing_store_id = CASE
+      WHEN requester.role = 'Storekeeper' THEN main_store.id
+      ELSE r.store_id
+    END
+    FROM users requester
+    LEFT JOIN stores main_store ON main_store.type = 'Main Store' AND main_store.active = TRUE
+    WHERE r.issuing_store_id IS NULL
+      AND requester.name = r.requested_by
+      AND requester.active = TRUE
+  `);
+}
+
 async function startServer() {
   try {
     const { rows } = await query('SELECT NOW() AS connected_at');
     await ensureStoreColumns();
+    await ensureRequisitionColumns();
     await ensureMaterialReturnsColumns();
     const server = app.listen(PORT, () => {
       console.log(`Stock Management System API listening on http://localhost:${PORT}`);

@@ -39,7 +39,6 @@ export function buildNotifications(user, data) {
   const pendingTransfers = transfers.filter((t) => ![STATUS.COMPLETED, STATUS.CANCELLED, STATUS.REJECTED].includes(t.status))
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
   const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
-  const pendingGateOut = vouchers.filter((v) => !v.gateVerified && ['Approved', 'Posted'].includes(v.status))
 
   function push(id, title, message, type, route, timestamp) {
     notes.push({ id, title, message, type, route, timestamp: timestamp || new Date(), read: false })
@@ -429,16 +428,6 @@ export function buildNotifications(user, data) {
           'info',
           '/gate-pass',
           g.receivedDate
-        )
-      })
-      pendingGateOut.slice(0, 6).forEach((v) => {
-        push(
-          `voucher-gate-${v.id}`,
-          'Outgoing Materials',
-          `${v.sivRef} for ${v.issuedTo || 'the destination'} — verify at gate before posting`,
-          'info',
-          '/gate-pass',
-          v.date
         )
       })
       break

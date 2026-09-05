@@ -238,6 +238,7 @@ function mapRequisition(row, items = [], approvals = []) {
     requesterRole: row.requester_role || null,
     date: row.date,
     store: row.store_name || null,
+    issuingStore: row.issuing_store_name || null,
     priority: row.priority || 'Normal',
     reason: row.reason || null,
     status: row.status,

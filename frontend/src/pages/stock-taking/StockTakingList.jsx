@@ -10,6 +10,7 @@ import EmptyState from '../../components/ui/EmptyState'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import { Plus, CheckCircle2, Send, X } from 'lucide-react'
 import { ROLES } from '../../utils/constants'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 export default function StockTakingList() {
     const { user } = useAuth()
@@ -494,8 +495,8 @@ export default function StockTakingList() {
                             <div>
                                 <label className="block text-sm font-medium mb-2">Select Items to Count</label>
                                 <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-2">
-                                    {items
-                                        .filter((item) => !createForm.storeId || item.store === stores.find((store) => String(store.id) === String(createForm.storeId))?.name)
+                                    {uniqueItemsByName(items
+                                        .filter((item) => !createForm.storeId || item.store === stores.find((store) => String(store.id) === String(createForm.storeId))?.name))
                                         .map((item) => {
                                             const selected = createForm.items.find((i) => i.itemId === item.id)
                                             return (

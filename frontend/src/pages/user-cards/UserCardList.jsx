@@ -10,6 +10,7 @@ import { itemService, userCardService } from '../../services'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { canPerformAction } from '../../utils/rolePermissions'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 const EMPTY_FORM = { user: '', department: '', item: '', issueRef: '', issueDate: '', qty: 1, status: 'In Use', notes: '' }
 
@@ -64,7 +65,7 @@ export default function UserCardList() {
                         <Input placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} disabled={Boolean(editing)} />
                         <select className="input" value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} required disabled={Boolean(editing)}>
                             <option value="">Select item</option>
-                            {items.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+                            {uniqueItemsByName(items).map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
                         </select>
                         <Input placeholder="Issue reference" value={form.issueRef} onChange={(e) => setForm({ ...form, issueRef: e.target.value })} required disabled={Boolean(editing)} />
                         <Input type="date" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} required disabled={Boolean(editing)} />

@@ -21,6 +21,7 @@ import {
   canApproveRequisition,
   canRejectRequisition
 } from '../../utils/rolePermissions'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 const EMPTY_LINE = { item: '', qty: '' }
 
@@ -40,7 +41,7 @@ export default function RequisitionList() {
   const [approveLines, setApproveLines] = useState([])
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
 
   const [header, setHeader] = useState({ department: '', store: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -57,9 +58,9 @@ export default function RequisitionList() {
   const isScopedStoreUser = (isStoreHead || isStorekeeper) && !!userAssignedStore
   const isMainStoreStorekeeper = isStorekeeper && stores.some((store) => store.name === userAssignedStore && store.type === 'Main Store')
   const mainStoreName = stores.find((store) => store.type === 'Main Store')?.name
-  const requestableItems = isStorekeeper
+  const requestableItems = uniqueItemsByName(isStorekeeper
     ? items.filter((item) => item.store === mainStoreName)
-    : items.filter((item) => item.store === header.store)
+    : items)
 
   const canEditApprovedQty = (isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL) ||
     (isStoreHead && viewing?.status === REQUISITION_STATUS.SUBMITTED)
@@ -70,7 +71,7 @@ export default function RequisitionList() {
       const [reqs, storeList, itemList, departmentList] = await Promise.all([
         requisitionService.list(),
         storeService.list(),
-        itemService.list(),
+        isStorekeeper ? itemService.listRequisitionCatalog() : itemService.list(),
         departmentService.list()
       ])
       setRows(reqs)
@@ -223,9 +224,9 @@ export default function RequisitionList() {
       } else if (isDeptHead) {
         message = `${viewing.srRef} endorsed. The Property Administration Officer is the next approver.`
       } else if (viewing.requesterRole === ROLES.STOREKEEPER) {
-        message = `${viewing.srRef} approved. The Storekeeper must prepare the replenishment through Material Transfers.`
+        message = `${viewing.srRef} approved by the issuing store. The Storekeeper must prepare the replenishment through Material Transfers.`
       } else {
-        message = `${viewing.srRef} approved. The Storekeeper must create the preliminary issue voucher next.`
+        message = `${viewing.srRef} approved by the issuing store. The Storekeeper must create the preliminary issue voucher next.`
       }
       push(message, tone, successToast)
       setViewing(null)
@@ -451,7 +452,8 @@ export default function RequisitionList() {
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Department" value={viewing.department} />
-              <Field label="Store" value={viewing.store} />
+              <Field label="Destination Store" value={viewing.store} />
+              <Field label="Issuing Store" value={viewing.issuingStore || viewing.store} />
               <Field label="Requested By" value={viewing.requestedBy} />
               <Field label="Status" value={<StatusBadge status={viewing.status} />} />
             </div>

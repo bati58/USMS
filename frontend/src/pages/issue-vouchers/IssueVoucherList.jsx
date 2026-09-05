@@ -28,7 +28,7 @@ export default function IssueVoucherList() {
   const [viewing, setViewing] = useState(null)
   const [saving, setSaving] = useState(false)
   const [actionBusy, setActionBusy] = useState('')
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
   const [amendLines, setAmendLines] = useState([])
   const canGenerate = canPerformAction(user?.role, 'create', 'issueVouchers')
   const canApprove = canPerformAction(user?.role, 'approve', 'issueVouchers')
@@ -141,7 +141,7 @@ export default function IssueVoucherList() {
     setActionBusy(`approve-${row.id}`)
     try {
       await api.action('issueVouchers', row.id, 'approve', {})
-      push(`${row.sivRef} approved. Security gate verification is required before Storekeeper posting.`, 'success', successToast)
+      push(`${row.sivRef} approved. The Storekeeper can now post the internal issue.`, 'success', successToast)
       await load()
     } catch (err) {
       push(err.message, 'error')
@@ -171,7 +171,7 @@ export default function IssueVoucherList() {
       }
 
       await api.action('issueVouchers', row.id, 'post', {})
-      push(`${row.sivRef} posted after gate verification. Stock Cards, Bin Cards, FIFO lots, and the linked requisition were updated.`, 'success', successToast)
+      push(`${row.sivRef} posted. Stock Cards, Bin Cards, FIFO lots, and the linked requisition were updated.`, 'success', successToast)
       await load()
     } catch (err) {
       push(err.message, 'error')
@@ -194,7 +194,7 @@ export default function IssueVoucherList() {
       render: (row) => (
         <div className="flex justify-end gap-1">
           {canApprove && [SIV_STATUS.PRELIMINARY, SIV_STATUS.PENDING_APPROVAL].includes(row.status) && <Button variant="secondary" loading={actionBusy === `approve-${row.id}`} disabled={Boolean(actionBusy)} onClick={() => handleApprove(row)}>Approve</Button>}
-          {canPost && row.status === SIV_STATUS.APPROVED && <Button title={row.gateVerified ? 'Post stock' : 'Security gate verification required'} loading={actionBusy === `post-${row.id}`} disabled={Boolean(actionBusy) || !row.gateVerified} onClick={() => handlePost(row)}>Post</Button>}
+          {canPost && row.status === SIV_STATUS.APPROVED && <Button title="Post stock" loading={actionBusy === `post-${row.id}`} disabled={Boolean(actionBusy)} onClick={() => handlePost(row)}>Post</Button>}
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>

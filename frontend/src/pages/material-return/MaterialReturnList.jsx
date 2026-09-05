@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../utils/formatters'
 import { RETURN_STATUS, STATUS, ROLES } from '../../utils/constants'
 import { canPerformAction } from '../../utils/rolePermissions'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 const EMPTY_LINE = { item: '', qty: '', condition: 'Good', reason: 'Excess' }
 
@@ -33,7 +34,7 @@ export default function MaterialReturnList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
   const [receiveInput, setReceiveInput] = useState({ actualQty: '', acceptedQty: '', rejectedQty: '', condition: '', remarks: '', rejectionReason: '' })
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
 
   const [header, setHeader] = useState({ department: '', store: '', date: '', originalIssueRef: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
@@ -330,7 +331,7 @@ export default function MaterialReturnList() {
             <div className="space-y-2">
               {lines.map((line, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.75fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                  <Select label="Item" options={items.map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
+                  <Select label="Item" options={uniqueItemsByName(items).map((i) => i.name)} value={line.item} onChange={(e) => updateLine(idx, { item: e.target.value })} />
                   <Input label="Quantity" type="number" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
                   <Select label="Reason" options={['Excess', 'Defective', 'Expired', 'Wrong Item']} value={line.reason} onChange={(e) => updateLine(idx, { reason: e.target.value })} />
                   <Select label="Condition" options={['Good', 'Damaged', 'Usable']} value={line.condition} onChange={(e) => updateLine(idx, { condition: e.target.value })} />

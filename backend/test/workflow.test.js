@@ -260,6 +260,7 @@ test('TEC is restricted to technical evaluation and cannot access general receip
     assert.equal(canRead('goods-receipts', 'Technical Evaluation Committee'), true);
     assert.equal(canWrite('goods-receipts', 'Technical Evaluation Committee'), false);
     assert.equal(canAct('goods-receipts-evaluate', 'Technical Evaluation Committee'), true);
+    assert.equal(canAct('goods-receipts-status', 'Technical Evaluation Committee'), true);
     assert.equal(canAct('goods-receipts-notify-tec', 'Technical Evaluation Committee'), false);
     assert.equal(canAct('goods-receipts-post', 'Technical Evaluation Committee'), false);
     assert.equal(canWrite('requisitions', 'Technical Evaluation Committee'), false);
@@ -626,7 +627,7 @@ test('issue vouchers require authorization before posting and notify the Storeke
     assert.ok(notifications.some((n) => n.title === 'Issue Authorized Voucher' && n.route === '/issue-vouchers'));
 });
 
-test('Gate Pass is Security-only and covers outgoing approved vouchers', async () => {
+test('Gate Pass is Security-only and covers incoming goods only', async () => {
     assert.equal(canAct('gate-pass', 'Security Officer'), true);
     assert.equal(canAct('gate-pass', 'Store Head'), false);
     assert.equal(canAct('gate-pass', 'Property Administration Officer'), false);
@@ -638,7 +639,7 @@ test('Gate Pass is Security-only and covers outgoing approved vouchers', async (
         { role: 'Security Officer' },
         {
             items: [],
-            grns: [],
+            grns: [{ id: 30, status: 'GRN Generated', grnRef: 'GRN-2026-0030', supplier: 'Supplier', gateVerified: false, receivedDate: '2026-09-04' }],
             reqs: [],
             returns: [],
             transfers: [],
@@ -646,7 +647,8 @@ test('Gate Pass is Security-only and covers outgoing approved vouchers', async (
             vouchers: [{ id: 31, status: 'Approved', sivRef: 'SIV-2026-0031', issuedTo: 'Electrical Engineering', gateVerified: false, date: '2026-09-04' }]
         }
     );
-    assert.ok(notifications.some((n) => n.title === 'Outgoing Materials' && n.route === '/gate-pass' && n.message.includes('SIV-2026-0031')));
+    assert.ok(notifications.some((n) => n.title === 'Incoming Delivery' && n.route === '/gate-pass' && n.message.includes('GRN-2026-0030')));
+    assert.equal(notifications.some((n) => n.title === 'Outgoing Materials'), false);
 });
 
 test('stock card ledger rows retain item and store identity', () => {

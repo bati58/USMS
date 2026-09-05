@@ -515,23 +515,17 @@ export default function Dashboard() {
     () => grns.filter((g) => g.status === GRN_STATUS.GRN_GENERATED),
     [grns]
   )
-  const gateEligibleOutgoing = useMemo(
-    () => vouchers.filter((v) => [SIV_STATUS.APPROVED, SIV_STATUS.POSTED].includes(v.status)),
-    [vouchers]
-  )
   const rejectedGateDocuments = useMemo(
     () => grns.filter((g) => g.status === GRN_STATUS.REJECTED).length + vouchers.filter((v) => v.status === SIV_STATUS.REJECTED).length,
     [grns, vouchers]
   )
   const pendingGateIncoming = gateEligibleIncoming.filter((g) => !g.gateVerified)
-  const pendingGateOutgoing = gateEligibleOutgoing.filter((v) => !v.gateVerified)
   const gatePassesToday = useMemo(
-    () => gateEligibleIncoming.filter((g) => isToday(g.receivedDate)).length + gateEligibleOutgoing.filter((v) => isToday(v.date)).length,
-    [gateEligibleIncoming, gateEligibleOutgoing]
+    () => gateEligibleIncoming.filter((g) => isToday(g.receivedDate)).length,
+    [gateEligibleIncoming]
   )
-  const pendingGateVerification = pendingGateIncoming.length + pendingGateOutgoing.length
-  const approvedGatePasses = gateEligibleIncoming.length + gateEligibleOutgoing.length
-  const completedExits = gateEligibleOutgoing.filter((v) => v.gateVerified).length
+  const pendingGateVerification = pendingGateIncoming.length
+  const approvedGatePasses = gateEligibleIncoming.length
   const completedEntries = gateEligibleIncoming.filter((g) => g.gateVerified).length
 
   const pendingIssueActionRows = useMemo(() => {
@@ -1351,15 +1345,6 @@ export default function Dashboard() {
                   <p className="text-xs text-ink-500">{g.supplier} → {g.store}</p>
                 </div>
                 <Link to="/gate-pass" className="text-xs font-medium text-brand-600">Verify</Link>
-              </li>
-            ))}
-            {pendingGateOutgoing.slice(0, 4).map((v) => (
-              <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg border border-ink-100 bg-ink-50/40 p-3 text-sm">
-                <div>
-                  <p className="font-medium text-ink-900">{v.sivRef || v.ref || v.id} · Outgoing</p>
-                  <p className="text-xs text-ink-500">{v.issuedTo ? `Issued to ${v.issuedTo}` : v.store ? `Store: ${v.store}` : 'Awaiting outgoing clearance'}</p>
-                </div>
-                <Link to="/gate-pass" className="text-xs font-medium text-brand-600">Clear</Link>
               </li>
             ))}
           </ul>

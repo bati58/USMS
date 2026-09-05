@@ -37,6 +37,10 @@ async function assertItemStoreAccess(user, storeId) {
 }
 
 const list = asyncHandler(async (req, res) => {
+  if (req.query.catalog === 'requisition' && req.user?.role === 'Storekeeper') {
+    const { rows } = await query(`${SELECT} JOIN stores main_store ON main_store.id = i.store_id WHERE main_store.type = 'Main Store' AND main_store.active = TRUE ORDER BY i.id`);
+    return res.json(rows.map(mapItem));
+  }
   const scope = await getItemStoreScope(req.user);
   const params = scope === null ? [] : [scope];
   const where = scope === null ? '' : ' WHERE i.store_id = ANY($1::int[])';

@@ -114,7 +114,7 @@ router.post('/goods-receipts/:id/submit', requireRole('goods-receipts'), goodsRe
 router.post('/goods-receipts/:id/evaluate', requireRole('goods-receipts-evaluate', 'action'), goodsReceiptsController.evaluate);
 router.post('/goods-receipts/:id/generate-grn', requireRole('goods-receipts', 'action'), goodsReceiptsController.generateGrn);
 router.post('/goods-receipts/:id/post-stock', requireRole('goods-receipts-post', 'action'), goodsReceiptsController.postStock);
-router.post('/goods-receipts/:id/status', requireRole('goods-receipts', 'action'), goodsReceiptsController.setStatus);
+router.post('/goods-receipts/:id/status', requireRole('goods-receipts-status', 'action'), goodsReceiptsController.setStatus);
 router.delete('/goods-receipts/:id', requireRole('goods-receipts'), goodsReceiptsController.remove);
 
 // ---------------------------------------------------------------------------

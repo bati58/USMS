@@ -8,9 +8,10 @@ const { notify } = require('../utils/notify');
 const stockService = require('../services/stockService');
 
 const SELECT = `
-  SELECT r.*, s.name AS store_name, requester.role AS requester_role
+  SELECT r.*, s.name AS store_name, issuing_store.name AS issuing_store_name, requester.role AS requester_role
   FROM requisitions r
   LEFT JOIN stores s ON s.id = r.store_id
+  LEFT JOIN stores issuing_store ON issuing_store.id = COALESCE(r.issuing_store_id, r.store_id)
   LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
 `;
 
@@ -40,7 +41,7 @@ const list = asyncHandler(async (req, res) => {
     if (visibility.canViewAllStores) {
       scope = 'WHERE 1 = 1';
     } else if (visibility.assignedStoreId) {
-      scope = 'WHERE r.store_id = $1';
+      scope = 'WHERE (r.store_id = $1 OR COALESCE(r.issuing_store_id, r.store_id) = $1)';
       params = [visibility.assignedStoreId];
     }
   }
@@ -70,7 +71,7 @@ const getOne = asyncHandler(async (req, res) => {
     if (visibility.canViewAllStores) {
       scope = '';
     } else if (visibility.assignedStoreId) {
-      scope = ' AND r.store_id = $2';
+      scope = ' AND (r.store_id = $2 OR COALESCE(r.issuing_store_id, r.store_id) = $2)';
       params.push(visibility.assignedStoreId);
     } else {
       throw new AppError('You are not assigned to any store scope.', 403);
@@ -83,7 +84,7 @@ const getOne = asyncHandler(async (req, res) => {
   if (req.user.role === 'Department Head') {
     await assertUserCanAccessDepartmentRecord(req.user, rows[0].department, { query });
   } else if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-    await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, { query });
+    await assertUserCanAccessStoreRecord(req.user, req.user.role === 'Store Head' ? (rows[0].issuing_store_id || rows[0].store_id) : rows[0].store_id, { query });
   }
 
   const r = await fetchWithLines(rows[0].id);
@@ -127,16 +128,17 @@ const create = asyncHandler(async (req, res) => {
     const { rows: mainStores } = await client.query(
       `SELECT id FROM stores WHERE active = TRUE AND type = 'Main Store' ORDER BY id LIMIT 1`
     );
-    const itemStoreId = req.user.role === 'Storekeeper' ? mainStores[0]?.id : storeId;
+    const issuingStoreId = req.user.role === 'Storekeeper' ? mainStores[0]?.id : storeId;
+    const itemStoreId = issuingStoreId;
     if (req.user.role === 'Storekeeper' && !itemStoreId) {
       throw new AppError('No active Main Store is configured.', 500);
     }
     const srRef = await nextRef(client, 'SR');
 
     const { rows } = await client.query(
-      `INSERT INTO requisitions (sr_ref, department, requested_by, date, store_id, priority, reason, status)
-       VALUES ($1,$2,$3,COALESCE($4, CURRENT_DATE),$5,$6,$7,'Draft') RETURNING id`,
-      [srRef, requestDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId, req.body.priority || 'Normal', reason.trim()]
+      `INSERT INTO requisitions (sr_ref, department, requested_by, date, store_id, issuing_store_id, priority, reason, status)
+       VALUES ($1,$2,$3,COALESCE($4, CURRENT_DATE),$5,$6,$7,$8,'Draft') RETURNING id`,
+      [srRef, requestDepartment, req.user.role === 'Department Head' ? req.user.name : (requestedBy || req.user.name), date || null, storeId, issuingStoreId, req.body.priority || 'Normal', reason.trim()]
     );
     const reqId = rows[0].id;
 
@@ -174,11 +176,12 @@ const create = asyncHandler(async (req, res) => {
 const submit = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `SELECT r.status, r.sr_ref, r.department, r.requested_by, r.store_id,
-          dh.id AS department_head_id, sh.id AS store_head_id
+      `SELECT r.status, r.sr_ref, r.department, r.requested_by, r.store_id, r.issuing_store_id,
+          requester.role AS requester_role, dh.id AS department_head_id, sh.id AS store_head_id
        FROM requisitions r
+         LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
        LEFT JOIN users dh ON dh.role = 'Department Head' AND dh.department = r.department AND dh.active = TRUE
-       LEFT JOIN stores s ON s.id = r.store_id
+         LEFT JOIN stores s ON s.id = COALESCE(r.issuing_store_id, r.store_id)
        LEFT JOIN users sh ON sh.role = 'Store Head' AND sh.name = s.head_of_store AND sh.active = TRUE
        WHERE r.id = $1 FOR UPDATE OF r`,
       [req.params.id]
@@ -187,7 +190,7 @@ const submit = asyncHandler(async (req, res) => {
     if (!reqDoc) throw new AppError('Requisition not found.', 404);
     if (reqDoc.requested_by !== req.user.name) throw new AppError('Only the requester can submit this requisition.', 403);
     if (req.user.role === 'Department Head' && reqDoc.department !== req.user.department) throw new AppError('You can only submit requisitions from your department.', 403);
-    if (['Store Head', 'Storekeeper'].includes(req.user.role)) await assertUserCanAccessStoreRecord(req.user, reqDoc.store_id, client);
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) await assertUserCanAccessStoreRecord(req.user, req.user.role === 'Store Head' ? (reqDoc.issuing_store_id || reqDoc.store_id) : reqDoc.store_id, client);
     if (!['Draft', 'Pending', 'Returned for Correction'].includes(reqDoc.status)) {
       throw new AppError(`Cannot submit requisition in status: ${reqDoc.status}`, 400);
     }
@@ -197,8 +200,8 @@ const submit = asyncHandler(async (req, res) => {
     // have no Department Head user at all. In either case we skip stage 1 and route
     // straight to the PAO (stage 2, status 'Pending Approval') so the flow never dead-ends.
     const routeToDeptHead = Boolean(reqDoc.department_head_id) && req.user.role !== 'Department Head';
-    const routeToStoreHead = Boolean(reqDoc.store_head_id) && req.user.role === 'Department Head';
-    const nextStatus = routeToDeptHead ? 'Submitted' : routeToStoreHead ? 'Submitted' : 'Pending Approval';
+    const routeToStoreHead = Boolean(reqDoc.store_head_id) && (req.user.role === 'Department Head' || reqDoc.requester_role === 'Storekeeper');
+    const nextStatus = routeToDeptHead || routeToStoreHead ? 'Submitted' : 'Pending Approval';
 
     await client.query('UPDATE requisitions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
     await logAudit(client, {
@@ -228,7 +231,7 @@ const submit = asyncHandler(async (req, res) => {
         ? {
           userId: reqDoc.store_head_id,
           title: 'Requisition Awaiting Store Head Approval',
-          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for your approval before issue.`,
+          message: `Requisition ${reqDoc.sr_ref} from ${reqDoc.department} is ready for approval by the issuing store before fulfillment.`,
           type: 'info',
           route: `/requisitions/${req.params.id}`,
           entityType: 'requisition',
@@ -260,7 +263,7 @@ const decide = asyncHandler(async (req, res) => {
 
   await withTransaction(async (client) => {
     const { rows } = await client.query(
-      `SELECT r.status, r.department, r.requested_by, r.store_id, r.sr_ref, requester.role AS requester_role
+      `SELECT r.status, r.department, r.requested_by, r.store_id, r.issuing_store_id, r.sr_ref, requester.role AS requester_role
        FROM requisitions r
        LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
        WHERE r.id = $1 FOR UPDATE OF r`,
@@ -293,7 +296,7 @@ const decide = asyncHandler(async (req, res) => {
       }
     } else if (role === 'Store Head') {
       if (status !== 'Submitted') throw new AppError('This requisition is not awaiting Store Head approval.', 409);
-      await assertUserCanAccessStoreRecord(req.user, rows[0].store_id, client);
+      await assertUserCanAccessStoreRecord(req.user, req.user.role === 'Store Head' ? (rows[0].issuing_store_id || rows[0].store_id) : rows[0].store_id, client);
     } else if (role === 'Property Administration Officer') {
       // Stage 2 — final approval.
       if (status !== 'Pending Approval') throw new AppError('This requisition is not awaiting your approval.', 409);

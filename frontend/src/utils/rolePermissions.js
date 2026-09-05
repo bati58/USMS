@@ -340,7 +340,7 @@ export function getSidebarType(userRole) {
  * Requisition approval mirrors the backend `decide` controller:
  *   Department Head endorses another request from their department.
  *   Store Head approves requests for their issuing store.
- *   PAO approves Storekeeper replenishment requests.
+ *   The issuing Store Head approves Storekeeper replenishment requests.
  * Any other role, or the wrong stage for the role, cannot decide.
  */
 function requisitionStageAllows(user, requisition) {
@@ -355,7 +355,7 @@ function requisitionStageAllows(user, requisition) {
     if (user.role === ROLES.STORE_HEAD) {
         const assignedStore = user.store || user.assignedStores?.[0]
         return requisition.status === REQUISITION_STATUS.SUBMITTED &&
-            (!assignedStore || requisition.store === assignedStore)
+            (!assignedStore || (requisition.issuingStore || requisition.store) === assignedStore)
     }
     return false
 }

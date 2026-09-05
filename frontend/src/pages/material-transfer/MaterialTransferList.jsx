@@ -16,8 +16,9 @@ import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../utils/formatters'
 import { TRANSFER_STATUS, ROLES } from '../../utils/constants'
 import { canPerformAction } from '../../utils/rolePermissions'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
-const EMPTY_LINE = { item: '', qty: '', destinationBin: '' }
+const EMPTY_LINE = { item: '', qty: '' }
 
 export default function MaterialTransferList() {
   const { push } = useToast()
@@ -32,10 +33,11 @@ export default function MaterialTransferList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [saving, setSaving] = useState(false)
   const [actionBusy, setActionBusy] = useState('')
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
 
   const [header, setHeader] = useState({ requisitionId: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
+  const [receiveBin, setReceiveBin] = useState('')
 
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
   const canCreate = canPerformAction(user?.role, 'create', 'materialTransfers')
@@ -43,14 +45,13 @@ export default function MaterialTransferList() {
   const assignedStoreNames = user?.assignedStores?.length ? user.assignedStores : (userAssignedStore ? [userAssignedStore] : [])
   const isStoreOperator = ['Storekeeper', 'Store Head'].includes(user?.role)
   const isScopedStoreUser = isStoreOperator && assignedStoreNames.length > 0
-  const isMainStoreOperator = isStoreOperator && assignedStoreNames.some((name) => stores.find((store) => store.name === name)?.type === 'Main Store')
-  const canCreateTransfer = canCreate && isMainStoreOperator
+  const canCreateTransfer = canCreate && isStoreOperator
   // Only the Storekeeper physically dispatches and receives goods. The Store Head approves transfers.
   const isStorekeeper = user?.role === ROLES.STOREKEEPER
   const canDispatchViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.fromStore))
   const canReceiveViewing = isStorekeeper && (!isScopedStoreUser || assignedStoreNames.includes(viewing?.toStore))
   const approvedRequisitions = useMemo(
-    () => requisitions.filter((request) => ['Approved', 'Partially Approved'].includes(request.status) && request.requesterRole === ROLES.STOREKEEPER),
+    () => requisitions.filter((request) => ['Approved', 'Partially Approved'].includes(request.status) && request.issuingStore && request.issuingStore !== request.store),
     [requisitions]
   )
   const selectedRequisition = approvedRequisitions.find((request) => String(request.id) === String(header.requisitionId))
@@ -100,12 +101,12 @@ export default function MaterialTransferList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    if (!isMainStoreOperator) {
-      push('Only the Main Store can create material transfers.', 'error')
+    if (!isStoreOperator) {
+      push('Only an operator assigned to the source store can create material transfers.', 'error')
       return
     }
-    if (!selectedRequisition || !lines.length || lines.some((line) => !line.item || !line.qty || Number(line.qty) <= 0 || !line.destinationBin.trim())) {
-      push('Select an approved requisition and provide an item, positive quantity, and destination bin for every line.', 'error')
+    if (!selectedRequisition || !lines.length || lines.some((line) => !line.item || !line.qty || Number(line.qty) <= 0)) {
+      push('Select an approved requisition and provide an item and positive quantity for every line.', 'error')
       return
     }
     if (new Set(lines.map((line) => line.item)).size !== lines.length) {
@@ -117,10 +118,10 @@ export default function MaterialTransferList() {
       const created = await materialTransferService.create({
         requisitionId: selectedRequisition.id,
         date: header.date,
-        lines: lines.map((line) => ({ ...line, qty: Number(line.qty), destinationBin: line.destinationBin.trim() }))
+        lines: lines.map((line) => ({ item: line.item, qty: Number(line.qty) }))
       })
       const transferCount = Array.isArray(created) ? created.length : 1
-      push(`${transferCount} transfer${transferCount === 1 ? '' : 's'} submitted for PAO approval. No stock changed. PAO is the next responsible actor.`, 'success', successToast)
+      push(`${transferCount} transfer${transferCount === 1 ? '' : 's'} submitted for source Store Head approval. No stock changed.`, 'success', successToast)
       setModalOpen(false)
       await load()
     } catch (err) {
@@ -142,7 +143,12 @@ export default function MaterialTransferList() {
         await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Dispatched' })
         push(`${viewing.transferRef} dispatched. The destination Storekeeper is the next actor and must receive it.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RECEIVED) {
-        await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Received' })
+        const destinationBin = receiveBin.trim()
+        if (!destinationBin) {
+          push('Select a destination bin before receiving the materials.', 'error')
+          return
+        }
+        await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Received', destinationBin })
         push(`${viewing.transferRef} received. Destination stock, Stock Cards, Bin Cards, and FIFO lots were updated.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RETURNED) {
         await api.action('materialTransfers', viewing.id, 'approve', { decision: 'Returned for Correction' })
@@ -153,6 +159,7 @@ export default function MaterialTransferList() {
       }
 
       setViewing(null)
+      setReceiveBin('')
       await load()
     } catch (err) {
       push(err.message, 'error')
@@ -210,7 +217,7 @@ export default function MaterialTransferList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1 items-center">
-          <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
+          <button onClick={() => { setViewing(row); setReceiveBin('') }} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>
           {[TRANSFER_STATUS.PENDING_APPROVAL, TRANSFER_STATUS.RETURNED].includes(row.status) && canCreate && (
@@ -259,7 +266,7 @@ export default function MaterialTransferList() {
         <form onSubmit={handleCreate} className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Select label="Approved Requisition" required options={approvedRequisitions.map((request) => ({ value: request.id, label: `${request.srRef} - ${request.store}` }))} value={header.requisitionId} onChange={(e) => setHeader((h) => ({ ...h, requisitionId: e.target.value }))} />
-            <Input label="Source Store" value="Main Store" readOnly disabled />
+            <Input label="Source Store" value={selectedRequisition?.issuingStore || ''} readOnly disabled />
             <Input label="Destination Store" value={selectedRequisition?.store || ''} readOnly disabled />
             <Input label="Date" type="date" required value={header.date} onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
           </div>
@@ -269,7 +276,7 @@ export default function MaterialTransferList() {
             </div>
             {!approvedRequisitions.length && (
               <p className="mb-3 rounded-md border border-warning-100 bg-warning-50 px-3 py-2 text-sm text-warning-700">
-                No approved Sub-Store requisitions are available. A Sub-Store Storekeeper must submit a requisition and it must be approved before materials can be selected for transfer.
+                No approved cross-store requisitions are available. A requisition must be approved by its source Store Head before materials can be selected for transfer.
               </p>
             )}
             <div className="space-y-2">
@@ -278,7 +285,7 @@ export default function MaterialTransferList() {
                   <Select
                     label={`Item ${idx + 1}`}
                     disabled={!selectedRequisition || !availableItems.length}
-                    options={availableItems.filter((item) => !lines.some((other, otherIdx) => otherIdx !== idx && other.item === item.item)).map((item) => ({ value: item.item, label: `${item.item} (requested: ${item.qtyApproved ?? item.qty})` }))}
+                    options={uniqueItemsByName(availableItems).filter((item) => !lines.some((other, otherIdx) => otherIdx !== idx && other.item === item.item)).map((item) => ({ value: item.item, label: `${item.item} (requested: ${item.qtyApproved ?? item.qty})` }))}
                     value={line.item}
                     onChange={(e) => {
                       const selectedLine = availableItems.find((item) => item.item === e.target.value)
@@ -286,7 +293,6 @@ export default function MaterialTransferList() {
                     }}
                   />
                   <Input label="Quantity" type="number" min="0" value={line.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} />
-                  <Input label="Destination Bin" placeholder="e.g. MEE-01" value={line.destinationBin} onChange={(e) => updateLine(idx, { destinationBin: e.target.value })} />
                   <Button variant="secondary" icon={Minus} onClick={() => setLines((prev) => prev.length > 1 ? prev.filter((_, lineIdx) => lineIdx !== idx) : prev)} disabled={lines.length === 1} title="Remove line" />
                 </div>
               ))}
@@ -378,7 +384,8 @@ export default function MaterialTransferList() {
               {viewing.status === TRANSFER_STATUS.DISPATCHED && canReceiveViewing && (
                 <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-brand-800">
                   <p className="font-medium text-sm mb-1">Destination Store Action Required</p>
-                  <p className="text-xs text-brand-600">Click Receive when materials physically arrive. This records the receipt and updates stock levels for both stores.</p>
+                  <p className="text-xs text-brand-600 mb-3">Select the destination bin, then receive the materials. This records the receipt and updates destination stock.</p>
+                  <Input label="Destination Bin" placeholder="e.g. SW-04" value={receiveBin} onChange={(e) => setReceiveBin(e.target.value)} />
                 </div>
               )}
               {viewing.status === TRANSFER_STATUS.RETURNED && (

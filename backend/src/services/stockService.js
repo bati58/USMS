@@ -629,6 +629,19 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
     const { rows: sourceRows } = await client.query('SELECT * FROM items WHERE id = $1', [transfer.item_id]);
     const sourceItem = sourceRows[0];
     if (!sourceItem) throw new AppError('Source item for this transfer was not found.', 404);
+    const requestedBin = String(transfer.destination_bin || '').trim();
+    const { rows: locationRows } = await client.query(
+      `SELECT id, code, name FROM locations
+       WHERE store_id = $1 AND type = 'BIN' AND active = TRUE
+         AND (LOWER(code) = LOWER($2) OR LOWER(name) = LOWER($2))
+       ORDER BY CASE WHEN LOWER(code) = LOWER($2) THEN 0 ELSE 1 END, id
+       LIMIT 1`,
+      [transfer.to_store_id, requestedBin]
+    );
+    if (!locationRows[0]) {
+      throw new AppError(`Destination bin "${requestedBin}" does not exist in the destination store.`, 400);
+    }
+    const destinationLocation = locationRows[0];
 
     // Find (or create) the matching item row in the destination store, by code.
     let { rows: destRows } = await client.query(
@@ -639,10 +652,10 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
 
     if (!destItem) {
       const { rows: created } = await client.query(
-        `INSERT INTO items (code, name, category_id, store_id, bin, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10) RETURNING *`,
+        `INSERT INTO items (code, name, category_id, store_id, bin, location_id, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11) RETURNING *`,
         [
-          sourceItem.code, sourceItem.name, sourceItem.category_id, transfer.to_store_id, transfer.destination_bin || null,
+          sourceItem.code, sourceItem.name, sourceItem.category_id, transfer.to_store_id, destinationLocation.code, destinationLocation.id,
           sourceItem.unit, sourceItem.min_level, sourceItem.max_level, sourceItem.reorder_level, sourceItem.unit_price
         ]
       );
@@ -650,12 +663,13 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
     }
 
     const transferUnitPrice = transfer.transfer_unit_price == null ? Number(sourceItem.unit_price) : Number(transfer.transfer_unit_price);
-    const destinationBin = transfer.destination_bin || destItem.bin;
+    const destinationBin = destinationLocation.code;
     const newDestQty = Number(destItem.qty_on_hand) + Number(transfer.qty);
-    await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, bin = COALESCE($3, bin), updated_at = NOW() WHERE id = $4', [
+    await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, bin = $3, location_id = $4, updated_at = NOW() WHERE id = $5', [
       newDestQty,
       transferUnitPrice,
       destinationBin,
+      destinationLocation.id,
       destItem.id
     ]);
 

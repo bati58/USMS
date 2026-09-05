@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext'
 import { formatDate } from '../../utils/formatters'
 import { DISPOSAL_STATUS, ROLES } from '../../utils/constants'
 import { canPerformAction } from '../../utils/rolePermissions'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 export default function DisposalList() {
   const { push } = useToast()
@@ -47,12 +48,12 @@ export default function DisposalList() {
   const selectedStore = stores.find((store) => store.name === formData.store)
   const availableItems = useMemo(() => {
     if (!formData.store) return []
-    return items.filter((item) => {
+    return uniqueItemsByName(items.filter((item) => {
       const belongsToSelectedStore = selectedStore?.id
         ? Number(item.storeId) === Number(selectedStore.id)
         : item.store === formData.store
       return belongsToSelectedStore && Number(item.qtyOnHand) > 0
-    })
+    }))
   }, [items, formData.store, selectedStore?.id])
 
   async function load() {

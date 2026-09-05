@@ -26,7 +26,7 @@ export function ToastProvider({ children }) {
     (message, type = 'success', options = {}) => {
       const id = Date.now() + Math.random()
       setToasts((prev) => [...prev, { id, message, type }])
-      setTimeout(() => remove(id), options.duration ?? 4000)
+      setTimeout(() => remove(id), options.duration ?? 2000)
     },
     [remove]
   )

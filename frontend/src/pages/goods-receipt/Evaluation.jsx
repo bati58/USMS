@@ -24,7 +24,7 @@ export default function Evaluation() {
   const [evidence, setEvidence] = useState('')
   const [saving, setSaving] = useState(false)
   const [acceptedQuantities, setAcceptedQuantities] = useState([])
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
 
   const pendingRows = rows.filter((row) => row.status === GRN_STATUS.PENDING_EVAL || row.status === GRN_STATUS.UNDER_EVAL)
   const historyRows = rows.filter((row) => !pendingRows.includes(row) && row.evaluatedBy)

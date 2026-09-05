@@ -132,18 +132,9 @@ const approve = asyncHandler(async (req, res) => {
       role: 'Storekeeper',
       storeId: voucherRows[0]?.store_id,
       title: 'Issue Voucher Approved',
-      message: `SIV ${rows[0]?.siv_ref} has been approved. Security must verify the outgoing materials before posting.`,
+      message: `SIV ${rows[0]?.siv_ref} has been approved. The Storekeeper can now post the internal issue.`,
       type: 'success',
       route: '/issue-vouchers',
-      entityType: 'issue_voucher',
-      entityId: req.params.id
-    });
-    await notify(client, {
-      role: 'Security Officer',
-      title: 'Outgoing materials awaiting gate verification',
-      message: `SIV ${rows[0]?.siv_ref} is approved and requires gate verification before stock can be posted and materials can leave the premises.`,
-      type: 'info',
-      route: '/gate-pass',
       entityType: 'issue_voucher',
       entityId: req.params.id
     });
@@ -154,9 +145,6 @@ const approve = asyncHandler(async (req, res) => {
 const post = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
     await assertVoucherStoreAccess(req.user, req.params.id, client);
-    const { rows: gateRows } = await client.query('SELECT gate_verified, siv_ref FROM issue_vouchers WHERE id = $1 FOR UPDATE', [req.params.id]);
-    if (!gateRows[0]) throw new AppError('Issue voucher not found.', 404);
-    if (!gateRows[0].gate_verified) throw new AppError(`Security must verify ${gateRows[0].siv_ref} at the gate before stock can be posted.`, 409);
     await stockService.postIssueVoucher(client, { voucherId: req.params.id, actorName: req.user.name, actorRole: req.user.role });
     const { rows } = await client.query('SELECT siv_ref, sr_ref FROM issue_vouchers WHERE id = $1', [req.params.id]);
     const sivRef = rows[0]?.siv_ref;

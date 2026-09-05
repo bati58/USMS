@@ -15,6 +15,7 @@ import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, formatCurrency } from '../../utils/formatters'
 import { GRN_STATUS, ROLES } from '../../utils/constants'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 const EMPTY_LINE = { item: '', qty: '', unitPrice: '' }
 
@@ -50,18 +51,12 @@ export default function GoodsReceiptList() {
     const selectedStore = stores.find((store) => store.name === header.store)
     if (!selectedStore || selectedStore.type !== 'Main Store') return []
 
-    const uniqueItems = new Map()
-    items
-      .filter((item) => item.store === selectedStore.name)
-      .forEach((item) => {
-        if (!uniqueItems.has(item.name)) uniqueItems.set(item.name, item)
-      })
-    return Array.from(uniqueItems.values())
+    return uniqueItemsByName(items.filter((item) => item.store === selectedStore.name))
   }, [items, stores, header.store])
   const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = canManage
   const canNotifyTec = isStoreHead
-  const successToast = { duration: 180000 }
+  const successToast = { duration: 2000 }
   const canManageRow = (row) => !isStoreHead || !userAssignedStore || assignedStoreNames.includes(row.store)
 
   async function load() {

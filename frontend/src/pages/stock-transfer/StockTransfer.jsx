@@ -3,6 +3,7 @@ import CrudPage from '../../components/crud/CrudPage'
 import { useAuth } from '../../context/AuthContext'
 import { binTransferService, itemService } from '../../services'
 import { formatDate } from '../../utils/formatters'
+import { uniqueItemsByName } from '../../utils/itemOptions'
 
 export default function StockTransfer() {
   const { user } = useAuth()
@@ -16,8 +17,9 @@ export default function StockTransfer() {
         const assignedStores = user.assignedStores?.length ? user.assignedStores : [user.store].filter(Boolean)
         return assignedStores.includes(item.store) && Number(item.qtyOnHand) > 0
       })
-      setItems(availableItems)
-      setItemOptions(availableItems.map((item) => ({
+      const uniqueAvailableItems = uniqueItemsByName(availableItems)
+      setItems(uniqueAvailableItems)
+      setItemOptions(uniqueAvailableItems.map((item) => ({
         value: item.name,
         label: `${item.name} (qt: ${item.qtyOnHand})`
       })))

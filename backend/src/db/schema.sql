@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS requisitions (
   requested_by    TEXT,
   date            DATE NOT NULL DEFAULT CURRENT_DATE,
   store_id        INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  issuing_store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT,
   priority        TEXT NOT NULL DEFAULT 'Normal',
   reason          TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT 'Pending'
@@ -291,6 +292,7 @@ CREATE INDEX IF NOT EXISTS idx_req_status ON requisitions(status);
 CREATE INDEX IF NOT EXISTS idx_requisitions_department ON requisitions(department_id);
 ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'Normal';
 ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS reason TEXT;
+ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS issuing_store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT;
 UPDATE requisitions SET reason = 'Legacy requisition' WHERE reason IS NULL;
 ALTER TABLE requisitions ALTER COLUMN reason SET NOT NULL;
 

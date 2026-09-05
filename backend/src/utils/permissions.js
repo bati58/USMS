@@ -75,6 +75,7 @@ ACTION_PERMISSIONS['issue-voucher-post'] = [STOREKEEPER];
 ACTION_PERMISSIONS['issue-voucher-amend'] = [STORE_HEAD]; // Store Head revises or returns the Storekeeper's preliminary voucher
 ACTION_PERMISSIONS['goods-receipts-evaluate'] = [TEC];
 ACTION_PERMISSIONS['goods-receipts-notify-tec'] = [STORE_HEAD];
+ACTION_PERMISSIONS['goods-receipts-status'] = [STORE_HEAD, STOREKEEPER, TEC];
 ACTION_PERMISSIONS['goods-receipts-post'] = [STOREKEEPER];
 ACTION_PERMISSIONS['material-returns-receive'] = [STOREKEEPER];
 ACTION_PERMISSIONS['material-transfers-execute'] = [STOREKEEPER]; // dispatch/receive belongs to the physical storekeeper, not the approving Store Head
