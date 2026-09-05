@@ -161,13 +161,23 @@ const create = asyncHandler(async (req, res) => {
 const submit = asyncHandler(async (req, res) => {
     await withTransaction(async (client) => {
         const { rows } = await client.query(
-            `SELECT st.status, st.session_ref, st.assigned_user_id, s.head_of_store, u.id AS store_head_id
+            `SELECT st.status, st.session_ref, st.assigned_user_id, s.id AS store_id
              FROM stock_taking_sessions st
              JOIN stores s ON s.id = st.store_id
-             LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
              WHERE st.id = $1 FOR UPDATE OF st`,
             [req.params.id]
         );
+        const storeHeadId = rows[0]?.store_id ? await (async () => {
+            const { rows: headRows } = await client.query(
+                `SELECT u.id
+                 FROM store_user_assignments a
+                 JOIN users u ON u.id = a.user_id
+                 WHERE a.store_id = $1 AND a.assignment_role = 'Store Head' AND a.active = TRUE AND u.role = 'Store Head' AND u.active = TRUE
+                 LIMIT 1`,
+                [rows[0].store_id]
+            );
+            return headRows[0]?.id || null;
+        })() : null;
         if (!rows[0]) throw new AppError('Stock-taking session not found.', 404);
         if (!['Draft', 'Scheduled', 'In Progress', 'Recount Required', 'Submitted'].includes(rows[0].status)) throw new AppError(`Cannot submit session in status: ${rows[0].status}`, 400);
         if (rows[0].status !== 'Submitted' && req.user.role !== 'Stock Clerk') {
@@ -190,8 +200,8 @@ const submit = asyncHandler(async (req, res) => {
         await client.query('UPDATE stock_taking_sessions SET status = $1, updated_at = NOW() WHERE id = $2', [nextStatus, req.params.id]);
         await logAudit(client, { userName: req.user.name, action: `Submitted stock-taking session ${rows[0].session_ref} to ${nextStatus}`, module: 'Stock Taking' });
         await notify(client, {
-            userId: rows[0].store_head_id || undefined,
-            role: rows[0].store_head_id ? undefined : 'Store Head',
+            userId: storeHeadId || undefined,
+            role: storeHeadId ? undefined : 'Store Head',
             title: 'Stock-taking session awaiting approval',
             message: `${rows[0].session_ref} is ready for review.`,
             type: 'warning',

@@ -110,7 +110,7 @@ const create = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     const storeId = await resolveStoreId(store, client);
     const { rows: destinationStores } = await client.query(
-      `SELECT type, department, active FROM stores WHERE id = $1`,
+      `SELECT type, active FROM stores WHERE id = $1`,
       [storeId]
     );
     if (!destinationStores[0]?.active) throw new AppError('The requesting store is not active.', 400);
@@ -123,8 +123,10 @@ const create = asyncHandler(async (req, res) => {
         throw new AppError('You can only create a requisition for your assigned Sub-Store.', 403);
       }
     }
-    const requestDepartment = req.user.role === 'Storekeeper' ? destinationStores[0].department : effectiveDepartment;
-    if (!requestDepartment) throw new AppError('The requesting store must have a department.', 400);
+    const requestDepartment = req.user.role === 'Storekeeper'
+      ? (req.user.department || 'Store Operations')
+      : effectiveDepartment;
+    if (!requestDepartment) throw new AppError('A department is required for this requisition.', 400);
     const { rows: mainStores } = await client.query(
       `SELECT id FROM stores WHERE active = TRUE AND type = 'Main Store' ORDER BY id LIMIT 1`
     );
@@ -177,12 +179,15 @@ const submit = asyncHandler(async (req, res) => {
   const result = await withTransaction(async (client) => {
     const { rows } = await client.query(
       `SELECT r.status, r.sr_ref, r.department, r.requested_by, r.store_id, r.issuing_store_id,
-          requester.role AS requester_role, dh.id AS department_head_id, sh.id AS store_head_id
+          requester.role AS requester_role, dh.id AS department_head_id,
+          COALESCE(sh.id, legacy_sh.id) AS store_head_id
        FROM requisitions r
          LEFT JOIN users requester ON requester.name = r.requested_by AND requester.active = TRUE
        LEFT JOIN users dh ON dh.role = 'Department Head' AND dh.department = r.department AND dh.active = TRUE
          LEFT JOIN stores s ON s.id = COALESCE(r.issuing_store_id, r.store_id)
-       LEFT JOIN users sh ON sh.role = 'Store Head' AND sh.name = s.head_of_store AND sh.active = TRUE
+       LEFT JOIN store_user_assignments a ON a.store_id = s.id AND a.assignment_role = 'Store Head' AND a.active = TRUE
+       LEFT JOIN users sh ON sh.id = a.user_id AND sh.role = 'Store Head' AND sh.active = TRUE
+       LEFT JOIN users legacy_sh ON legacy_sh.role = 'Store Head' AND legacy_sh.name = s.head_of_store AND legacy_sh.active = TRUE
        WHERE r.id = $1 FOR UPDATE OF r`,
       [req.params.id]
     );

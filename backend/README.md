@@ -32,7 +32,7 @@ Build the schema and load demo data:
 npm run db:schema
 npm run db:seed
 ```
-*Note: We have consolidated all database schema updates into a single `schema.sql` to keep things clean. Running the schema script will completely initialize or reset the system schema.*
+*Note: We have consolidated all database schema updates into a single `schema.sql` to keep things clean. Running the schema script will completely initialize or reset the system schema. For a safe cleanup that preserves the core master data (`users`, `items`, `stores`, and `suppliers`) while rebuilding reference/demo data, use `npm run db:fresh-seed`.*
 
 ## 3. Run it
 

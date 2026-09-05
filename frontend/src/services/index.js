@@ -17,7 +17,8 @@ export const issueVoucherService = createEntityService('issueVouchers')
 export const fixedAssetService = createEntityService('fixedAssets')
 export const userService = {
     ...createEntityService('users'),
-    listStockClerks: () => api.raw('/users/stock-clerks')
+    listStockClerks: () => api.raw('/users/stock-clerks'),
+    listAssetCustodians: () => api.raw('/users/fixed-asset-custodians')
 }
 export const materialReturnService = {
     ...createEntityService('materialReturns'),

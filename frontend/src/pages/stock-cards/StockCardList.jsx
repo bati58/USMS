@@ -104,17 +104,19 @@ export default function StockCardList() {
                   <tr>
                     <th className="px-3 py-2 text-left">Date</th>
                     <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-left">Reference</th>
+                    <th className="px-3 py-2 text-left">Source Document</th>
+                    <th className="px-3 py-2 text-left">Bin</th>
                     <th className="px-3 py-2 text-right">Qty In</th>
                     <th className="px-3 py-2 text-right">Qty Out</th>
                     <th className="px-3 py-2 text-right">Unit Price</th>
                     <th className="px-3 py-2 text-right">Balance</th>
+                    <th className="px-3 py-2 text-left">Actor</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ink-100">
                   {ledger.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-3 py-6 text-center text-ink-400">
+                      <td colSpan={9} className="px-3 py-6 text-center text-ink-400">
                         No transactions recorded for this item yet.
                       </td>
                     </tr>
@@ -123,11 +125,16 @@ export default function StockCardList() {
                     <tr key={t.id}>
                       <td className="px-3 py-2">{formatDate(t.date)}</td>
                       <td className="px-3 py-2">{t.type}</td>
-                      <td className="px-3 py-2">{t.ref}</td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{t.ref || '-'}</div>
+                        <div className="text-xs text-ink-400">{t.sourceType || 'Transaction'}</div>
+                      </td>
+                      <td className="px-3 py-2">{t.bin || '-'}</td>
                       <td className="px-3 py-2 text-right">{t.qtyIn || '-'}</td>
                       <td className="px-3 py-2 text-right">{t.qtyOut || '-'}</td>
                       <td className="px-3 py-2 text-right">{formatCurrency(t.unitPrice)}</td>
                       <td className="px-3 py-2 text-right font-medium">{formatNumber(t.balance)}</td>
+                      <td className="px-3 py-2">{t.actorName || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

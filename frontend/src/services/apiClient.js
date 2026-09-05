@@ -20,20 +20,35 @@ const RESOURCE_PATHS = {
   auditLogs: 'audit-logs'
 }
 
+const transientRetryDelays = [250, 750]
+
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+
 function resourcePath(resource) {
   return RESOURCE_PATHS[resource] || resource
 }
 
 async function request(path, options = {}) {
   const token = localStorage.getItem('sms_token')
-  let res = await fetch(`${BASE_URL}${path}`, {
+  const method = (options.method || 'GET').toUpperCase()
+  const requestOptions = {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {})
     }
-  })
+  }
+  let res = await fetch(`${BASE_URL}${path}`, requestOptions)
+
+  // Retrying only idempotent reads avoids duplicating a state-changing action.
+  if (res.status === 503 && ['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    for (const delay of transientRetryDelays) {
+      await wait(delay)
+      res = await fetch(`${BASE_URL}${path}`, requestOptions)
+      if (res.status !== 503) break
+    }
+  }
 
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/refresh' && token) {
     const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {

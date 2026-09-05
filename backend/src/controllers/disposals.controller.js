@@ -140,10 +140,28 @@ const create = asyncHandler(async (req, res) => {
       ? (await client.query('SELECT id FROM items WHERE id = $1 AND store_id = $2', [itemId, storeId])).rows[0]?.id
       : await resolveItemId(item, client, storeId);
     if (!resolvedItemId) throw new AppError(`Unknown item: "${item || itemId}" in the selected store.`, 400);
-    const { rows: stockRows } = await client.query('SELECT qty_on_hand FROM items WHERE id = $1 FOR UPDATE', [resolvedItemId]);
+    const { rows: stockRows } = await client.query(
+      `SELECT qty_on_hand, item_condition, expiry_date
+       FROM items WHERE id = $1 FOR UPDATE`,
+      [resolvedItemId]
+    );
     if (!stockRows[0] || Number(stockRows[0].qty_on_hand) < Number(qty)) {
       throw new AppError('The requested disposal quantity exceeds the current stock on hand.', 400);
     }
+    const condition = String(stockRows[0].item_condition || '').trim().toLowerCase();
+    const expired = stockRows[0].expiry_date && new Date(stockRows[0].expiry_date) < new Date(new Date().toISOString().slice(0, 10));
+    const eligibleCondition = ['damaged', 'unusable', 'obsolete', 'expired', 'scrap', 'condemned'].includes(condition);
+    if (!eligibleCondition && !expired) {
+      throw new AppError('Only expired, damaged, unusable, obsolete, scrap, or condemned stock can be flagged for disposal.', 400);
+    }
+    const { rows: activeFlags } = await client.query(
+      `SELECT 1 FROM disposals
+       WHERE item_id = $1 AND store_id = $2
+         AND status NOT IN ('Rejected', 'Returned for Correction', 'Returned to Stock', 'Completed', 'Closed')
+       LIMIT 1`,
+      [resolvedItemId, storeId]
+    );
+    if (activeFlags[0]) throw new AppError('This item already has an active disposal request.', 409);
     const disposalRef = await nextRef(client, 'DSP');
 
     const { rows } = await client.query(

@@ -101,7 +101,25 @@ export default function CrudPage({
       push('You do not have permission to edit records.', 'error')
       return
     }
-    setForm(row)
+
+    const normalized = { ...row }
+    fields.forEach((field) => {
+      if (field.type !== 'select') return
+      const options = typeof field.options === 'function' ? field.options(normalized, rows) : field.options
+      if (!Array.isArray(options) || normalized[field.name] == null || normalized[field.name] === '') return
+
+      const selected = options.find((opt) => {
+        const value = typeof opt === 'string' ? opt : opt.value
+        const label = typeof opt === 'string' ? opt : opt.label
+        return String(value) === String(normalized[field.name]) || String(label).split(' (')[0].trim() === String(normalized[field.name]).trim()
+      })
+
+      if (selected) {
+        normalized[field.name] = typeof selected === 'string' ? selected : selected.value
+      }
+    })
+
+    setForm(normalized)
     setEditing(row)
     setModalOpen(true)
   }
@@ -267,7 +285,9 @@ export default function CrudPage({
               disabled: typeof f.disabled === 'function' ? f.disabled(form, rows) : f.disabled,
               className: f.fullWidth ? 'sm:col-span-2' : '',
               ...(f.type === 'checkbox' ? { checked: Boolean(form[f.name]) } : { value: form[f.name] ?? '' }),
-              onChange: (e) => setForm((prev) => ({ ...prev, [f.name]: f.type === 'checkbox' ? e.target.checked : e.target.value }))
+              onChange: f.onChange
+                ? (e) => f.onChange(e, { form, rows, setForm })
+                : (e) => setForm((prev) => ({ ...prev, [f.name]: f.type === 'checkbox' ? e.target.checked : e.target.value }))
             }
 
             if (f.type === 'select') {

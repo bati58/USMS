@@ -58,8 +58,18 @@ export default function StockTransfer() {
         { key: 'transferredBy', header: 'Transferred By' }
       ]}
       fields={[
-        { name: 'item', label: 'Item', type: 'select', required: true, options: itemOptions },
-        { name: 'fromBin', label: 'From Bin', required: true, placeholder: 'e.g. A-01' },
+        {
+          name: 'item',
+          label: 'Item',
+          type: 'select',
+          required: true,
+          options: itemOptions,
+          onChange: (e, { setForm }) => {
+            const selectedItem = items.find((entry) => entry.name === e.target.value)
+            setForm((prev) => ({ ...prev, item: e.target.value, fromBin: selectedItem?.bin || '' }))
+          }
+        },
+        { name: 'fromBin', label: 'From Bin', required: true, placeholder: 'Select an item first', disabled: (form) => Boolean(form.item) },
         { name: 'toBin', label: 'To Bin', required: true, placeholder: 'e.g. A-03' },
         { name: 'qty', label: 'Quantity', type: 'number', required: true },
         { name: 'date', label: 'Date', type: 'date', required: true },

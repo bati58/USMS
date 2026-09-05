@@ -152,7 +152,7 @@ const ROLE_NAV = {
   [ROLES.ACCOUNTANT]: [
     ['Overview', ['dashboard']],
     ['Master Data', ['stores', 'categories', 'items', 'suppliers', 'departments']],
-    ['Asset & Disposal Monitoring', ['fixedAssets', 'userCards', 'disposal']],
+    ['Assets & Disposal', ['fixedAssets', 'userCards', 'disposal']],
     ['Financial Inventory', ['goodsReceipt', 'issueVouchers', 'materialReturn', 'materialTransfer']],
     ['Reconciliation', ['reconciliation']],
     ['Reports & Audit', ['reports', 'auditLog']],

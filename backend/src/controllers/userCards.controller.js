@@ -48,9 +48,17 @@ const list = asyncHandler(async (req, res) => {
     const params = req.user.role === 'Department Head' ? [req.user.department] : [];
     let scope = req.user.role === 'Department Head' ? ' WHERE uc.department = $1' : '';
     if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
-        const assignmentColumn = req.user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
-        params.push(req.user.name);
-        scope = ' WHERE EXISTS (SELECT 1 FROM issue_vouchers iv JOIN requisitions r ON r.sr_ref = iv.sr_ref JOIN stores s ON s.id = r.store_id WHERE iv.siv_ref = uc.issue_ref AND s.' + assignmentColumn + ' = $1)';
+        params.push(req.user.id, req.user.role);
+        scope = ` WHERE EXISTS (
+                    SELECT 1
+                    FROM issue_vouchers iv
+                    JOIN requisitions r ON r.sr_ref = iv.sr_ref
+                    JOIN store_user_assignments a ON a.store_id = r.store_id
+                    WHERE iv.siv_ref = uc.issue_ref
+                        AND a.user_id = $1
+                        AND a.assignment_role = $2
+                        AND a.active = TRUE
+                )`;
     }
     const { rows } = await query(`${SELECT}${scope} ORDER BY uc.id DESC`, params);
     res.json(rows.map(map));

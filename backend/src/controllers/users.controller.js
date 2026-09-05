@@ -18,6 +18,16 @@ const listStockClerks = asyncHandler(async (req, res) => {
   res.json(rows.map(mapUser));
 });
 
+const listAssetCustodians = asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT id, name, username, role, email, department, active
+     FROM users
+     WHERE active = TRUE
+     ORDER BY name`
+  );
+  res.json(rows.map(mapUser));
+});
+
 const getOne = asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM users WHERE id = $1', [req.params.id]);
   if (!rows[0]) throw new AppError('User not found.', 404);
@@ -66,6 +76,13 @@ const update = asyncHandler(async (req, res) => {
   if (!rows[0]) throw new AppError('User not found.', 404);
 
   await logAudit(query, { userName: req.user.name, action: `Updated user ${rows[0].name}`, module: 'User Management' });
+  await query(
+    `UPDATE store_user_assignments
+     SET active = FALSE, effective_to = CURRENT_DATE, updated_at = NOW()
+     WHERE user_id = $1 AND active = TRUE
+       AND ($2 = FALSE OR assignment_role <> $3)`,
+    [rows[0].id, rows[0].active, rows[0].role]
+  );
 
   res.json(mapUser(rows[0]));
 });
@@ -79,4 +96,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, listStockClerks, getOne, create, update, remove };
+module.exports = { list, listStockClerks, listAssetCustodians, getOne, create, update, remove };

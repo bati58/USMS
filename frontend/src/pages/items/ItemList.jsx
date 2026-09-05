@@ -143,7 +143,7 @@ export default function ItemList() {
         itemService.list(),
         categoryService.list(),
         storeService.list(),
-        locationService.list()
+        canCreate || canEdit ? locationService.list() : Promise.resolve([])
       ])
       setItems(itemsData)
       setCategories(categoriesData)

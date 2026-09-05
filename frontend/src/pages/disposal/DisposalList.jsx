@@ -49,10 +49,12 @@ export default function DisposalList() {
   const availableItems = useMemo(() => {
     if (!formData.store) return []
     return uniqueItemsByName(items.filter((item) => {
-      const belongsToSelectedStore = selectedStore?.id
-        ? Number(item.storeId) === Number(selectedStore.id)
-        : item.store === formData.store
-      return belongsToSelectedStore && Number(item.qtyOnHand) > 0
+      const belongsToSelectedStore = (selectedStore?.id && Number(item.storeId) === Number(selectedStore.id)) ||
+        item.store === formData.store
+      const condition = String(item.condition || '').trim().toLowerCase()
+      const expired = item.expiryDate && item.expiryDate < new Date().toISOString().slice(0, 10)
+      const eligible = ['damaged', 'unusable', 'obsolete', 'expired', 'scrap', 'condemned'].includes(condition) || expired
+      return belongsToSelectedStore && Number(item.qtyOnHand) > 0 && eligible
     }))
   }, [items, formData.store, selectedStore?.id])
 
@@ -261,7 +263,13 @@ export default function DisposalList() {
             )}
             <Select label="Item" value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} required>
               <option value="">{formData.store ? '-- Select Item --' : 'Select a store first'}</option>
-              {availableItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.code}) - available: {i.qtyOnHand}</option>)}
+              {availableItems.map(i => {
+                const condition = String(i.condition || '').trim().toLowerCase()
+                const reason = i.expiryDate && i.expiryDate < new Date().toISOString().slice(0, 10)
+                  ? 'Expired'
+                  : i.condition || 'Review required'
+                return <option key={i.id} value={i.id}>{i.name} ({i.code}) - {reason} - available: {i.qtyOnHand}</option>
+              })}
             </Select>
             <Input label="Quantity" type="number" min="0.01" step="0.01" value={formData.qty} onChange={(e) => setFormData({ ...formData, qty: e.target.value })} required />
             <Input label="Date Flagged" type="date" value={formData.dateFlagged} onChange={(e) => setFormData({ ...formData, dateFlagged: e.target.value })} required />

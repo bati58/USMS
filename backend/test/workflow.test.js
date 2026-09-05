@@ -4,6 +4,56 @@ const { pathToFileURL } = require('node:url');
 const { assertTransition } = require('../src/utils/workflow');
 const { canEditStockTakingCounts, isOpenStockTakingSession } = require('../src/utils/workflow');
 const { canRead, canWrite, canAct, canDelete } = require('../src/utils/permissions');
+const { mapGoodsReceipt, mapStockTransaction } = require('../src/controllers/_helpers');
+
+test('transaction cards preserve printable source document references', () => {
+    const receipt = mapGoodsReceipt({
+        id: 1,
+        grn_ref: 'GRN-2026-0001',
+        official_grn_ref: 'GRN-2026-0101',
+        supplier: 'Supplier',
+        po_ref: 'PO-2026-0001',
+        material_type: 'Fixed Asset',
+        received_date: '2026-09-05',
+        store_name: 'Main Store',
+        status: 'Posted'
+    }, [{
+        item_name: 'Printer',
+        qty: 2,
+        qty_accepted: 1,
+        qty_rejected: 1,
+        unit_price: 85000
+    }]);
+    const transaction = mapStockTransaction({
+        id: 2,
+        item_id: 10,
+        item_name: 'Printer',
+        date: '2026-09-05',
+        type: 'Receipt',
+        ref: 'GRN-2026-0001',
+        qty_in: 1,
+        qty_out: 0,
+        unit_price: 85000,
+        balance: 1,
+        source_type: 'GRN',
+        source_id: 'GRN-2026-0001',
+        actor_name: 'Sara Alemu',
+        store_name: 'Main Store',
+        store_id: 1,
+        bin: 'BIN-01'
+    });
+
+    assert.equal(receipt.grnRef, 'GRN-2026-0101');
+    assert.equal(receipt.receiptRef, 'GRN-2026-0001');
+    assert.equal(receipt.type, 'Fixed Asset');
+    assert.equal(receipt.items[0].qtyAccepted, 1);
+    assert.equal(receipt.items[0].qtyRejected, 1);
+    assert.equal(transaction.ref, 'GRN-2026-0101');
+    assert.equal(transaction.sourceType, 'GRN');
+    assert.equal(transaction.sourceId, 'GRN-2026-0001');
+    assert.equal(transaction.actorName, 'Sara Alemu');
+    assert.equal(transaction.bin, 'BIN-01');
+});
 
 test('only reusable return conditions can be restocked', () => {
     const isReusable = (condition) => ['good', 'usable', 'reusable'].includes(String(condition || '').trim().toLowerCase());
@@ -42,19 +92,32 @@ test('goods receipt submission routes approval to the receiving store head for t
     const { query } = require('../src/config/db');
     const { resolveStoreHeadForStore } = require('../src/controllers/_helpers');
 
-    const { rows: mainStore } = await query("SELECT id, head_of_store FROM stores WHERE name = 'Main Store' LIMIT 1");
-    const mainHeadId = await resolveStoreHeadForStore(mainStore[0].id);
-    const { rows: mainUser } = await query('SELECT name FROM users WHERE id = $1 AND role = $2', [mainHeadId, 'Store Head']);
+    const { rows: stores } = await query(
+        `SELECT s.id, s.name
+         FROM stores s
+         WHERE s.active = TRUE
+         ORDER BY s.id
+         LIMIT 2`
+    );
 
-    assert.ok(mainHeadId, 'Main Store must resolve to a store head');
-    assert.equal(mainUser[0].name, mainStore[0].head_of_store);
+    assert.ok(stores.length >= 2, 'Expected at least two active stores in the seed');
 
-    const { rows: chemStore } = await query("SELECT id, head_of_store FROM stores WHERE name = 'Chemical Engineering Dept. Store' LIMIT 1");
-    const chemHeadId = await resolveStoreHeadForStore(chemStore[0].id);
-    const { rows: chemUser } = await query('SELECT name FROM users WHERE id = $1 AND role = $2', [chemHeadId, 'Store Head']);
+    for (const store of stores) {
+        const headId = await resolveStoreHeadForStore(store.id);
+        const { rows: activeHead } = await query(
+            `SELECT u.name
+             FROM store_user_assignments a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.store_id = $1 AND a.assignment_role = 'Store Head' AND a.active = TRUE AND u.role = 'Store Head' AND u.active = TRUE
+             LIMIT 1`,
+            [store.id]
+        );
 
-    assert.ok(chemHeadId, 'Chemical Engineering Dept. Store must resolve to a store head');
-    assert.equal(chemUser[0].name, chemStore[0].head_of_store);
+        assert.ok(headId, `Store ${store.name} must resolve to an active store head`);
+        assert.ok(activeHead[0], `Store ${store.name} is missing an active Store Head assignment`);
+        const { rows: headUser } = await query('SELECT name FROM users WHERE id = $1 AND role = $2', [headId, 'Store Head']);
+        assert.equal(headUser[0].name, activeHead[0].name);
+    }
 });
 
 test('all-store operational users must not be artificially scoped to a single store', async () => {
@@ -82,6 +145,47 @@ test('all-store operational users must not be artificially scoped to a single st
     } finally {
         await query('DELETE FROM stores WHERE head_of_store = $1', [uniqueName]);
     }
+});
+
+
+test('store visibility resolves relational assignments by user id', async () => {
+    const { query } = require('../src/config/db');
+    const { getUserStoreVisibility } = require('../src/controllers/_helpers');
+    const { rows } = await query(
+        `SELECT u.id, u.name, u.role, s.id AS store_id
+         FROM users u
+         JOIN store_user_assignments a ON a.user_id = u.id AND a.assignment_role = u.role AND a.active = TRUE
+         JOIN stores s ON s.id = a.store_id AND s.active = TRUE
+         WHERE u.role = 'Store Head'
+         ORDER BY u.id, s.id
+         LIMIT 1`
+    );
+    assert.ok(rows[0], 'Expected a backfilled Store Head assignment');
+    const visibility = await getUserStoreVisibility({ id: rows[0].id, name: rows[0].name, role: rows[0].role }, { query });
+    assert.ok(visibility.assignedStoreId || visibility.canViewAllStores);
+});
+
+test('store assignment resolver accepts either user ids or names', async () => {
+    const { query } = require('../src/config/db');
+    const { resolveEligibleAssignment } = require('../src/controllers/stores.controller');
+    const { rows } = await query("SELECT id, name FROM users WHERE role = 'Store Head' AND active = TRUE ORDER BY id LIMIT 1");
+
+    assert.ok(rows[0], 'Expected an active Store Head in the seeded users');
+    assert.equal(await resolveEligibleAssignment(rows[0].id, 'Store Head'), rows[0].id);
+    assert.equal(await resolveEligibleAssignment(rows[0].name, 'Store Head'), rows[0].id);
+});
+
+test('store type normalization accepts legacy and functional store aliases', () => {
+    const { normalizeStoreType } = require('../src/controllers/stores.controller');
+
+    assert.equal(normalizeStoreType('Main Store'), 'Main Store');
+    assert.equal(normalizeStoreType('Main-Store'), 'Main Store');
+    assert.equal(normalizeStoreType('Department'), 'Department Store');
+    assert.equal(normalizeStoreType('Dept Store'), 'Department Store');
+    assert.equal(normalizeStoreType('Cafe'), 'Cafe Store');
+    assert.equal(normalizeStoreType('Cafeteria Store'), 'Cafe Store');
+    assert.equal(normalizeStoreType('Specialized / Laboratory'), 'Specialized/Laboratory');
+    assert.equal(normalizeStoreType('Lab Store'), 'Specialized/Laboratory');
 });
 
 test('auth store resolver accepts the pg query function contract used in login', async () => {

@@ -51,12 +51,12 @@ export default function Sidebar({ open, onClose }) {
                 {/* Section Header with Collapse/Expand Icon */}
                 <button
                   onClick={() => toggleSection(section.label)}
-                  className="flex w-full items-center justify-between px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+                  className="flex w-full items-center justify-between gap-2 px-2 pb-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
                 >
-                  <span>{section.label}</span>
+                  <span className="max-w-[calc(100%-20px)] leading-snug break-words">{section.label}</span>
                   <ChevronDown
                     size={16}
-                    className={`transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'
+                    className={`shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'
                       }`}
                   />
                 </button>

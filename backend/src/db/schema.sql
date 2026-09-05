@@ -47,6 +47,26 @@ CREATE TABLE IF NOT EXISTS stores (
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS department TEXT;
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS storekeeper TEXT;
 
+-- Relational store ownership. Legacy name columns remain during migration.
+CREATE TABLE IF NOT EXISTS store_user_assignments (
+  id              SERIAL PRIMARY KEY,
+  store_id        INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  assignment_role TEXT NOT NULL CHECK (assignment_role IN ('Store Head', 'Storekeeper')),
+  active          BOOLEAN NOT NULL DEFAULT TRUE,
+  effective_from  DATE NOT NULL DEFAULT CURRENT_DATE,
+  effective_to    DATE,
+  created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (store_id, user_id, assignment_role),
+  CHECK (effective_to IS NULL OR effective_to >= effective_from)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_store_head_assignment
+  ON store_user_assignments(store_id, assignment_role) WHERE active = TRUE AND assignment_role = 'Store Head';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_storekeeper_assignment
+  ON store_user_assignments(store_id, assignment_role) WHERE active = TRUE AND assignment_role = 'Storekeeper';
+CREATE INDEX IF NOT EXISTS idx_store_assignments_user ON store_user_assignments(user_id, active);
+
 -- ---------- categories (§5.3) ----------
 CREATE TABLE IF NOT EXISTS categories (
   id           SERIAL PRIMARY KEY,
@@ -366,9 +386,11 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
                       CHECK (status IN ('Registered','In Store','Assigned','In Use','Maintenance','Under Repair','Lost','Damaged','Disposed')),
   acquisition_date  DATE,
   value             NUMERIC(14,2) NOT NULL DEFAULT 0,
+  source_grn_ref    TEXT,
   created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS source_grn_ref TEXT;
 
 -- ---------- material_returns / SRN (§5.13) ----------
 CREATE TABLE IF NOT EXISTS material_returns (

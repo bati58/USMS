@@ -10,7 +10,7 @@ export default function StoreList() {
     userService.list().then(users => {
       const options = users.map(u => ({
         label: `${u.name} (${u.username})`,
-        value: u.name,
+        value: String(u.id),
         role: u.role
       }))
       setUserOptions(options)
@@ -32,7 +32,6 @@ export default function StoreList() {
         { key: 'code', header: 'Code' },
         { key: 'name', header: 'Store Name' },
         { key: 'type', header: 'Type' },
-        { key: 'department', header: 'Department' },
         { key: 'location', header: 'Location' },
         { key: 'headOfStore', header: 'Store Head' },
         { key: 'storekeeper', header: 'Storekeeper' },
@@ -54,7 +53,6 @@ export default function StoreList() {
           required: true,
           options: ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory']
         },
-        { name: 'department', label: 'Department/Org Unit', placeholder: 'e.g. Electrical Engineering' },
         { name: 'location', label: 'Physical Location', required: true },
         { name: 'contactInfo', label: 'Contact Info', placeholder: 'Phone or Email' },
         { name: 'headOfStore', label: 'Store Head', type: 'select', options: storeHeadOptions, required: true, placeholder: 'Select a store head...' },

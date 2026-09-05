@@ -148,7 +148,10 @@ export default function GrnDocuments() {
 
 // Printable GRN Document Component
 function GrnPrintView({ grn }) {
-    const itemTotal = (grn.items || []).reduce((sum, item) => sum + (Number(item.qty) * Number(item.unitPrice)), 0)
+    const itemTotal = (grn.items || []).reduce((sum, item) => {
+        const quantity = item.qtyAccepted == null ? Number(item.qty) : Number(item.qtyAccepted)
+        return sum + (quantity * Number(item.unitPrice))
+    }, 0)
 
     return (
         <div className="space-y-4">
@@ -174,6 +177,7 @@ function GrnPrintView({ grn }) {
                         <p className="font-semibold text-ink-900">{grn.supplier}</p>
                         <p className="text-ink-600">PO / Donation Ref: <span className="font-medium">{grn.poRef}</span></p>
                         <p className="text-ink-600">Supporting Doc: <span className="font-medium">{grn.docRef || 'N/A'}</span></p>
+                        {grn.receiptRef && grn.receiptRef !== grn.grnRef && <p className="text-ink-600">Temporary Receipt Ref: <span className="font-medium">{grn.receiptRef}</span></p>}
                     </div>
                 </div>
                 <div>
@@ -211,7 +215,8 @@ function GrnPrintView({ grn }) {
                     <thead className="bg-ink-50">
                         <tr>
                             <th className="border border-ink-200 px-3 py-2 text-left text-sm font-semibold text-ink-700">Item Description</th>
-                            <th className="border border-ink-200 px-3 py-2 text-center text-sm font-semibold text-ink-700 w-20">Quantity</th>
+                            <th className="border border-ink-200 px-3 py-2 text-center text-sm font-semibold text-ink-700 w-20">Accepted Qty</th>
+                            <th className="border border-ink-200 px-3 py-2 text-center text-sm font-semibold text-ink-700 w-20">Rejected Qty</th>
                             <th className="border border-ink-200 px-3 py-2 text-right text-sm font-semibold text-ink-700 w-28">Unit Price</th>
                             <th className="border border-ink-200 px-3 py-2 text-right text-sm font-semibold text-ink-700 w-32">Total</th>
                         </tr>
@@ -220,10 +225,11 @@ function GrnPrintView({ grn }) {
                         {grn.items?.map((item, idx) => (
                             <tr key={idx}>
                                 <td className="border border-ink-200 px-3 py-2 text-sm text-ink-900">{item.item}</td>
-                                <td className="border border-ink-200 px-3 py-2 text-center text-sm text-ink-900">{item.qty}</td>
+                                <td className="border border-ink-200 px-3 py-2 text-center text-sm text-ink-900">{item.qtyAccepted == null ? item.qty : item.qtyAccepted}</td>
+                                <td className="border border-ink-200 px-3 py-2 text-center text-sm text-ink-900">{item.qtyRejected == null ? 0 : item.qtyRejected}</td>
                                 <td className="border border-ink-200 px-3 py-2 text-right text-sm text-ink-900">{formatCurrency(item.unitPrice)}</td>
                                 <td className="border border-ink-200 px-3 py-2 text-right text-sm font-medium text-ink-900">
-                                    {formatCurrency(item.qty * item.unitPrice)}
+                                    {formatCurrency((item.qtyAccepted == null ? item.qty : item.qtyAccepted) * item.unitPrice)}
                                 </td>
                             </tr>
                         ))}

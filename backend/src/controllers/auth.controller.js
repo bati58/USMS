@@ -11,11 +11,24 @@ async function resolveAssignedStoreName(userName, role, db = query) {
   const client = typeof db === 'function' ? { query: db } : (db || { query });
 
   const { rows } = await client.query(
-    `SELECT s.name
+    `SELECT DISTINCT s.name
+     FROM store_user_assignments a
+     JOIN stores s ON s.id = a.store_id
+     JOIN users u ON u.id = a.user_id
+     WHERE a.active = TRUE
+       AND s.active = TRUE
+       AND u.name = $1
+       AND u.role = $2
+       AND a.assignment_role = $2
+     UNION
+     SELECT s.name
      FROM stores s
-     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
-     ORDER BY s.id`,
-    [userName]
+     WHERE s.active = TRUE AND (
+       ($2 = 'Store Head' AND s.head_of_store = $1) OR
+       ($2 = 'Storekeeper' AND s.storekeeper = $1)
+     )
+     ORDER BY name`,
+    [userName, role]
   );
 
   if (rows.length > 1) return null;
@@ -26,11 +39,46 @@ async function resolveAssignedStoreNames(userName, role, db = query) {
   if (!userName || !['Store Head', 'Storekeeper'].includes(role)) return [];
   const client = typeof db === 'function' ? { query: db } : (db || { query });
   const { rows } = await client.query(
-    `SELECT s.name
+    `SELECT DISTINCT s.name
+     FROM store_user_assignments a
+     JOIN stores s ON s.id = a.store_id
+     JOIN users u ON u.id = a.user_id
+     WHERE a.active = TRUE
+       AND s.active = TRUE
+       AND u.name = $1
+       AND u.role = $2
+       AND a.assignment_role = $2
+     UNION
+     SELECT s.name
      FROM stores s
-     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
-     ORDER BY s.id`,
-    [userName]
+     WHERE s.active = TRUE AND (
+       ($2 = 'Store Head' AND s.head_of_store = $1) OR
+       ($2 = 'Storekeeper' AND s.storekeeper = $1)
+     )
+     ORDER BY name`,
+    [userName, role]
+  );
+  return rows.map((row) => row.name).filter(Boolean);
+}
+
+async function resolveAssignedStoreNamesById(userId, role, db = query) {
+  if (!userId || !['Store Head', 'Storekeeper'].includes(role)) return [];
+  const client = typeof db === 'function' ? { query: db } : (db || { query });
+  const { rows } = await client.query(
+    `SELECT DISTINCT s.name
+     FROM store_user_assignments a
+     JOIN stores s ON s.id = a.store_id
+     WHERE a.user_id = $1 AND a.assignment_role = $2 AND a.active = TRUE AND s.active = TRUE
+     UNION
+     SELECT s.name
+     FROM stores s
+     JOIN users u ON u.name = s.head_of_store OR u.name = s.storekeeper
+     WHERE u.id = $1 AND u.role = $2 AND s.active = TRUE AND (
+       ($2 = 'Store Head' AND s.head_of_store = u.name) OR
+       ($2 = 'Storekeeper' AND s.storekeeper = u.name)
+     )
+     ORDER BY name`,
+    [userId, role]
   );
   return rows.map((row) => row.name).filter(Boolean);
 }
@@ -104,8 +152,8 @@ const login = asyncHandler(async (req, res) => {
 
   const resolvedDepartment = user.department || user.department_name || null;
   const resolvedDepartments = await resolveAssignedDepartments(user.id, query);
-  const assignedStores = await resolveAssignedStoreNames(user.name, user.role, query);
-  const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
+  const assignedStores = await resolveAssignedStoreNamesById(user.id, user.role, query);
+  const resolvedStore = assignedStores.length === 1 ? assignedStores[0] : null;
 
   const token = jwt.sign(
     {
@@ -133,8 +181,6 @@ const login = asyncHandler(async (req, res) => {
       department: resolvedDepartment,
       departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
       assignedStores,
-      assignedStores,
-      assignedStores,
       store: resolvedStore,
       active: user.active
     }
@@ -156,8 +202,8 @@ const me = asyncHandler(async (req, res) => {
 
   const resolvedDepartment = rows[0].department || rows[0].department_name || null;
   const resolvedDepartments = await resolveAssignedDepartments(rows[0].id, query);
-  const assignedStores = await resolveAssignedStoreNames(rows[0].name, rows[0].role, query);
-  const resolvedStore = await resolveAssignedStoreName(rows[0].name, rows[0].role, query);
+  const assignedStores = await resolveAssignedStoreNamesById(rows[0].id, rows[0].role, query);
+  const resolvedStore = assignedStores.length === 1 ? assignedStores[0] : null;
 
   res.json({
     ...rows[0],
@@ -234,8 +280,8 @@ const refreshToken = asyncHandler(async (req, res) => {
 
   const resolvedDepartment = user.department || user.department_name || null;
   const resolvedDepartments = await resolveAssignedDepartments(user.id, query);
-  const assignedStores = await resolveAssignedStoreNames(user.name, user.role, query);
-  const resolvedStore = await resolveAssignedStoreName(user.name, user.role, query);
+  const assignedStores = await resolveAssignedStoreNamesById(user.id, user.role, query);
+  const resolvedStore = assignedStores.length === 1 ? assignedStores[0] : null;
 
   const token = jwt.sign(
     {

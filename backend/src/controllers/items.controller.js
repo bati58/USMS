@@ -21,12 +21,32 @@ const SELECT = `
 
 async function getItemStoreScope(user) {
   if (!['Store Head', 'Storekeeper'].includes(user?.role)) return null;
+
+  if (user?.id) {
+    const { rows } = await query(
+      `SELECT DISTINCT s.id
+       FROM store_user_assignments a
+       JOIN stores s ON s.id = a.store_id
+       WHERE a.user_id = $1 AND a.assignment_role = $2 AND a.active = TRUE AND s.active = TRUE
+       UNION
+       SELECT s.id
+       FROM stores s
+       WHERE s.active = TRUE AND (
+         ($2 = 'Store Head' AND s.head_of_store = $3) OR
+         ($2 = 'Storekeeper' AND s.storekeeper = $3)
+       )
+       ORDER BY id`,
+      [user.id, user.role, user.name]
+    );
+    if (rows.length) return rows.map((row) => Number(row.id));
+  }
+
   const assignmentColumn = user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
   const { rows } = await query(
     `SELECT id FROM stores WHERE ${assignmentColumn} = $1 AND active = TRUE ORDER BY id`,
     [user.name]
   );
-  return rows.map((row) => row.id);
+  return rows.map((row) => Number(row.id));
 }
 
 async function assertItemStoreAccess(user, storeId) {

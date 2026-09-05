@@ -55,6 +55,7 @@ export default function GoodsReceiptList() {
   }, [items, stores, header.store])
   const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = canManage
+  const showPermissionState = !loading
   const canNotifyTec = isStoreHead
   const successToast = { duration: 2000 }
   const canManageRow = (row) => !isStoreHead || !userAssignedStore || assignedStoreNames.includes(row.store)
@@ -144,6 +145,8 @@ export default function GoodsReceiptList() {
       await goodsReceiptService.create({
         grnRef,
         ...header,
+        materialType: header.type,
+        type: undefined,
         receivedBy: user?.name || 'Storekeeper',
         status: GRN_STATUS.SUBMITTED,
         items: lines.filter((l) => l.item && l.qty),
@@ -285,7 +288,7 @@ export default function GoodsReceiptList() {
         title="Goods Receipt"
         subtitle="Record incoming materials, verify against the purchase or donation, and hand off to technical evaluation."
         actions={
-          canManage ? (
+          showPermissionState && canManage ? (
             <Button icon={Plus} onClick={openCreate}>
               Record Goods Receipt
             </Button>
@@ -293,7 +296,7 @@ export default function GoodsReceiptList() {
         }
       />
 
-      {!canManage && (
+      {showPermissionState && !canManage && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
           <p className="text-sm text-amber-800">
             <span className="font-semibold">Read-only access:</span> this role can view goods receipts but cannot record, process, or delete them.

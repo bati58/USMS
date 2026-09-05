@@ -26,6 +26,9 @@ function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-va
   } else if (err?.code === '22001') {
     statusCode = 400;
     message = 'One of the provided fields contains text that is too long.';
+  } else if (err?.code === '53300') {
+    statusCode = 503;
+    message = 'The database is temporarily unavailable because its connection limit has been reached. Please close idle database tools and try again.';
   }
 
   if (!err || (!err.isAppError && !err.code)) {

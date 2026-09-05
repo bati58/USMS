@@ -65,6 +65,7 @@ router.post('/gate-pass/:resource/:id/verify', requireRole('gate-pass', 'action'
 // ---------------------------------------------------------------------------
 router.get('/users', requireRole('users'), usersController.list);
 router.get('/users/stock-clerks', requireRole('stock-clerks'), usersController.listStockClerks);
+router.get('/users/fixed-asset-custodians', requireRole('fixed-asset-custodians'), usersController.listAssetCustodians);
 router.get('/users/:id', requireRole('users'), usersController.getOne);
 router.post('/users', requireRole('users'), usersController.create);
 router.put('/users/:id', requireRole('users'), usersController.update);

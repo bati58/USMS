@@ -11,25 +11,32 @@ const { canAct } = require('../utils/permissions');
 
 async function assertMainStoreOperator(user, dbClient) {
   const { rows } = await dbClient.query(
-    `SELECT s.id FROM stores s
-     WHERE s.active = TRUE AND s.type = 'Main Store' AND s.storekeeper = $1
+    `SELECT s.id
+     FROM store_user_assignments a
+     JOIN stores s ON s.id = a.store_id
+     WHERE s.active = TRUE AND s.type = 'Main Store' AND a.user_id = $1 AND a.assignment_role = 'Storekeeper' AND a.active = TRUE
      LIMIT 1`,
-    [user.name]
+    [user.id]
   );
-  if (!rows[0]) throw new AppError('External goods receipts can only be processed by the Main Store Storekeeper.', 403);
+  if (!rows[0]) throw new AppError('External goods receipts can only be processed by the Main Store Storekeeper assigned to that store.', 403);
 }
 
 const SELECT = `
-  SELECT g.*, s.name AS store_name
+  SELECT g.*, g.received_date::text AS received_date, s.name AS store_name, grn.grn_number AS official_grn_ref
   FROM goods_receipts g
   LEFT JOIN stores s ON s.id = g.store_id
+  LEFT JOIN grns grn ON grn.goods_receipt_id = g.id
 `;
 
 async function fetchWithLines(id, dbClient = { query }, extraWhere = '', extraParams = []) {
   const { rows } = await dbClient.query(`${SELECT} WHERE g.id = $1${extraWhere}`, [id, ...extraParams]);
   if (!rows[0]) return null;
   const { rows: lines } = await dbClient.query(
-    `SELECT gi.*, i.name AS item_name FROM goods_receipt_items gi JOIN items i ON i.id = gi.item_id WHERE gi.goods_receipt_id = $1`,
+    `SELECT gi.*, i.name AS item_name, COALESCE(c.name, 'Uncategorized') AS category_name
+     FROM goods_receipt_items gi
+     JOIN items i ON i.id = gi.item_id
+     LEFT JOIN categories c ON c.id = i.category_id
+     WHERE gi.goods_receipt_id = $1`,
     [id]
   );
   return mapGoodsReceipt(rows[0], lines);
@@ -103,12 +110,13 @@ const create = asyncHandler(async (req, res) => {
     throw new AppError('Only the Storekeeper can create or edit a goods receipt draft.', 403);
   }
 
-  const { supplier, poRef, materialType, supportingDocumentRef, conditionOnArrival, receivedDate, store, items } = req.body;
+  const { supplier, poRef, materialType, type, supportingDocumentRef, conditionOnArrival, receivedDate, store, items } = req.body;
+  const receivedMaterialType = materialType || type;
   if (!supplier?.trim()) throw new AppError('Supplier is required.', 400);
   if (!poRef?.trim()) throw new AppError('PO or donation reference is required.', 400);
   if (!receivedDate || Number.isNaN(Date.parse(receivedDate))) throw new AppError('A valid received date is required.', 400);
   if (!store?.trim()) throw new AppError('Receiving store is required.', 400);
-  if (!['Consumable', 'Fixed Asset'].includes(materialType || 'Consumable')) throw new AppError('Material type must be Consumable or Fixed Asset.', 400);
+  if (!['Consumable', 'Fixed Asset'].includes(receivedMaterialType)) throw new AppError('Material type must be Consumable or Fixed Asset.', 400);
   if (!['New', 'Good', 'Damaged'].includes(conditionOnArrival || 'New')) throw new AppError('Arrival condition must be New, Good, or Damaged.', 400);
   if (!Array.isArray(items) || items.length === 0) {
     throw new AppError('At least one received item is required.', 400);
@@ -139,7 +147,7 @@ const create = asyncHandler(async (req, res) => {
     const { rows } = await client.query(
       `INSERT INTO goods_receipts (grn_ref, supplier, supplier_id, po_ref, material_type, supporting_document_ref, condition_on_arrival, received_date, received_by, store_id, status)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Draft') RETURNING id`,
-      [grnRef, supplier.trim(), supplierId, poRef.trim(), materialType || 'Consumable', supportingDocumentRef?.trim() || null, conditionOnArrival || 'New', receivedDate, req.user.name, storeId]
+      [grnRef, supplier.trim(), supplierId, poRef.trim(), receivedMaterialType, supportingDocumentRef?.trim() || null, conditionOnArrival || 'New', receivedDate, req.user.name, storeId]
     );
     const grnId = rows[0].id;
 

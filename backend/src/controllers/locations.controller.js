@@ -16,6 +16,26 @@ const PARENT_TYPES = { RACK: 'SECTION', SHELF: 'RACK', BIN: 'SHELF' };
 
 async function assertLocationStoreAccess(user, storeId) {
     if (!['Store Head', 'Storekeeper'].includes(user?.role)) return;
+
+    if (user?.id) {
+        const { rows } = await query(
+            `SELECT 1
+             FROM store_user_assignments a
+             JOIN stores s ON s.id = a.store_id
+             WHERE a.user_id = $1 AND a.assignment_role = $2 AND a.active = TRUE AND s.active = TRUE AND a.store_id = $3
+             UNION
+             SELECT 1
+             FROM stores s
+             WHERE s.active = TRUE AND s.id = $3 AND (
+               ($2 = 'Store Head' AND s.head_of_store = $4) OR
+               ($2 = 'Storekeeper' AND s.storekeeper = $4)
+             )
+             LIMIT 1`,
+            [user.id, user.role, storeId, user.name]
+        );
+        if (rows[0]) return;
+    }
+
     const assignmentColumn = user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
     const { rows } = await query(
         `SELECT 1 FROM stores WHERE id = $1 AND ${assignmentColumn} = $2 AND active = TRUE LIMIT 1`,
@@ -26,12 +46,32 @@ async function assertLocationStoreAccess(user, storeId) {
 
 async function getLocationStoreScope(user) {
     if (!['Store Head', 'Storekeeper'].includes(user?.role)) return null;
+
+    if (user?.id) {
+        const { rows } = await query(
+            `SELECT DISTINCT s.id
+             FROM store_user_assignments a
+             JOIN stores s ON s.id = a.store_id
+             WHERE a.user_id = $1 AND a.assignment_role = $2 AND a.active = TRUE AND s.active = TRUE
+             UNION
+             SELECT s.id
+             FROM stores s
+             WHERE s.active = TRUE AND (
+               ($2 = 'Store Head' AND s.head_of_store = $3) OR
+               ($2 = 'Storekeeper' AND s.storekeeper = $3)
+             )
+             ORDER BY id`,
+            [user.id, user.role, user.name]
+        );
+        if (rows.length) return rows.map((row) => Number(row.id));
+    }
+
     const assignmentColumn = user.role === 'Store Head' ? 'head_of_store' : 'storekeeper';
     const { rows } = await query(
         `SELECT id FROM stores WHERE ${assignmentColumn} = $1 AND active = TRUE ORDER BY id`,
         [user.name]
     );
-    return rows.map((row) => row.id);
+    return rows.map((row) => Number(row.id));
 }
 
 async function validateLocationHierarchy({ storeId, parentId, type, locationId = null }) {

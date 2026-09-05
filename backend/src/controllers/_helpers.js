@@ -20,13 +20,24 @@ async function resolveStoreHeadForStore(storeId, client = { query }) {
   if (!storeId) return null;
   const { rows } = await client.query(
     `SELECT u.id
+     FROM store_user_assignments a
+     JOIN users u ON u.id = a.user_id AND u.role = 'Store Head' AND u.active = TRUE
+     JOIN stores s ON s.id = a.store_id AND s.active = TRUE
+     WHERE a.store_id = $1 AND a.assignment_role = 'Store Head' AND a.active = TRUE
+     LIMIT 1`,
+    [storeId]
+  );
+  if (rows[0]?.id) return rows[0].id;
+
+  const legacyRows = await client.query(
+    `SELECT u.id
      FROM stores s
      LEFT JOIN users u ON u.name = s.head_of_store AND u.role = 'Store Head' AND u.active = TRUE
      WHERE s.id = $1 AND s.active = TRUE
      LIMIT 1`,
     [storeId]
   );
-  return rows[0]?.id || null;
+  return legacyRows.rows[0]?.id || null;
 }
 
 async function resolveSupplierId(supplierName, client = { query }) {
@@ -153,7 +164,8 @@ function mapLocation(row) {
 function mapGoodsReceipt(row, items = []) {
   return {
     id: row.id,
-    grnRef: row.grn_ref,
+    grnRef: row.official_grn_ref || row.grn_ref,
+    receiptRef: row.grn_ref,
     supplier: row.supplier,
     poRef: row.po_ref,
     type: row.material_type,
@@ -174,6 +186,7 @@ function mapGoodsReceipt(row, items = []) {
     gateVerifiedAt: row.gate_verified_at,
     items: items.map((i) => ({
       item: i.item_name,
+      category: i.category_name || 'Uncategorized',
       qty: Number(i.qty),
       qtyAccepted: i.qty_accepted == null ? null : Number(i.qty_accepted),
       qtyRejected: i.qty_rejected == null ? null : Number(i.qty_rejected),
@@ -274,8 +287,9 @@ function mapFixedAsset(row) {
     store: row.store_name || null,
     assignedTo: row.assigned_to,
     status: row.status,
-    acquisitionDate: row.acquisition_date,
-    value: Number(row.value)
+    acquisitionDate: row.acquisition_date ? String(row.acquisition_date).slice(0, 10) : null,
+    value: Number(row.value),
+    sourceGrnRef: row.source_grn_ref || null
   };
 }
 
@@ -398,14 +412,17 @@ async function getUserStoreVisibility(user, db = { query }) {
     };
   }
 
-  const name = user?.name || '';
-  const { rows } = await db.query(
-    `SELECT s.id, s.name, s.type, s.code
-     FROM stores s
-     WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
-     ORDER BY s.id`,
-    [name]
-  );
+  const assignmentQuery = user?.id
+    ? `SELECT s.id, s.name, s.type, s.code
+       FROM store_user_assignments a
+       JOIN stores s ON s.id = a.store_id
+       WHERE a.user_id = $1 AND a.assignment_role = $2 AND a.active = TRUE AND s.active = TRUE
+       ORDER BY s.id`
+    : `SELECT s.id, s.name, s.type, s.code
+       FROM stores s
+       WHERE s.active = TRUE AND (s.head_of_store = $1 OR s.storekeeper = $1)
+       ORDER BY s.id`;
+  const { rows } = await db.query(assignmentQuery, user?.id ? [user.id, user.role] : [user?.name || '']);
 
   const stores = rows || [];
   const hasMultipleStores = stores.length > 1;
@@ -417,8 +434,8 @@ async function getUserStoreVisibility(user, db = { query }) {
     assignedStoreId: assignedStore?.id || null,
     assignedStoreName: assignedStore?.name || null,
     assignedStoreType: assignedStore?.type || null,
-    scope: hasMultipleStores || isMainStoreUser ? 'ALL_STORES' : 'ASSIGNED_STORE_ONLY',
-    canViewAllStores: hasMultipleStores || isMainStoreUser,
+    scope: hasMultipleStores ? 'ALL_STORES' : 'ASSIGNED_STORE_ONLY',
+    canViewAllStores: hasMultipleStores,
     storeFilter: assignedStore ? { id: assignedStore.id, name: assignedStore.name } : null
   };
 }

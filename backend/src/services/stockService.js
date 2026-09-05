@@ -543,7 +543,7 @@ async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty,
       storeId: item.store_id,
       bin: item.bin,
       sourceType: 'Material Return',
-      sourceId: String(ret.id)
+      sourceId: ret.srn_ref
     });
     await upsertBinCard(client, {
       bin: item.bin,
@@ -757,26 +757,53 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
 
 async function createBinTransfer(client, { itemId, fromBin, toBin, qty, transferredBy, actorName }) {
   const item = await getItemForUpdate(client, itemId);
-  if (fromBin === toBin) throw new AppError('Source and destination bins must be different.', 400);
+  const sourceBinCode = String(fromBin || '').trim();
+  const destinationBinCode = String(toBin || '').trim();
+  if (sourceBinCode.toLowerCase() === destinationBinCode.toLowerCase()) throw new AppError('Source and destination bins must be different.', 400);
   if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) throw new AppError('Bin transfer quantity must be positive.', 400);
+  if (!item.bin || sourceBinCode.toLowerCase() !== String(item.bin).trim().toLowerCase()) {
+    throw new AppError(`The source bin must match the item's current bin (${item.bin || 'not assigned'}).`, 400);
+  }
 
-  const { rows: sourceBin } = await client.query('SELECT balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE', [fromBin, item.store_id, item.id]);
-  if (!sourceBin[0] || Number(sourceBin[0].balance) < Number(qty)) throw new AppError('Source bin does not have enough stock for this transfer.', 400);
+  const { rows: sourceBin } = await client.query('SELECT id, balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE', [item.bin, item.store_id, item.id]);
+  if (!sourceBin[0]) {
+    await client.query(
+      `INSERT INTO bin_cards (bin, store_id, item_id, last_movement, balance)
+       VALUES ($1, $2, $3, CURRENT_DATE, $4)`,
+      [item.bin, item.store_id, item.id, item.qty_on_hand]
+    );
+  } else if (Number(sourceBin[0].balance) < Number(qty)) {
+    throw new AppError(`Source bin has only ${sourceBin[0].balance} ${item.unit}(s) available.`, 400);
+  }
   const transferDate = new Date();
   const { nextRef } = require('../utils/refGenerator');
   const transferRef = await nextRef(client, 'BTR');
-  await upsertBinCard(client, { bin: fromBin, storeId: item.store_id, itemId: item.id, delta: -Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-Out', actorName });
-  await upsertBinCard(client, { bin: toBin, storeId: item.store_id, itemId: item.id, delta: Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-In', actorName });
+  await upsertBinCard(client, { bin: item.bin, storeId: item.store_id, itemId: item.id, delta: -Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-Out', actorName });
+  await upsertBinCard(client, { bin: destinationBinCode, storeId: item.store_id, itemId: item.id, delta: Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-In', actorName });
+
+  const { rows: destinationLocations } = await client.query(
+    `SELECT id, code
+     FROM locations
+     WHERE store_id = $1 AND type = 'BIN' AND active = TRUE
+       AND (LOWER(code) = LOWER($2) OR LOWER(name) = LOWER($2))
+     ORDER BY CASE WHEN LOWER(code) = LOWER($2) THEN 0 ELSE 1 END, id
+     LIMIT 1`,
+    [item.store_id, destinationBinCode]
+  );
+  await client.query(
+    'UPDATE items SET bin = $1, location_id = COALESCE($2, location_id), updated_at = NOW() WHERE id = $3',
+    [destinationLocations[0]?.code || destinationBinCode, destinationLocations[0]?.id || null, item.id]
+  );
 
   const { rows } = await client.query(
     `INSERT INTO bin_transfers (item_id, from_bin, to_bin, qty, date, transferred_by)
      VALUES ($1, $2, $3, $4, CURRENT_DATE, $5) RETURNING *`,
-    [itemId, fromBin, toBin, qty, transferredBy]
+    [itemId, item.bin, destinationBinCode, qty, transferredBy]
   );
 
   await logAudit(client, {
     userName: actorName,
-    action: `Transferred ${qty} unit(s) of item ${item.code} from ${fromBin} to ${toBin}`,
+    action: `Transferred ${qty} unit(s) of item ${item.code} from ${item.bin} to ${destinationBinCode}`,
     module: 'Stock Transfer'
   });
 

@@ -14,19 +14,16 @@ async function resolveNotificationRecipients({ db = query, userId, role, storeId
   };
 
   if (['Store Head', 'Storekeeper'].includes(role) && storeId) {
-    const actorColumn = role === 'Store Head' ? 'head_of_store' : 'storekeeper';
     const { rows: storeRows } = await db.query(
-      `SELECT ${actorColumn} AS actor_name FROM stores WHERE id = $1 AND active = TRUE LIMIT 1`,
-      [storeId]
+      `SELECT u.id
+       FROM store_user_assignments a
+       JOIN users u ON u.id = a.user_id
+       WHERE a.store_id = $1 AND a.assignment_role = $2 AND a.active = TRUE
+         AND u.role = $2 AND u.active = TRUE
+       LIMIT 1`,
+      [storeId, role]
     );
-    const actorName = storeRows[0]?.actor_name;
-    if (actorName) {
-      const { rows: userRows } = await db.query(
-        'SELECT id FROM users WHERE name = $1 AND role = $2 AND active = TRUE LIMIT 1',
-        [actorName, role]
-      );
-      if (userRows[0]) addRecipient(userRows[0].id);
-    }
+    if (storeRows[0]) addRecipient(storeRows[0].id);
   }
 
   if (role === 'Department Head' && department) {
@@ -41,7 +38,7 @@ async function resolveNotificationRecipients({ db = query, userId, role, storeId
     if (deptRows[0]) addRecipient(deptRows[0].id);
   }
 
-  if (seen.size === 0 && role) {
+  if (seen.size === 0 && role && !storeId && !department) {
     const { rows } = await db.query(
       'SELECT id FROM users WHERE role = $1 AND active = TRUE ORDER BY id ASC',
       [role]

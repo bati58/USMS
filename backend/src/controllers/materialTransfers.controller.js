@@ -153,8 +153,18 @@ const create = asyncHandler(async (req, res) => {
         entityReference: transferRef,
         afterData: { status: 'Pending Approval' }
       });
+      const { rows: sourceHeadRows } = await client.query(
+        `SELECT u.id
+         FROM store_user_assignments a
+         JOIN users u ON u.id = a.user_id
+         WHERE a.store_id = $1 AND a.assignment_role = 'Store Head' AND a.active = TRUE AND u.role = 'Store Head' AND u.active = TRUE
+         LIMIT 1`,
+        [fromStoreId]
+      );
       await notify(client, {
-        userId: (await client.query('SELECT id FROM users WHERE name = (SELECT head_of_store FROM stores WHERE id = $1) AND active = TRUE LIMIT 1', [fromStoreId])).rows[0]?.id,
+        userId: sourceHeadRows[0]?.id || undefined,
+        role: sourceHeadRows[0]?.id ? undefined : 'Store Head',
+        storeId: fromStoreId,
         title: 'Store transfer awaiting source approval',
         message: `Transfer ${transferRef} for requisition ${request.sr_ref} is awaiting approval from the source Store Head.`,
         type: 'info',

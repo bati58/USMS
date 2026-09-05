@@ -9,7 +9,8 @@
     "test": "node --test test/workflow.test.js",
     "db:schema": "node src/db/runSql.js src/db/schema.sql",
     "db:seed": "node src/db/runSql.js src/db/seed.sql",
-    "db:reset": "npm run db:schema && npm run db:seed"
+    "db:reset": "npm run db:schema && npm run db:seed",
+    "db:fresh-seed": "node src/db/freshSeed.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
