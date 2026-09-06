@@ -141,6 +141,7 @@ function mapItem(row) {
     reorderLevel: Number(row.reorder_level),
     qtyOnHand: Number(row.qty_on_hand),
     unitPrice: Number(row.unit_price),
+    expiryTracked: Boolean(row.expiry_tracked),
     expiryDate: row.expiry_date ? row.expiry_date.toISOString().split('T')[0] : null,
     batchNo: row.batch_no || null,
     condition: row.item_condition || null
