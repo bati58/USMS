@@ -72,8 +72,9 @@ export function NotificationProvider({ children }) {
       ])
 
       const built = buildNotifications(user, { items, grns, reqs, returns, transfers, disposals, vouchers, stockTaking })
-      const dismissed = loadIds(dismissedKey(user.id))
-      const read = loadIds(readKey(user.id))
+      const dismissed = loadIds(dismissedKey(user.id)).map(String)
+      const read = loadIds(readKey(user.id)).map(String)
+      const persistedReadIds = persisted.filter((notification) => notification.read).map((notification) => String(notification.id))
 
       setDismissedIds(dismissed)
       setReadIds(read)
@@ -112,8 +113,11 @@ export function NotificationProvider({ children }) {
       )
       setNotifications(
         combined
-          .filter((n) => !dismissed.includes(n.id))
-          .map((n) => ({ ...n, read: read.includes(n.id) }))
+          .filter((n) => n.conditionAlert || !dismissed.includes(String(n.id)))
+          .map((n) => ({
+            ...n,
+            read: Boolean(n.read) || read.includes(String(n.id)) || persistedReadIds.includes(String(n.id))
+          }))
       )
     } finally {
       setLoading(false)

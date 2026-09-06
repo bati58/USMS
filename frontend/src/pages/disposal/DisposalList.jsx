@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Eye, CheckCircle2, XCircle, Trash2, Play, RotateCcw } from 'lucide-react'
+import { Plus, Eye, Trash2, Play } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -55,7 +55,7 @@ export default function DisposalList() {
       const belongsToSelectedStore = (selectedStore?.id && Number(item.storeId) === Number(selectedStore.id)) ||
         String(item.store || '').trim().toLowerCase() === selectedStoreName
       const condition = String(item.condition || '').trim().toLowerCase()
-      const expired = item.expiryDate && item.expiryDate < new Date().toISOString().slice(0, 10)
+      const expired = item.expiryTracked && item.expiryDate && item.expiryDate < new Date().toISOString().slice(0, 10)
       const eligible = ['damaged', 'unusable', 'obsolete', 'expired', 'scrap', 'condemned'].includes(condition) || expired
       return belongsToSelectedStore && Number(item.qtyOnHand) > 0 && eligible
     }))
@@ -147,21 +147,6 @@ export default function DisposalList() {
       push(err.message, 'error')
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function decide(decision) {
-    if (!canApprove) {
-      push('You do not have permission to approve/reject disposal requests.', 'error')
-      return
-    }
-    try {
-      await api.action('disposals', viewing.id, 'approve', { decision })
-      push(`Disposal request ${viewing.disposalRef} ${decision.toLowerCase()}.`, decision === 'Returned for Correction' ? 'info' : 'success')
-      setViewing(null)
-      await load()
-    } catch (err) {
-      push(err.message, 'error')
     }
   }
 
@@ -278,7 +263,7 @@ export default function DisposalList() {
               <option value="">{!formData.store ? 'Select a store first' : disposalOptions.length ? '-- Select Item --' : 'No eligible stock in this store'}</option>
               {disposalOptions.map(i => {
                 const condition = String(i.condition || '').trim().toLowerCase()
-                const reason = i.expiryDate && i.expiryDate < new Date().toISOString().slice(0, 10)
+                const reason = i.expiryTracked && i.expiryDate && i.expiryDate < new Date().toISOString().slice(0, 10)
                   ? 'Expired'
                   : i.condition || 'Review required'
                 return <option key={i.id} value={i.id}>{i.name} ({i.code}) - {reason} - available: {i.qtyOnHand}</option>
@@ -362,20 +347,6 @@ export default function DisposalList() {
             <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
               <Button variant="secondary" onClick={() => setViewing(null)}>Close</Button>
 
-              {canApprove && (['Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction'].includes(viewing.status)) && (
-                <>
-                  <Button variant="danger" onClick={() => decide('Rejected')} className="gap-2">
-                    <XCircle size={18} /> Reject
-                  </Button>
-                  <Button variant="secondary" onClick={() => decide('Returned for Correction')} className="gap-2">
-                    <RotateCcw size={18} /> Return for Correction
-                  </Button>
-                  <Button variant="primary" onClick={() => decide('Approved')} className="gap-2 bg-emerald-600 hover:bg-emerald-700 border-transparent text-white">
-                    <CheckCircle2 size={18} /> Approve
-                  </Button>
-                </>
-              )}
-
               {canExecute && ['Approved', 'Ready for Disposal', 'Executed'].includes(viewing.status) && (
                 <Button variant="primary" onClick={executeDisposal} className="gap-2 bg-blue-600 hover:bg-blue-700 border-transparent text-white">
                   <Play size={18} /> Execute Disposal (Remove Stock)
@@ -393,9 +364,9 @@ export default function DisposalList() {
               {viewing.status === 'Recommended for Disposal' && isStoreHead && <Button onClick={() => runDisposalAction('submit-authorization')}>Submit Authorization</Button>}
               {['Pending Authorization', 'Pending Review', 'Requested'].includes(viewing.status) && (canApprove || canCommittee) && (
                 <>
-                  <Button variant="danger" onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Rejected' }, 'Disposal rejected.')}>Reject</Button>
-                  <Button variant="secondary" onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Returned for Correction' }, 'Disposal returned for correction.')}>Return</Button>
-                  <Button onClick={() => runDisposalAction(canCommittee ? 'authorize' : 'approve', { decision: 'Approved' }, 'Disposal authorized.')}>Authorize</Button>
+                  <Button variant="danger" onClick={() => runDisposalAction(viewing.status === 'Pending Authorization' || canCommittee ? 'authorize' : 'approve', { decision: 'Rejected' }, 'Disposal rejected.')}>Reject</Button>
+                  <Button variant="secondary" onClick={() => runDisposalAction(viewing.status === 'Pending Authorization' || canCommittee ? 'authorize' : 'approve', { decision: 'Returned for Correction' }, 'Disposal returned for correction.')}>Return</Button>
+                  <Button onClick={() => runDisposalAction(viewing.status === 'Pending Authorization' || canCommittee ? 'authorize' : 'approve', { decision: 'Approved' }, 'Disposal authorized.')}>Authorize</Button>
                 </>
               )}
               {viewing.status === 'Disposed' && canExecute && <Button onClick={() => runDisposalAction('submit-confirmation')}>Submit Confirmation</Button>}

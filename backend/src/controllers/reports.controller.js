@@ -217,8 +217,8 @@ const dashboardSummary = asyncHandler(async (req, res) => {
         (SELECT COUNT(*) FROM stock_taking_items sti JOIN stock_taking_sessions st ON st.id = sti.session_id WHERE sti.variance <> 0 AND st.status IN ('Submitted', 'Pending Approval', 'Approved')) AS pending_reconciliation,
         (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction')) AS pending_disposal_requests,
         (SELECT COUNT(*) FROM goods_receipts WHERE gate_verified = FALSE AND status IN ('GRN Generated', 'Posted')) AS pending_gate_verification,
-        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE) AS expiring_items,
-        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE) AS expired_items,
+        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE) AS expiring_items,
+        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE) AS expired_items,
         (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%damaged%') AS damaged_items,
         (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%quarantine%') AS quarantine_items,
         (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction', 'Approved', 'Executed', 'Completed', 'Closed')) AS disposal_flags,
@@ -275,7 +275,7 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     SELECT COUNT(*) AS count
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE ${itemStoreCondition} AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE
+    WHERE ${itemStoreCondition} AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE
   `, itemStoreParams);
   summary.expiringItems = Number(expiringItemsQ.rows[0].count);
 
@@ -283,7 +283,7 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     SELECT COUNT(*) AS count
     FROM items i
     JOIN stores s ON s.id = i.store_id
-    WHERE ${itemStoreCondition} AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE
+    WHERE ${itemStoreCondition} AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE
   `, itemStoreParams);
   summary.expiredItems = Number(expiredItemsQ.rows[0].count);
 

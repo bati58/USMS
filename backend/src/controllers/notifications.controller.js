@@ -8,7 +8,18 @@ const list = asyncHandler(async (req, res) => {
      FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
         [req.user.id]
     );
-    res.json(rows.map((row) => ({ ...row, read: Boolean(row.read_at), timestamp: row.created_at })));
+    res.json(rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        message: row.message,
+        type: row.type,
+        route: row.route,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        readAt: row.read_at,
+        read: Boolean(row.read_at),
+        timestamp: row.created_at
+    })));
 });
 
 const markRead = asyncHandler(async (req, res) => {

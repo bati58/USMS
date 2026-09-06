@@ -66,7 +66,7 @@ const TRANSITIONS = {
         'Send for Repair': ['Under Technical Assessment', 'Returned to Stock'],
         'Returned to Stock': [],
         Unusable: ['Disposal Requested', 'Requested'],
-        'Disposal Requested': ['Pending Store Head Review'],
+        'Disposal Requested': ['Pending Store Head Review', 'Store Head Review'],
         'Pending Store Head Review': ['Store Head Review'],
         'Store Head Review': ['Recommended for Disposal', 'Returned for Correction'],
         'Recommended for Disposal': ['Pending Authorization'],

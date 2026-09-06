@@ -588,7 +588,7 @@ export default function Reports() {
     ]
     rows = filtered
   } else if (reportType === 'expiring-items') {
-    const filtered = items.filter((i) => i.expiryDate && matchesFilter(i, null, 'store'))
+    const filtered = items.filter((i) => i.expiryTracked && i.expiryDate && matchesFilter(i, null, 'store'))
     summaryCards = [
       { title: 'Expiring Items', value: filtered.length, format: 'number' },
       { title: 'Already Expired', value: filtered.filter((i) => new Date(i.expiryDate) < new Date()).length, format: 'number' }

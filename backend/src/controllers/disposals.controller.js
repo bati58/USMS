@@ -133,7 +133,7 @@ const eligibleItems = asyncHandler(async (req, res) => {
        AND i.qty_on_hand > 0
        AND (
          LOWER(COALESCE(i.item_condition, '')) IN ('damaged', 'unusable', 'obsolete', 'scrap', 'condemned')
-         OR (i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE)
+         OR (i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE)
        )
      ORDER BY i.name, i.id`,
     [storeId]
@@ -173,7 +173,7 @@ const create = asyncHandler(async (req, res) => {
       : await resolveItemId(item, client, storeId);
     if (!resolvedItemId) throw new AppError(`Unknown item: "${item || itemId}" in the selected store.`, 400);
     const { rows: stockRows } = await client.query(
-      `SELECT qty_on_hand, item_condition, expiry_date
+      `SELECT qty_on_hand, item_condition, expiry_tracked, expiry_date
        FROM items WHERE id = $1 FOR UPDATE`,
       [resolvedItemId]
     );
@@ -181,7 +181,7 @@ const create = asyncHandler(async (req, res) => {
       throw new AppError('The requested disposal quantity exceeds the current stock on hand.', 400);
     }
     const condition = String(stockRows[0].item_condition || '').trim().toLowerCase();
-    const expired = stockRows[0].expiry_date && new Date(stockRows[0].expiry_date) < new Date(new Date().toISOString().slice(0, 10));
+    const expired = stockRows[0].expiry_tracked && stockRows[0].expiry_date && new Date(stockRows[0].expiry_date) < new Date(new Date().toISOString().slice(0, 10));
     const eligibleCondition = ['damaged', 'unusable', 'obsolete', 'expired', 'scrap', 'condemned'].includes(condition);
     if (!eligibleCondition && !expired) {
       throw new AppError('Only expired, damaged, unusable, obsolete, scrap, or condemned stock can be flagged for disposal.', 400);

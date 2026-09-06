@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS items (
   reorder_level  NUMERIC(14,2) NOT NULL DEFAULT 0,
   qty_on_hand    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (qty_on_hand >= 0),
   unit_price     NUMERIC(14,2) NOT NULL DEFAULT 0,
+  expiry_tracked BOOLEAN NOT NULL DEFAULT FALSE,
   expiry_date    DATE,
   batch_no       TEXT,
   item_condition TEXT,
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS items (
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE (code, store_id)
 );
+ALTER TABLE items ADD COLUMN IF NOT EXISTS expiry_tracked BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_items_store ON items(store_id);
 CREATE INDEX IF NOT EXISTS idx_items_code ON items(code);
 CREATE INDEX IF NOT EXISTS idx_items_location ON items(location_id);

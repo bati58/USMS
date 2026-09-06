@@ -694,7 +694,7 @@ export default function Dashboard() {
   // ---- PAO Comprehensive KPI Calculations (Exceptions) ----
   const expiringItems = useMemo(
     () => items.filter((item) => {
-      if (!item.expiryDate) return false
+      if (!item.expiryTracked || !item.expiryDate) return false
       const expiry = new Date(item.expiryDate)
       const today = new Date()
       const daysUntilExpiry = (expiry - today) / (1000 * 60 * 60 * 24)
@@ -704,7 +704,7 @@ export default function Dashboard() {
   )
   const expiredItems = useMemo(
     () => items.filter((item) => {
-      if (!item.expiryDate) return false
+      if (!item.expiryTracked || !item.expiryDate) return false
       const expiry = new Date(item.expiryDate)
       return expiry < new Date()
     }),

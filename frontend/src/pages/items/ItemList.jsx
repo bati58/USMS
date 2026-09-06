@@ -104,6 +104,7 @@ const EMPTY_FORM = {
   reorderLevel: '',
   qtyOnHand: '',
   unitPrice: '',
+  expiryTracked: false,
   expiryDate: '',
   batchNo: '',
   condition: ''
@@ -251,7 +252,7 @@ export default function ItemList() {
               <AlertTriangle size={14} className="text-warning-500" />
             </span>
           )}
-          {r.expiryDate && new Date(r.expiryDate) < new Date(Date.now() + shelfLifeWarningDays * 24 * 60 * 60 * 1000) && (
+          {r.expiryTracked && r.expiryDate && new Date(r.expiryDate) < new Date(Date.now() + shelfLifeWarningDays * 24 * 60 * 60 * 1000) && (
             <span title={`Expiring on ${r.expiryDate}`}>
               <AlertTriangle size={14} className="text-danger-500" />
             </span>
@@ -377,7 +378,11 @@ export default function ItemList() {
           <Input label="Reorder Level" type="number" value={form.reorderLevel} onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))} />
           <Input label="Maximum Level" type="number" value={form.maxLevel} onChange={(e) => setForm((f) => ({ ...f, maxLevel: e.target.value }))} />
           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-ink-100 pt-4 mt-2">
-            <Input label="Expiry Date" type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />
+            <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
+              <input type="checkbox" checked={Boolean(form.expiryTracked)} onChange={(e) => setForm((f) => ({ ...f, expiryTracked: e.target.checked, expiryDate: e.target.checked ? f.expiryDate : '' }))} />
+              Track expiry for this item
+            </label>
+            {form.expiryTracked && <Input label="Expiry Date" type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />}
             <Input label="Batch Number" value={form.batchNo} onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))} />
             <Select
               label="Condition"

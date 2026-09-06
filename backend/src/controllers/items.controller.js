@@ -76,7 +76,7 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryDate, batchNo, condition } = req.body;
+  const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked = false, expiryDate, batchNo, condition } = req.body;
   if (!code || !name || !store || !unit || !locationId) {
     throw new AppError('code, name, store, unit, and a BIN location are required.', 400);
   }
@@ -94,9 +94,9 @@ const create = asyncHandler(async (req, res) => {
   const { rows: locationRows } = await query('SELECT code FROM locations WHERE id = $1', [resolvedLocationId]);
 
   const { rows } = await query(
-    `INSERT INTO items (code, name, category_id, store_id, bin, location_id, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price, expiry_date, batch_no, item_condition)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
-    [code, name, categoryId, storeId, locationRows[0].code, resolvedLocationId, unit, minLevel || 0, maxLevel || 0, reorderLevel || 0, qtyOnHand || 0, unitPrice || 0, expiryDate || null, batchNo || null, condition || null]
+    `INSERT INTO items (code, name, category_id, store_id, bin, location_id, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price, expiry_tracked, expiry_date, batch_no, item_condition)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
+    [code, name, categoryId, storeId, locationRows[0].code, resolvedLocationId, unit, minLevel || 0, maxLevel || 0, reorderLevel || 0, qtyOnHand || 0, unitPrice || 0, Boolean(expiryTracked), expiryTracked ? expiryDate || null : null, batchNo || null, condition || null]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created item ${name} (${code})`, module: 'Items & Locations' });
@@ -106,7 +106,7 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryDate, batchNo, condition } = req.body;
+  const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked, expiryDate, batchNo, condition } = req.body;
   const categoryId = category !== undefined ? await resolveCategoryId(category) : undefined;
   const storeId = store !== undefined ? await resolveStoreId(store) : undefined;
   const { rows: currentRows } = await query('SELECT store_id, location_id FROM items WHERE id = $1', [req.params.id]);
@@ -138,11 +138,12 @@ const update = asyncHandler(async (req, res) => {
        min_level = COALESCE($8, min_level), max_level = COALESCE($9, max_level),
        reorder_level = COALESCE($10, reorder_level),
        qty_on_hand = COALESCE($11, qty_on_hand), unit_price = COALESCE($12, unit_price),
-       expiry_date = COALESCE($13, expiry_date), batch_no = COALESCE($14, batch_no),
-       item_condition = COALESCE($15, item_condition),
+       expiry_tracked = COALESCE($13, expiry_tracked),
+       expiry_date = CASE WHEN COALESCE($13, expiry_tracked) THEN COALESCE($14, expiry_date) ELSE NULL END,
+       batch_no = COALESCE($15, batch_no), item_condition = COALESCE($16, item_condition),
        updated_at = NOW()
-     WHERE id = $16 RETURNING id`,
-    [code, name, categoryId, storeId, locationRows[0]?.code || bin, resolvedLocationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryDate, batchNo, condition, req.params.id]
+     WHERE id = $17 RETURNING id`,
+    [code, name, categoryId, storeId, locationRows[0]?.code || bin, resolvedLocationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked, expiryDate, batchNo, condition, req.params.id]
   );
   if (!rows[0]) throw new AppError('Item not found.', 404);
 

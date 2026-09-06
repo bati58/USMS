@@ -23,6 +23,11 @@ export function buildNotifications(user, data) {
   const userDept = user.department
 
   const lowStock = items.filter((i) => Number(i.qtyOnHand) <= Number(i.reorderLevel))
+  const expiringItems = items.filter((item) => {
+    if (!item.expiryTracked || !item.expiryDate) return false
+    const daysUntilExpiry = (new Date(item.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)
+    return daysUntilExpiry <= 90
+  })
   const pendingReqs = reqs.filter((r) => [STATUS.PENDING, 'Submitted', 'Returned for Correction'].includes(r.status))
   const pendingGrns = grns.filter((g) => [
     STATUS.PENDING,
@@ -40,22 +45,41 @@ export function buildNotifications(user, data) {
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
   const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
 
-  function push(id, title, message, type, route, timestamp) {
-    notes.push({ id, title, message, type, route, timestamp: timestamp || new Date(), read: false })
+  function push(id, title, message, type, route, timestamp, options = {}) {
+    notes.push({ id, title, message, type, route, timestamp: timestamp || new Date(), read: false, ...options })
+  }
+
+  function pushInventoryAlert(id, title, message, route, timestamp, conditionKey) {
+    push(`${id}-${conditionKey}`, title, message, 'warning', route, timestamp, { conditionAlert: true })
+  }
+
+  function pushExpiryAlerts(filteredItems = expiringItems) {
+    filteredItems.slice(0, 6).forEach((item) => {
+      pushInventoryAlert(
+        `expiry-${item.id}`,
+        'Expiry Alert',
+        `${item.name} at ${item.store} expires on ${item.expiryDate}`,
+        '/items',
+        item.expiryDate,
+        item.expiryDate
+      )
+    })
   }
 
   switch (user.role) {
     case ROLES.ADMIN:
       lowStock.slice(0, 5).forEach((item) => {
         push(
-          `lowstock-${item.id}`,
+          `lowstock-${item.id}-${item.qtyOnHand}-${item.reorderLevel}`,
           'Low Stock Alert',
           `${item.name} at ${item.store} is at ${item.qtyOnHand} ${item.unit} (reorder: ${item.reorderLevel})`,
           'warning',
           '/items',
-          item.updatedAt
+          item.updatedAt,
+          { conditionAlert: true }
         )
       })
+      pushExpiryAlerts()
       pendingGrns.slice(0, 5).forEach((g) => {
         push(
           `grn-${g.id}`,
@@ -84,14 +108,16 @@ export function buildNotifications(user, data) {
         .slice(0, 5)
         .forEach((item) => {
           push(
-            `lowstock-${item.id}`,
+            `lowstock-${item.id}-${item.qtyOnHand}-${item.reorderLevel}`,
             'Low Stock Alert',
             `${item.name} at ${item.store} is at ${item.qtyOnHand} ${item.unit} (reorder: ${item.reorderLevel})`,
             'warning',
             '/items',
-            item.updatedAt
+            item.updatedAt,
+            { conditionAlert: true }
           )
         })
+      pushExpiryAlerts(expiringItems.filter((item) => !userStore || item.store === userStore))
 
       pendingGrns
         .filter((g) => !userStore || g.store === userStore)
@@ -359,14 +385,16 @@ export function buildNotifications(user, data) {
         })
       lowStock.slice(0, 6).forEach((item) => {
         push(
-          `lowstock-${item.id}`,
+          `lowstock-${item.id}-${item.qtyOnHand}-${item.reorderLevel}`,
           'Reorder Watch',
           `${item.name} (${item.qtyOnHand} ${item.unit}) at ${item.store}`,
           'warning',
           '/stock-cards',
-          null
+          null,
+          { conditionAlert: true }
         )
       })
+      pushExpiryAlerts()
       break
 
     case ROLES.DEPT_HEAD:
@@ -440,7 +468,7 @@ export function buildNotifications(user, data) {
   if (user.role === ROLES.STORE_HEAD && userStore) {
     return notes.filter((n) => {
       if (n.id.startsWith('lowstock-')) {
-        const item = items.find((i) => `lowstock-${i.id}` === n.id)
+        const item = items.find((i) => n.id.startsWith(`lowstock-${i.id}-`))
         return item?.store === userStore
       }
       if (n.id.startsWith('grn-')) {

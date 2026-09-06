@@ -54,7 +54,14 @@ async function notify(client, { userId, role, title, message, type = 'info', rou
 
   for (const recipient of recipients) {
     await client.query(
-      'INSERT INTO notifications (user_id, title, message, type, route, entity_type, entity_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      `INSERT INTO notifications (user_id, title, message, type, route, entity_type, entity_id)
+       SELECT $1, $2, $3, $4, $5, $6, $7
+       WHERE NOT EXISTS (
+         SELECT 1 FROM notifications
+         WHERE user_id = $1 AND title = $2 AND message = $3 AND type = $4
+           AND route = $5 AND entity_type IS NOT DISTINCT FROM $6
+           AND entity_id IS NOT DISTINCT FROM $7
+       )`,
       [recipient.userId, title, message, type, route, entityType, entityId]
     );
   }

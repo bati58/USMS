@@ -1,4 +1,4 @@
-export default function Select({ label, error, className = '', inputClassName = '', required, options = [], placeholder = 'Select...', ...rest }) {
+export default function Select({ label, error, className = '', inputClassName = '', required, options = [], placeholder = 'Select...', children, ...rest }) {
   return (
     <div className={className}>
       {label && (
@@ -17,6 +17,7 @@ export default function Select({ label, error, className = '', inputClassName = 
             </option>
           )
         })}
+        {children}
       </select>
       {error && <p className="mt-2 text-xs text-danger-700 font-medium">{error}</p>}
     </div>
