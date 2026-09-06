@@ -25,7 +25,10 @@ export const materialReturnService = {
     createBatch: (payload) => api.raw('/material-returns', { method: 'POST', body: JSON.stringify(payload) })
 }
 export const materialTransferService = createEntityService('materialTransfers')
-export const disposalService = createEntityService('disposals')
+export const disposalService = {
+    ...createEntityService('disposals'),
+    eligibleItems: (store) => api.raw(`/disposals/eligible-items?store=${encodeURIComponent(store)}`)
+}
 export const binTransferService = createEntityService('binTransfers')
 export const userCardService = createEntityService('userCards')
 export const locationService = createEntityService('locations')

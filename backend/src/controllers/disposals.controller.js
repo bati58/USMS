@@ -120,6 +120,38 @@ const list = asyncHandler(async (req, res) => {
   res.json(rows.map(mapDisposal));
 });
 
+const eligibleItems = asyncHandler(async (req, res) => {
+  const storeId = await resolveStoreId(req.query.store);
+  await assertUserCanAccessStoreRecord(req.user, storeId, { query });
+  const { rows } = await query(
+    `SELECT i.*, c.name AS category_name, s.name AS store_name, l.name AS location_name
+     FROM items i
+     LEFT JOIN categories c ON c.id = i.category_id
+     JOIN stores s ON s.id = i.store_id
+     LEFT JOIN locations l ON l.id = i.location_id
+     WHERE i.store_id = $1
+       AND i.qty_on_hand > 0
+       AND (
+         LOWER(COALESCE(i.item_condition, '')) IN ('damaged', 'unusable', 'obsolete', 'scrap', 'condemned')
+         OR (i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE)
+       )
+     ORDER BY i.name, i.id`,
+    [storeId]
+  );
+  res.json(rows.map((row) => ({
+    ...mapDisposal(row),
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    storeId: row.store_id,
+    qtyOnHand: Number(row.qty_on_hand),
+    expiryDate: row.expiry_date,
+    condition: row.item_condition || null,
+    location: row.location_name || null,
+    category: row.category_name || null
+  })));
+});
+
 const getOne = asyncHandler(async (req, res) => {
   const { rows } = await query(`${SELECT} WHERE d.id = $1`, [req.params.id]);
   if (!rows[0]) throw new AppError('Disposal request not found.', 404);
@@ -290,4 +322,4 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, getOne, create, update, decide, execute, complete, close, remove, quarantine, startAssessment, assess, sendForRepair, reassess, requestDisposal, review, recommend, submitAuthorization, authorize, submitConfirmation, confirm, post };
+module.exports = { list, eligibleItems, getOne, create, update, decide, execute, complete, close, remove, quarantine, startAssessment, assess, sendForRepair, reassess, requestDisposal, review, recommend, submitAuthorization, authorize, submitConfirmation, confirm, post };

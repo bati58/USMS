@@ -1,17 +1,22 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   application_name: process.env.PG_APPLICATION_NAME || 'stock-management-api',
-  max: Number(process.env.PG_POOL_MAX || 2),
-  idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 10000),
-  connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS || 3000),
-  maxUses: Number(process.env.PG_MAX_USES || 500)
+  max: positiveInteger(process.env.PG_POOL_MAX, 4),
+  idleTimeoutMillis: positiveInteger(process.env.PG_IDLE_TIMEOUT_MS, 30000),
+  connectionTimeoutMillis: positiveInteger(process.env.PG_CONNECTION_TIMEOUT_MS, 10000),
+  maxUses: positiveInteger(process.env.PG_MAX_USES, 500)
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle PostgreSQL client', err.message);
+  console.error('Unexpected error on idle PostgreSQL client', err.code || err.message);
 });
 
 async function query(text, params) {
@@ -38,7 +43,11 @@ async function withTransaction(callback) {
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Database transaction rollback failed', rollbackError.code || rollbackError.message);
+    }
     throw err;
   } finally {
     client.release();

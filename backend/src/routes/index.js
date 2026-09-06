@@ -198,6 +198,7 @@ router.delete('/fixed-assets/:id', requireRole('fixed-assets'), fixedAssetsContr
 // Disposals (+ approve action)
 // ---------------------------------------------------------------------------
 router.get('/disposals', requireRole('disposals'), disposalsController.list);
+router.get('/disposals/eligible-items', requireRole('disposals'), disposalsController.eligibleItems);
 router.get('/disposals/:id', requireRole('disposals'), disposalsController.getOne);
 router.post('/disposals', requireRole('disposals'), disposalsController.create);
 router.put('/disposals/:id', requireRole('disposals'), disposalsController.update);

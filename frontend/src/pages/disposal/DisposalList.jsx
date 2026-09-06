@@ -24,6 +24,7 @@ export default function DisposalList() {
   const [rows, setRows] = useState([])
   const [stores, setStores] = useState([])
   const [items, setItems] = useState([])
+  const [disposalOptions, setDisposalOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -48,15 +49,18 @@ export default function DisposalList() {
   const selectedStore = stores.find((store) => store.name === formData.store)
   const availableItems = useMemo(() => {
     if (!formData.store) return []
+    if (isScopedStoreHead) return uniqueItemsByName(items)
+    const selectedStoreName = String(formData.store).trim().toLowerCase()
     return uniqueItemsByName(items.filter((item) => {
       const belongsToSelectedStore = (selectedStore?.id && Number(item.storeId) === Number(selectedStore.id)) ||
-        item.store === formData.store
+        String(item.store || '').trim().toLowerCase() === selectedStoreName
       const condition = String(item.condition || '').trim().toLowerCase()
       const expired = item.expiryDate && item.expiryDate < new Date().toISOString().slice(0, 10)
       const eligible = ['damaged', 'unusable', 'obsolete', 'expired', 'scrap', 'condemned'].includes(condition) || expired
       return belongsToSelectedStore && Number(item.qtyOnHand) > 0 && eligible
     }))
-  }, [items, formData.store, selectedStore?.id])
+  }, [items, formData.store, isScopedStoreHead, selectedStore?.id])
+  const selectedDisposalItem = disposalOptions.find((item) => String(item.id) === String(formData.item))
 
   async function load() {
     setLoading(true)
@@ -91,12 +95,21 @@ export default function DisposalList() {
     return rows.filter((r) => `${r.disposalRef} ${r.item} ${r.store} ${r.reason}`.toLowerCase().includes(q))
   }, [rows, query])
 
-  function openCreate() {
+  async function openCreate() {
     if (!canCreate) {
       push('You do not have permission to flag items for disposal.', 'error')
       return
     }
-    setFormData({ item: '', store: isScopedStoreHead ? assignedStoreName : '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10), supportingDocument: '' })
+    try {
+      const latestItems = assignedStoreName
+        ? await disposalService.eligibleItems(assignedStoreName)
+        : await itemService.list()
+      setDisposalOptions(Array.isArray(latestItems) ? latestItems : [])
+    } catch (err) {
+      push(err.message || 'Could not refresh item conditions.', 'error')
+      return
+    }
+    setFormData({ item: '', store: assignedStoreName || '', qty: '', reason: '', dateFlagged: new Date().toISOString().slice(0, 10), supportingDocument: '' })
     setModalOpen(true)
   }
 
@@ -106,7 +119,7 @@ export default function DisposalList() {
 
   async function handleCreate(e) {
     e.preventDefault()
-    const selectedItem = availableItems.find((item) => String(item.id) === String(formData.item))
+    const selectedItem = disposalOptions.find((item) => String(item.id) === String(formData.item))
     const requestedQty = Number(formData.qty)
     if (!selectedItem || !Number.isFinite(requestedQty) || requestedQty <= 0) {
       push('Select a valid item and enter a positive quantity.', 'error')
@@ -262,8 +275,8 @@ export default function DisposalList() {
               </Select>
             )}
             <Select label="Item" value={formData.item} onChange={(e) => setFormData({ ...formData, item: e.target.value })} required>
-              <option value="">{formData.store ? '-- Select Item --' : 'Select a store first'}</option>
-              {availableItems.map(i => {
+              <option value="">{!formData.store ? 'Select a store first' : disposalOptions.length ? '-- Select Item --' : 'No eligible stock in this store'}</option>
+              {disposalOptions.map(i => {
                 const condition = String(i.condition || '').trim().toLowerCase()
                 const reason = i.expiryDate && i.expiryDate < new Date().toISOString().slice(0, 10)
                   ? 'Expired'
@@ -271,7 +284,19 @@ export default function DisposalList() {
                 return <option key={i.id} value={i.id}>{i.name} ({i.code}) - {reason} - available: {i.qtyOnHand}</option>
               })}
             </Select>
-            <Input label="Quantity" type="number" min="0.01" step="0.01" value={formData.qty} onChange={(e) => setFormData({ ...formData, qty: e.target.value })} required />
+            <div>
+              <Input
+                label="Quantity"
+                type="number"
+                min="0.01"
+                max={selectedDisposalItem?.qtyOnHand || undefined}
+                step="0.01"
+                value={formData.qty}
+                onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+                required
+              />
+              {selectedDisposalItem && <p className="mt-1 text-xs text-ink-500">Available for disposal: {selectedDisposalItem.qtyOnHand}. You may dispose of only part of this quantity.</p>}
+            </div>
             <Input label="Date Flagged" type="date" value={formData.dateFlagged} onChange={(e) => setFormData({ ...formData, dateFlagged: e.target.value })} required />
           </div>
           <Input label="Reason for Disposal" type="textarea" value={formData.reason} onChange={(e) => setFormData({ ...formData, reason: e.target.value })} required />

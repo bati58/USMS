@@ -379,7 +379,12 @@ export default function ItemList() {
           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-ink-100 pt-4 mt-2">
             <Input label="Expiry Date" type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />
             <Input label="Batch Number" value={form.batchNo} onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))} />
-            <Select label="Condition" options={['New', 'Good', 'Fair', 'Poor', 'Damaged']} value={form.condition} onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))} />
+            <Select
+              label="Condition"
+              options={['New', 'Good', 'Fair', 'Poor', 'Damaged', 'Unusable', 'Obsolete', 'Scrap', 'Condemned']}
+              value={form.condition}
+              onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}
+            />
           </div>
         </form>
       </Modal>
