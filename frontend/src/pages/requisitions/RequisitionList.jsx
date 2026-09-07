@@ -452,8 +452,14 @@ export default function RequisitionList() {
           <div className="space-y-4 text-sm">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Field label="Department" value={viewing.department} />
-              <Field label="Destination Store" value={viewing.store} />
-              <Field label="Issuing Store" value={viewing.issuingStore || viewing.store} />
+              {viewing.requesterRole === ROLES.STOREKEEPER ? (
+                <>
+                  <Field label="Destination Store" value={viewing.store} />
+                  <Field label="Issuing Store" value={viewing.issuingStore || viewing.store} />
+                </>
+              ) : (
+                <Field label="Issuing Store" value={viewing.issuingStore || viewing.store} />
+              )}
               <Field label="Requested By" value={viewing.requestedBy} />
               <Field label="Status" value={<StatusBadge status={viewing.status} />} />
             </div>
