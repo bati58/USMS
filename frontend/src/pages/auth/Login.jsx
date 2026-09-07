@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { LogIn, Mail, Lock } from 'lucide-react'
+import { LogIn, Mail, Lock, CircleHelp, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
@@ -24,6 +24,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showDemo, setShowDemo] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
 
   if (isAuthenticated) return <Navigate to="/" replace />
 
@@ -63,7 +64,7 @@ export default function Login() {
 
         {/* Login card */}
         <div className="w-full max-w-[420px] rounded-sm bg-[var(--surface)] px-8 py-7 shadow-[0_2px_10px_var(--shadow-soft)]">
-          <p className="mb-5 text-center text-[15px] text-[var(--text-muted)]">For Staff Only</p>
+          <p className="mb-5 text-center text-[15px] text-[var(--text-muted)]">Authorized staff access</p>
 
           <form onSubmit={handleSubmit}>
             <div className="space-y-4">
@@ -123,17 +124,47 @@ export default function Login() {
           </form>
 
           <div className="mt-5 flex items-center justify-between">
-            <span className="cursor-default text-sm text-[var(--brand-600)]">Need help?</span>
             <button
               type="button"
-              onClick={() => setShowDemo((v) => !v)}
-              className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-normal text-white transition-colors hover:bg-emerald-600"
+              onClick={() => setShowHelp(true)}
+              className="inline-flex items-center gap-1.5 text-sm text-[var(--brand-600)] hover:text-[var(--brand-700)] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             >
-              Demo Access
+              <CircleHelp size={15} />
+              Need help signing in?
             </button>
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                onClick={() => setShowDemo((v) => !v)}
+                className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-normal text-white transition-colors hover:bg-emerald-600"
+              >
+                Demo Access
+              </button>
+            )}
           </div>
 
-          {showDemo && (
+          {showHelp && (
+            <div className="mt-4 rounded border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-4 text-sm text-[var(--text-secondary)]">
+              <div className="mb-2 flex items-start justify-between gap-4">
+                <h2 className="font-medium text-[var(--text-primary)]">Need help signing in?</h2>
+                <button
+                  type="button"
+                  aria-label="Close sign-in help"
+                  onClick={() => setShowHelp(false)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+              <p>
+                Contact your system administrator or IT office to reset your account. You may need to provide your
+                username and staff identity for verification.
+              </p>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Never share your password with anyone.</p>
+            </div>
+          )}
+
+          {import.meta.env.DEV && showDemo && (
             <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
               <p className="mb-2 text-xs text-[var(--text-muted)]">
                 Select a demo account (password: sms1234)
