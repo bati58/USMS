@@ -20,6 +20,9 @@ export const userService = {
     listStockClerks: () => api.raw('/users/stock-clerks'),
     listAssetCustodians: () => api.raw('/users/fixed-asset-custodians')
 }
+export const authService = {
+    changePassword: (payload) => api.raw('/auth/password', { method: 'PUT', body: JSON.stringify(payload) })
+}
 export const materialReturnService = {
     ...createEntityService('materialReturns'),
     createBatch: (payload) => api.raw('/material-returns', { method: 'POST', body: JSON.stringify(payload) })

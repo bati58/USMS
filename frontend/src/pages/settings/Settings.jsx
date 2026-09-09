@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Lock } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
-import { userService } from '../../services'
+import { authService, userService } from '../../services'
 import PageHeader from '../../components/ui/PageHeader'
 import Card from '../../components/ui/Card'
 import Button from '../../components/ui/Button'
@@ -161,14 +161,10 @@ export default function Settings() {
 
         setChangingPassword(true)
         try {
-            const updated = await userService.update(user.id, {
-                password: passwordForm.newPassword
+            await authService.changePassword({
+                currentPassword: passwordForm.currentPassword,
+                newPassword: passwordForm.newPassword
             })
-            if (!updated) {
-                push('Could not update password', 'error')
-                return
-            }
-            updateUser(updated)
             setPasswordForm({
                 currentPassword: '',
                 newPassword: '',
