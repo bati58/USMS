@@ -7,16 +7,25 @@
 -- =============================================================================
 
 INSERT INTO users (name, username, password_hash, role, email, active) VALUES
-  ('Abel Tesfaye',   'admin',       '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Administrator', 'admin@sms.local', TRUE),
-  ('Meron Getachew', 'pao',         '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Property Administration Officer', 'pao@sms.local', TRUE),
-  ('Yonas Bekele',   'storehead',   '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Store Head', 'storehead@sms.local', TRUE),
-  ('Sara Alemu',     'storekeeper', '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Storekeeper', 'storekeeper@sms.local', TRUE),
-  ('Kaleb Mulugeta', 'clerk',       '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Stock Clerk', 'clerk@sms.local', TRUE),
-  ('Dr. Fikru Wolde','tec',         '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Technical Evaluation Committee', 'tec@sms.local', TRUE),
-  ('Hana Girma',     'depthead',    '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Department Head', 'depthead@sms.local', TRUE),
-  ('Biniam Assefa',  'accountant',  '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Accountant', 'accountant@sms.local', TRUE),
-  ('Samuel Tadesse', 'security',    '$2a$10$fF.Qgf.cGWoI8R7KsGJHkuOA42j/R49By3m3JX7MSnhzt1W6w/Ytq', 'Security Officer', 'security@sms.local', TRUE)
+  ('Abel Tesfaye',   'admin',       '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Administrator', 'admin@sms.local', TRUE),
+  ('Meron Getachew', 'pao',         '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Property Administration Officer', 'pao@sms.local', TRUE),
+  ('Yonas Bekele',   'storehead',   '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Store Head', 'storehead@sms.local', TRUE),
+  ('Sara Alemu',     'storekeeper', '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Storekeeper', 'storekeeper@sms.local', TRUE),
+  ('Kaleb Mulugeta', 'clerk',       '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Stock Clerk', 'clerk@sms.local', TRUE),
+  ('Dr. Fikru Wolde','tec',         '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Technical Evaluation Committee', 'tec@sms.local', TRUE),
+  ('Hana Girma',     'depthead',    '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Department Head', 'depthead@sms.local', TRUE),
+  ('Biniam Assefa',  'accountant',  '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Accountant', 'accountant@sms.local', TRUE),
+  ('Samuel Tadesse', 'security',    '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Security Officer', 'security@sms.local', TRUE)
 ON CONFLICT (username) DO NOTHING;
+
+-- Keep the development demo actors on the documented shared password even
+-- when the seed is run against an existing database.
+UPDATE users
+SET password_hash = '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq',
+    failed_login_attempts = 0,
+    locked_until = NULL,
+    updated_at = NOW()
+WHERE username IN ('admin', 'pao', 'storehead', 'storekeeper', 'clerk', 'tec', 'depthead', 'accountant', 'security');
 
 UPDATE users
 SET department = 'Software Engineering', updated_at = NOW()

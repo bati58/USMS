@@ -236,6 +236,9 @@ const changePassword = asyncHandler(async (req, res) => {
   if (!currentPassword || !newPassword) {
     throw new AppError('Current password and new password are required.', 400);
   }
+  if (newPassword.length < 8) {
+    throw new AppError('Password must be at least 8 characters.', 400);
+  }
 
   const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
   const user = rows[0];

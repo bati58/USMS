@@ -70,9 +70,10 @@ async function getCounts(client, tables) {
 }
 
 async function main() {
-    const client = await pool.connect();
+    let client;
 
     try {
+        client = await pool.connect();
         const existingTables = await getExistingTables(client);
         const cleanupTables = cleanupOrder.filter((table) => existingTables.has(table) && !protectedTables.has(table));
 
@@ -110,7 +111,7 @@ async function main() {
         console.error(error.message);
         process.exitCode = 1;
     } finally {
-        client.release();
+        client?.release();
         await pool.end();
     }
 }

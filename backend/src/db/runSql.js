@@ -14,13 +14,14 @@ if (!file) {
 const sql = fs.readFileSync(path.resolve(file), 'utf8');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-pool
-  .query(sql)
-  .then(() => {
+(async () => {
+  try {
+    await pool.query(sql);
     console.log(`Ran ${file} successfully.`);
-    return pool.end();
-  })
-  .catch((err) => {
-    console.error(`Failed running ${file}:`, err.message);
-    process.exit(1);
-  });
+  } catch (error) {
+    console.error(`Failed running ${file}:`, error.message);
+    process.exitCode = 1;
+  } finally {
+    await pool.end();
+  }
+})();

@@ -29,10 +29,11 @@ JWT_SECRET=<replace with a long random string>
 Build the schema and load demo data:
 
 ```bash
+npm run db:migrate
 npm run db:schema
 npm run db:seed
 ```
-*Note: We have consolidated all database schema updates into a single `schema.sql` to keep things clean. Running the schema script will completely initialize or reset the system schema. For a safe cleanup that preserves the core master data (`users`, `items`, `stores`, and `suppliers`) while rebuilding reference/demo data, use `npm run db:fresh-seed`.*
+`npm run db:migrate` applies numbered changes to an existing database and records them in `schema_migrations`. It is safe to run repeatedly. `schema.sql` is the current fresh-install baseline and does not run historical data backfills. For a safe cleanup that preserves the core master data (`users`, `items`, `stores`, and `suppliers`) while rebuilding reference/demo data, use `npm run db:fresh-seed`.
 
 ## 3. Run it
 
@@ -40,12 +41,14 @@ npm run db:seed
 npm run dev
 ```
 
+Database migrations are explicit and are not run when the API starts.
+
 API is live at `http://localhost:4000`. Check `http://localhost:4000/health`
 for a quick liveness check.
 
 ## 4. Demo login
 
-Every seeded user's password is **`sms1234`**:
+Every seeded user's password is **`sms@1234`**:
 
 ```
 admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant

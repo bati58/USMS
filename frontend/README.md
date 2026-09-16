@@ -30,7 +30,7 @@ in your browser automatically. It connects to the backend API via the `VITE_API_
 
 ### Demo login
 
-All seeded demo users below use the password `sms1234`:
+All seeded demo users below use the password `sms@1234`:
 
 ```
 admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security

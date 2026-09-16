@@ -44,9 +44,6 @@ CREATE TABLE IF NOT EXISTS stores (
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE stores ADD COLUMN IF NOT EXISTS department TEXT;
-ALTER TABLE stores ADD COLUMN IF NOT EXISTS storekeeper TEXT;
-
 -- Relational store ownership. Legacy name columns remain during migration.
 CREATE TABLE IF NOT EXISTS store_user_assignments (
   id              SERIAL PRIMARY KEY,
@@ -102,7 +99,6 @@ CREATE TABLE IF NOT EXISTS items (
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   UNIQUE (code, store_id)
 );
-ALTER TABLE items ADD COLUMN IF NOT EXISTS expiry_tracked BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_items_store ON items(store_id);
 CREATE INDEX IF NOT EXISTS idx_items_code ON items(code);
 CREATE INDEX IF NOT EXISTS idx_items_location ON items(location_id);
@@ -156,7 +152,6 @@ CREATE TABLE IF NOT EXISTS departments (
   updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_departments_name ON departments(name);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_users_department ON users(department_id);
 
 -- ---------- goods_receipts + line items (§5.5, §5.11) ----------
@@ -187,9 +182,6 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
   created_at                TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS material_type TEXT NOT NULL DEFAULT 'Consumable';
-ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS supporting_document_ref TEXT;
-ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS condition_on_arrival TEXT NOT NULL DEFAULT 'New';
 CREATE INDEX IF NOT EXISTS idx_grn_status ON goods_receipts(status);
 CREATE INDEX IF NOT EXISTS idx_receipts_supplier ON goods_receipts(supplier_id);
 
@@ -312,12 +304,6 @@ CREATE TABLE IF NOT EXISTS requisitions (
 );
 CREATE INDEX IF NOT EXISTS idx_req_status ON requisitions(status);
 CREATE INDEX IF NOT EXISTS idx_requisitions_department ON requisitions(department_id);
-ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'Normal';
-ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS reason TEXT;
-ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS issuing_store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT;
-UPDATE requisitions SET reason = 'Legacy requisition' WHERE reason IS NULL;
-ALTER TABLE requisitions ALTER COLUMN reason SET NOT NULL;
-
 CREATE TABLE IF NOT EXISTS requisition_items (
   id               SERIAL PRIMARY KEY,
   requisition_id   INTEGER NOT NULL REFERENCES requisitions(id) ON DELETE CASCADE,
@@ -392,8 +378,6 @@ CREATE TABLE IF NOT EXISTS fixed_assets (
   created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE fixed_assets ADD COLUMN IF NOT EXISTS source_grn_ref TEXT;
-
 -- ---------- material_returns / SRN (§5.13) ----------
 CREATE TABLE IF NOT EXISTS material_returns (
   id                           SERIAL PRIMARY KEY,
@@ -425,16 +409,6 @@ CREATE TABLE IF NOT EXISTS material_returns (
   created_at                   TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at                   TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS created_by TEXT;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_received NUMERIC(14,2);
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_accepted NUMERIC(14,2);
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS qty_rejected NUMERIC(14,2);
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_by TEXT;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_at TIMESTAMP;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_condition TEXT;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS receiving_remarks TEXT;
-ALTER TABLE material_returns ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 CREATE INDEX IF NOT EXISTS idx_material_returns_store ON material_returns(store_id);
 
 -- ---------- material_transfers — store to store (§5.14) ----------
@@ -460,10 +434,7 @@ CREATE TABLE IF NOT EXISTS material_transfers (
   created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS department TEXT;
-ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS requested_by TEXT;
 CREATE INDEX IF NOT EXISTS idx_material_transfers_department ON material_transfers(department);
-ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS requisition_id INTEGER REFERENCES requisitions(id) ON DELETE RESTRICT;
 CREATE INDEX IF NOT EXISTS idx_material_transfers_requisition ON material_transfers(requisition_id);
 
 -- ---------- disposals (§5.15) ----------
@@ -497,31 +468,11 @@ CREATE TABLE IF NOT EXISTS disposals (
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS created_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS approved_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS executed_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS executed_at TIMESTAMP;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_date DATE;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS disposal_method TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS witness TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS supporting_document TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS assessment_result TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS assessment_notes TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS confirmed_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS posted_by TEXT;
-ALTER TABLE disposals ADD COLUMN IF NOT EXISTS posted_at TIMESTAMP;
 DO $$
 BEGIN
   ALTER TABLE disposals DROP CONSTRAINT IF EXISTS disposals_status_check;
   ALTER TABLE disposals ADD CONSTRAINT disposals_status_check CHECK (status IN ('Flagged','Quarantined','Under Technical Assessment','Repairable','Unusable','Send for Repair','Returned to Stock','Disposal Requested','Pending Store Head Review','Store Head Review','Recommended for Disposal','Pending Authorization','Ready for Disposal','Disposed','Pending Confirmation','Confirmed','Posted','Requested','Pending','Pending Review','Approved','Rejected','Returned for Correction','Executed','Completed','Closed'));
 END $$;
-UPDATE disposals SET reason = 'Reason not recorded' WHERE reason IS NULL OR BTRIM(reason) = '';
-ALTER TABLE disposals ALTER COLUMN reason SET NOT NULL;
-
 -- ---------- audit_logs (§5.16) ----------
 CREATE TABLE IF NOT EXISTS audit_logs (
   id               SERIAL PRIMARY KEY,
@@ -560,12 +511,6 @@ CREATE TABLE IF NOT EXISTS user_cards (
   created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
-ALTER TABLE user_cards ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE RESTRICT;
-UPDATE user_cards uc
-SET user_id = u.id
-FROM users u
-WHERE uc.user_id IS NULL
-  AND uc.user_name = u.name;
 CREATE INDEX IF NOT EXISTS idx_user_cards_user ON user_cards(user_id);
 
 -- ---------- stock_taking ----------
@@ -604,20 +549,6 @@ CREATE TABLE IF NOT EXISTS stock_taking_items (
   adjustment_ref  TEXT,
   UNIQUE (session_id, item_id, bin)
 );
-ALTER TABLE stock_taking_items ALTER COLUMN physical_qty DROP NOT NULL;
-ALTER TABLE stock_taking_items ALTER COLUMN variance DROP NOT NULL;
-ALTER TABLE stock_taking_sessions ADD COLUMN IF NOT EXISTS assigned_to TEXT;
-ALTER TABLE stock_taking_sessions ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
-UPDATE stock_taking_sessions st
-SET assigned_user_id = u.id
-FROM users u
-WHERE st.assigned_user_id IS NULL
-  AND st.assigned_to = u.name
-  AND u.role = 'Stock Clerk';
-ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recount_physical_qty NUMERIC(14,2);
-ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recount_variance NUMERIC(14,2);
-ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recounted_by TEXT;
-ALTER TABLE stock_taking_items ADD COLUMN IF NOT EXISTS recounted_at TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_stock_taking_assigned_to ON stock_taking_sessions(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_stock_taking_assigned_user ON stock_taking_sessions(assigned_user_id);
 CREATE INDEX IF NOT EXISTS idx_stock_taking_status ON stock_taking_sessions(status);

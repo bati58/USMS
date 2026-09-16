@@ -34,6 +34,6 @@ npm run dev
 The frontend will run at `http://localhost:5174` and communicate automatically with the backend API at `http://localhost:4000/api`.
 
 ### Demo Login
-You can log in with any seeded user using the password **`sms1234`** (e.g., `admin`, `storekeeper`, `pao`).
+You can log in with any seeded user using the password **`sms@1234`** (e.g., `admin`, `storekeeper`, `pao`).
 
 Please refer to the `frontend/README.md` and `backend/README.md` for specific details about the architecture of each stack.

@@ -39,7 +39,10 @@ const create = asyncHandler(async (req, res) => {
   if (!name || !username || !role) {
     throw new AppError('name, username, and role are required.', 400);
   }
-  const passwordHash = await bcrypt.hash(password || 'sms1234', 10);
+  if (password && password.length < 8) {
+    throw new AppError('Password must be at least 8 characters.', 400);
+  }
+  const passwordHash = await bcrypt.hash(password || 'sms@1234', 10);
 
   const { rows } = await query(
     `INSERT INTO users (name, username, password_hash, role, email, department, active)
@@ -58,6 +61,9 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { name, username, email, role, department, active, password } = req.body;
+  if (password && password.length < 8) {
+    throw new AppError('Password must be at least 8 characters.', 400);
+  }
   const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
   const { rows } = await query(
