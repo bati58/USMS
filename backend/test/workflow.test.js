@@ -4,7 +4,7 @@ const { pathToFileURL } = require('node:url');
 const { assertTransition } = require('../src/utils/workflow');
 const { canEditStockTakingCounts, isOpenStockTakingSession } = require('../src/utils/workflow');
 const { canRead, canWrite, canAct, canDelete } = require('../src/utils/permissions');
-const { mapGoodsReceipt, mapStockTransaction } = require('../src/controllers/_helpers');
+const { mapGoodsReceipt, mapStockTransaction, mapRequisition, mapMaterialReturn, mapMaterialTransfer, mapItem } = require('../src/controllers/_helpers');
 
 test('transaction cards preserve printable source document references', () => {
     const receipt = mapGoodsReceipt({
@@ -53,6 +53,22 @@ test('transaction cards preserve printable source document references', () => {
     assert.equal(transaction.sourceId, 'GRN-2026-0001');
     assert.equal(transaction.actorName, 'Sara Alemu');
     assert.equal(transaction.bin, 'BIN-01');
+});
+
+test('report row mappers preserve displayed report columns', () => {
+    const receipt = mapGoodsReceipt({ po_ref: 'PO-1', received_by: 'Receiver', received_date: '2026-09-05' });
+    const requisition = mapRequisition({ sr_ref: 'SR-1', requested_by: 'Requester', date: '2026-09-05', status: 'Pending' });
+    const materialReturn = mapMaterialReturn({ srn_ref: 'SRN-1', reason: 'Damaged', qty: 1 });
+    const transfer = mapMaterialTransfer({ transfer_ref: 'TRF-1', requested_by: 'Requester', qty: 1 });
+    const item = mapItem({ code: 'I-1', name: 'Item', category_name: 'Category', bin: 'BIN-1', min_level: 0, max_level: 0, reorder_level: 0, qty_on_hand: 1, unit_price: 1 });
+
+    assert.equal(receipt.poRef, 'PO-1');
+    assert.equal(receipt.receivedBy, 'Receiver');
+    assert.equal(requisition.requestedBy, 'Requester');
+    assert.equal(materialReturn.reason, 'Damaged');
+    assert.equal(transfer.requestedBy, 'Requester');
+    assert.equal(item.category, 'Category');
+    assert.equal(item.bin, 'BIN-1');
 });
 
 test('only reusable return conditions can be restocked', () => {

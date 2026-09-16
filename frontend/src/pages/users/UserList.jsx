@@ -26,10 +26,10 @@ export default function UserList() {
         }
       ]}
       fields={[
-        { name: 'name', label: 'Full Name', required: true },
-        { name: 'username', label: 'Username', required: true },
-        { name: 'email', label: 'Email', type: 'email', required: true },
-        { name: 'role', label: 'Role', type: 'select', required: true, options: ALL_ROLES },
+        { name: 'name', label: 'Full Name', required: true, placeholder: 'e.g. Abel Tesfaye' },
+        { name: 'username', label: 'Username', required: true, placeholder: 'e.g. abel.tesfaye' },
+        { name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'e.g. abel@example.com' },
+        { name: 'role', label: 'Role', type: 'select', required: true, options: ALL_ROLES, placeholder: 'Select a role...' },
         { name: 'active', label: 'Active', type: 'checkbox' }
       ]}
     />

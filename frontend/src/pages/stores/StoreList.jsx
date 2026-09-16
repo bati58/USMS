@@ -44,7 +44,7 @@ export default function StoreList() {
         }
       ]}
       fields={[
-        { name: 'name', label: 'Store Name', required: true },
+        { name: 'name', label: 'Store Name', required: true, placeholder: 'e.g. Main Store' },
         { name: 'code', label: 'Store Code', required: true, placeholder: 'e.g. STR-EEE' },
         {
           name: 'type',
@@ -53,11 +53,11 @@ export default function StoreList() {
           required: true,
           options: ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory']
         },
-        { name: 'location', label: 'Physical Location', required: true },
-        { name: 'contactInfo', label: 'Contact Info', placeholder: 'Phone or Email' },
+        { name: 'location', label: 'Physical Location', required: true, placeholder: 'e.g. Central Warehouse' },
+        { name: 'contactInfo', label: 'Contact Info', placeholder: 'e.g. +251 11 123 4567 or store@example.com' },
         { name: 'headOfStore', label: 'Store Head', type: 'select', options: storeHeadOptions, required: true, placeholder: 'Select a store head...' },
         { name: 'storekeeper', label: 'Storekeeper', type: 'select', options: storekeeperOptions, placeholder: 'Select storekeeper...' },
-        { name: 'description', label: 'Description', type: 'textarea', fullWidth: true },
+        { name: 'description', label: 'Description', type: 'textarea', placeholder: 'e.g. Receiving and distribution store', fullWidth: true },
         { name: 'active', label: 'Active', type: 'checkbox' }
       ]}
     />

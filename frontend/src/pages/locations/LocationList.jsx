@@ -54,7 +54,7 @@ export default function LocationList() {
             ]}
             fields={[
                 { name: 'store', label: 'Store Name', type: 'select', required: true, options: storeOptions, placeholder: 'Select a store...', disabled: () => isSingleStoreUser },
-                { name: 'type', label: 'Location Level', type: 'select', required: true, options: ['SECTION', 'RACK', 'SHELF', 'BIN'] },
+                { name: 'type', label: 'Location Level', type: 'select', required: true, options: ['SECTION', 'RACK', 'SHELF', 'BIN'], placeholder: 'Select a level...' },
                 {
                     name: 'parentId',
                     label: 'Parent Location',
@@ -74,8 +74,8 @@ export default function LocationList() {
                     },
                     placeholder: 'Select a parent location...'
                 },
-                { name: 'code', label: 'Location Code', required: true, placeholder: 'e.g. E03-02-04' },
-                { name: 'name', label: 'Location Name', required: true },
+                { name: 'code', label: 'Location Code', required: true, placeholder: 'e.g. DEP-SEC-01' },
+                { name: 'name', label: 'Location Name', required: true, placeholder: 'e.g. Electrical Supplies' },
                 { name: 'active', label: 'Active', type: 'checkbox' }
             ]}
         />

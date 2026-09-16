@@ -67,9 +67,11 @@ const inventorySummary = asyncHandler(async (req, res) => {
   const params = [];
   await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
   const { rows } = await query(`
-    SELECT i.code, i.name, s.name AS store, i.qty_on_hand, i.unit_price,
+      SELECT i.code, i.name, c.name AS category, i.bin, s.name AS store, i.qty_on_hand, i.unit_price,
            (i.qty_on_hand * i.unit_price) AS value
-    FROM items i JOIN stores s ON s.id = i.store_id
+      FROM items i
+      LEFT JOIN categories c ON c.id = i.category_id
+      JOIN stores s ON s.id = i.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY i.name
   `, params);
@@ -77,6 +79,8 @@ const inventorySummary = asyncHandler(async (req, res) => {
     rows.map((r) => ({
       code: r.code,
       name: r.name,
+      category: r.category,
+      bin: r.bin,
       store: r.store,
       qtyOnHand: Number(r.qty_on_hand),
       unitPrice: Number(r.unit_price),
@@ -155,13 +159,21 @@ const grnStatus = asyncHandler(async (req, res) => {
   const conditions = dateConditions('g.received_date', req.query, params);
   await addStoreScope(req, conditions, params, 'g.store_id = ANY(?::int[])');
   const { rows } = await query(`
-    SELECT g.grn_ref, g.supplier, s.name AS store, g.received_date, g.status
+    SELECT g.grn_ref, g.supplier, g.po_ref, g.received_by, s.name AS store, g.received_date, g.status
     FROM goods_receipts g JOIN stores s ON s.id = g.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY g.received_date DESC
   `, params);
   res.json(
-    rows.map((r) => ({ grnRef: r.grn_ref, supplier: r.supplier, store: r.store, receivedDate: r.received_date, status: r.status }))
+    rows.map((r) => ({
+      grnRef: r.grn_ref,
+      supplier: r.supplier,
+      poRef: r.po_ref,
+      store: r.store,
+      receivedDate: r.received_date,
+      receivedBy: r.received_by,
+      status: r.status
+    }))
   );
 });
 
@@ -176,12 +188,18 @@ const requisitionStatus = asyncHandler(async (req, res) => {
     conditions.push(`${departmentScope.column} = $${params.length}`);
   }
   const { rows } = await query(`
-    SELECT r.sr_ref, r.department, r.date, r.status, s.name AS store
+    SELECT r.sr_ref, r.department, r.requested_by, r.date, r.status, s.name AS store
     FROM requisitions r JOIN stores s ON s.id = r.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY r.date DESC
   `, params);
-  res.json(rows.map((r) => ({ srRef: r.sr_ref, department: r.department, date: r.date, status: r.status })));
+  res.json(rows.map((r) => ({
+    srRef: r.sr_ref,
+    department: r.department,
+    requestedBy: r.requested_by,
+    date: r.date,
+    status: r.status
+  })));
 });
 
 // GET /api/reports/dashboard-summary — role-aware aggregate counts for the
@@ -380,7 +398,7 @@ const returnStatus = asyncHandler(async (req, res) => {
     conditions.push(`${departmentScope.column} = $${params.length}`);
   }
   const { rows } = await query(`
-    SELECT mr.srn_ref, mr.department, i.name AS item, mr.qty, mr.status, mr.date
+    SELECT mr.srn_ref, mr.department, i.name AS item, mr.qty, mr.reason, mr.status, mr.date
     FROM material_returns mr
     LEFT JOIN items i ON i.id = mr.item_id
     LEFT JOIN stores s ON s.id = i.store_id
@@ -389,7 +407,7 @@ const returnStatus = asyncHandler(async (req, res) => {
   `, params);
   res.json(rows.map((r) => ({
     srnRef: r.srn_ref, department: r.department, item: r.item,
-    qty: Number(r.qty), status: r.status, date: r.date
+    qty: Number(r.qty), reason: r.reason, status: r.status, date: r.date
   })));
 });
 
@@ -405,7 +423,7 @@ const transferStatus = asyncHandler(async (req, res) => {
   }
   const { rows } = await query(`
     SELECT mt.transfer_ref, fs.name AS from_store, ts.name AS to_store,
-           i.name AS item, mt.qty, mt.status, mt.date
+           i.name AS item, mt.qty, mt.requested_by, mt.status, mt.date
     FROM material_transfers mt
     LEFT JOIN stores fs ON fs.id = mt.from_store_id
     LEFT JOIN stores ts ON ts.id = mt.to_store_id
@@ -415,7 +433,7 @@ const transferStatus = asyncHandler(async (req, res) => {
   `, params);
   res.json(rows.map((r) => ({
     transferRef: r.transfer_ref, fromStore: r.from_store, toStore: r.to_store,
-    item: r.item, qty: Number(r.qty), status: r.status, date: r.date
+    item: r.item, qty: Number(r.qty), requestedBy: r.requested_by, status: r.status, date: r.date
   })));
 });
 

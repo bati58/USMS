@@ -31,7 +31,7 @@ export default function DepartmentList() {
             ]}
             fields={[
                 { name: 'code', label: 'Department Code', required: true, placeholder: 'e.g. DEPT-EEE' },
-                { name: 'name', label: 'Department Name', required: true },
+                { name: 'name', label: 'Department Name', required: true, placeholder: 'e.g. Electrical Engineering' },
                 { name: 'headUserId', label: 'Department Head', type: 'select', options: userOptions, placeholder: 'Select a department head...' },
                 { name: 'active', label: 'Active', type: 'checkbox' }
             ]}

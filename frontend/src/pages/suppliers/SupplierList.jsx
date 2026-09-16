@@ -22,9 +22,9 @@ export default function SupplierList() {
             ]}
             fields={[
                 { name: 'code', label: 'Supplier Code', required: true, placeholder: 'e.g. SUP-001' },
-                { name: 'name', label: 'Supplier Name', required: true },
-                { name: 'contact', label: 'Contact' },
-                { name: 'address', label: 'Address', type: 'textarea', fullWidth: true },
+                { name: 'name', label: 'Supplier Name', required: true, placeholder: 'e.g. Ethio Office Supplies PLC' },
+                { name: 'contact', label: 'Contact', placeholder: 'e.g. +251 11 111 2233 or supplier@example.com' },
+                { name: 'address', label: 'Address', type: 'textarea', placeholder: 'e.g. Bole, Addis Ababa', fullWidth: true },
                 { name: 'active', label: 'Active', type: 'checkbox' }
             ]}
         />

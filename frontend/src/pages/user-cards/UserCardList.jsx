@@ -61,15 +61,15 @@ export default function UserCardList() {
             {canEdit && (
                 <Card title={editing ? 'Edit custody record' : 'Record custody'} className="mb-6">
                     <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                        <Input placeholder="System user name" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} required disabled={Boolean(editing)} />
-                        <Input placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} disabled={Boolean(editing)} />
+                        <Input placeholder="e.g. Abel Tesfaye" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input placeholder="e.g. Electrical Engineering" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} disabled={Boolean(editing)} />
                         <select className="input" value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} required disabled={Boolean(editing)}>
                             <option value="">Select item</option>
                             {uniqueItemsByName(items).map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
                         </select>
-                        <Input placeholder="Issue reference" value={form.issueRef} onChange={(e) => setForm({ ...form, issueRef: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input placeholder="e.g. SIV-2026-0001" value={form.issueRef} onChange={(e) => setForm({ ...form, issueRef: e.target.value })} required disabled={Boolean(editing)} />
                         <Input type="date" value={form.issueDate} onChange={(e) => setForm({ ...form, issueDate: e.target.value })} required disabled={Boolean(editing)} />
-                        <Input type="number" min="1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} required disabled={Boolean(editing)} />
+                        <Input type="number" min="1" placeholder="e.g. 1" value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} required disabled={Boolean(editing)} />
                         <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                             {['In Use', 'Maintenance', 'Lost', 'Damaged', 'Returned'].map((status) => <option key={status}>{status}</option>)}
                         </select>

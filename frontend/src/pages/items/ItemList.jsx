@@ -344,8 +344,8 @@ export default function ItemList() {
         }
       >
         <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input label="Item Code" required placeholder="e.g. 4402-001-001" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
-          <Input label="Item Name" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label="Item Code" required placeholder="e.g. ITM-001" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+          <Input label="Item Name" required placeholder="e.g. A4 Copy Paper" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Select
             label="Category"
             required
@@ -372,18 +372,18 @@ export default function ItemList() {
             required={!editing}
           />
 
-          <Input label="Quantity on Hand" type="number" required value={form.qtyOnHand} onChange={(e) => setForm((f) => ({ ...f, qtyOnHand: e.target.value }))} />
-          <Input label="Unit Price (Birr)" type="number" required value={form.unitPrice} onChange={(e) => setForm((f) => ({ ...f, unitPrice: e.target.value }))} />
-          <Input label="Minimum Level" type="number" value={form.minLevel} onChange={(e) => setForm((f) => ({ ...f, minLevel: e.target.value }))} />
-          <Input label="Reorder Level" type="number" value={form.reorderLevel} onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))} />
-          <Input label="Maximum Level" type="number" value={form.maxLevel} onChange={(e) => setForm((f) => ({ ...f, maxLevel: e.target.value }))} />
+          <Input label="Quantity on Hand" type="number" required placeholder="e.g. 100" value={form.qtyOnHand} onChange={(e) => setForm((f) => ({ ...f, qtyOnHand: e.target.value }))} />
+          <Input label="Unit Price (Birr)" type="number" required placeholder="e.g. 125.00" value={form.unitPrice} onChange={(e) => setForm((f) => ({ ...f, unitPrice: e.target.value }))} />
+          <Input label="Minimum Level" type="number" placeholder="e.g. 10" value={form.minLevel} onChange={(e) => setForm((f) => ({ ...f, minLevel: e.target.value }))} />
+          <Input label="Reorder Level" type="number" placeholder="e.g. 20" value={form.reorderLevel} onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))} />
+          <Input label="Maximum Level" type="number" placeholder="e.g. 200" value={form.maxLevel} onChange={(e) => setForm((f) => ({ ...f, maxLevel: e.target.value }))} />
           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-ink-100 pt-4 mt-2">
             <label className="flex items-center gap-2 text-sm font-medium text-ink-700">
               <input type="checkbox" checked={Boolean(form.expiryTracked)} onChange={(e) => setForm((f) => ({ ...f, expiryTracked: e.target.checked, expiryDate: e.target.checked ? f.expiryDate : '' }))} />
               Track expiry for this item
             </label>
             {form.expiryTracked && <Input label="Expiry Date" type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />}
-            <Input label="Batch Number" value={form.batchNo} onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))} />
+            <Input label="Batch Number" placeholder="e.g. BATCH-2026-001" value={form.batchNo} onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))} />
             <Select
               label="Condition"
               options={['New', 'Good', 'Fair', 'Poor', 'Damaged', 'Unusable', 'Obsolete', 'Scrap', 'Condemned']}
