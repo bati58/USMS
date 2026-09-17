@@ -9,7 +9,7 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import StatusBadge from '../../components/ui/StatusBadge'
-import { materialTransferService, storeService, requisitionService } from '../../services'
+import { materialTransferService, storeService, requisitionService, locationService } from '../../services'
 import { api } from '../../services/apiClient'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
@@ -25,6 +25,7 @@ export default function MaterialTransferList() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [stores, setStores] = useState([])
+  const [locations, setLocations] = useState([])
   const [requisitions, setRequisitions] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -56,14 +57,24 @@ export default function MaterialTransferList() {
   )
   const selectedRequisition = approvedRequisitions.find((request) => String(request.id) === String(header.requisitionId))
   const availableItems = selectedRequisition?.items || []
+  const destinationBins = useMemo(
+    () => locations.filter((location) => location.store === viewing?.toStore),
+    [locations, viewing?.toStore]
+  )
 
   async function load() {
     setLoading(true)
     try {
-      const [transfers, storeList, requisitionList] = await Promise.all([materialTransferService.list(), storeService.list(), requisitionService.list()])
+      const [transfers, storeList, requisitionList, locationList] = await Promise.all([
+        materialTransferService.list(),
+        storeService.list(),
+        requisitionService.list(),
+        locationService.list()
+      ])
       setRows(transfers)
       setStores(storeList.filter((store) => store.active !== false))
       setRequisitions(requisitionList)
+      setLocations(locationList.filter((location) => location.active !== false && location.type === 'BIN'))
     } catch (err) {
       push(err.message || 'Could not load material transfers.', 'error')
     } finally {
@@ -385,7 +396,17 @@ export default function MaterialTransferList() {
                 <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-brand-800">
                   <p className="font-medium text-sm mb-1">Destination Store Action Required</p>
                   <p className="text-xs text-brand-600 mb-3">Select the destination bin, then receive the materials. This records the receipt and updates destination stock.</p>
-                  <Input label="Destination Bin" placeholder="e.g. SW-04" value={receiveBin} onChange={(e) => setReceiveBin(e.target.value)} />
+                  <Select
+                    label="Destination Bin"
+                    required
+                    placeholder="Select a destination bin..."
+                    options={destinationBins.map((location) => ({
+                      value: location.code,
+                      label: `${location.code} - ${location.name}`
+                    }))}
+                    value={receiveBin}
+                    onChange={(e) => setReceiveBin(e.target.value)}
+                  />
                 </div>
               )}
               {viewing.status === TRANSFER_STATUS.RETURNED && (

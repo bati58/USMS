@@ -154,7 +154,15 @@ async function ensureSourceBinCard(client, { bin, storeId, itemId, balance, date
     'SELECT id, balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE',
     [bin, storeId, itemId]
   );
-  if (rows[0]) return;
+  if (rows[0]) {
+    if (Number(rows[0].balance) !== Number(balance)) {
+      await client.query(
+        'UPDATE bin_cards SET balance = $1, last_movement = COALESCE(last_movement, $2) WHERE id = $3',
+        [balance, date, rows[0].id]
+      );
+    }
+    return;
+  }
   await client.query(
     `INSERT INTO bin_cards (bin, store_id, item_id, last_movement, balance)
      VALUES ($1, $2, $3, $4, $5)`,
@@ -686,10 +694,15 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
     if (!sourceItem) throw new AppError('Source item for this transfer was not found.', 404);
     const requestedBin = String(transfer.destination_bin || '').trim();
     const { rows: locationRows } = await client.query(
-      `SELECT id, code, name FROM locations
-       WHERE store_id = $1 AND type = 'BIN' AND active = TRUE
-         AND (LOWER(code) = LOWER($2) OR LOWER(name) = LOWER($2))
-       ORDER BY CASE WHEN LOWER(code) = LOWER($2) THEN 0 ELSE 1 END, id
+      `SELECT l.id, l.store_id, l.code, l.name
+       FROM locations l
+       JOIN stores destination_store ON destination_store.id = $1
+       JOIN stores location_store ON location_store.id = l.store_id
+       WHERE (l.store_id = $1 OR location_store.name = destination_store.name)
+         AND l.type = 'BIN' AND l.active = TRUE
+         AND (LOWER(TRIM(l.code)) = LOWER(TRIM($2)) OR LOWER(TRIM(l.name)) = LOWER(TRIM($2)))
+       ORDER BY CASE WHEN l.store_id = $1 THEN 0 ELSE 1 END,
+                CASE WHEN LOWER(TRIM(l.code)) = LOWER(TRIM($2)) THEN 0 ELSE 1 END, l.id
        LIMIT 1`,
       [transfer.to_store_id, requestedBin]
     );
@@ -697,6 +710,7 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
       throw new AppError(`Destination bin "${requestedBin}" does not exist in the destination store.`, 400);
     }
     const destinationLocation = locationRows[0];
+    const destinationStoreId = destinationLocation.store_id;
 
     const { rows: destRows } = await client.query(
       `SELECT ii.*, i.name, i.code, i.unit, i.category_id, i.id AS item_id
@@ -704,14 +718,14 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
        JOIN items i ON i.id = ii.item_id
        WHERE ii.item_id = $1 AND ii.store_id = $2
        FOR UPDATE OF ii`,
-      [sourceItem.id, transfer.to_store_id]
+      [sourceItem.id, destinationStoreId]
     );
     let destItem = destRows[0];
     if (!destItem) {
       const { rows: created } = await client.query(
         `INSERT INTO item_inventory (item_id, store_id, bin, location_id, qty_on_hand, unit_price, min_level, max_level, reorder_level)
          VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8) RETURNING *`,
-        [sourceItem.id, transfer.to_store_id, destinationLocation.code, destinationLocation.id, sourceItem.unit_price, sourceItem.min_level, sourceItem.max_level, sourceItem.reorder_level]
+        [sourceItem.id, destinationStoreId, destinationLocation.code, destinationLocation.id, sourceItem.unit_price, sourceItem.min_level, sourceItem.max_level, sourceItem.reorder_level]
       );
       destItem = { ...created[0], item_id: sourceItem.id };
     }
@@ -725,15 +739,15 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
       destinationBin,
       destinationLocation.id,
       sourceItem.id,
-      transfer.to_store_id
+      destinationStoreId
     ]);
-    if (Number(sourceItem.store_id) === Number(transfer.to_store_id)) {
+    if (Number(sourceItem.store_id) === Number(destinationStoreId)) {
       await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, bin = $3, location_id = $4, updated_at = NOW() WHERE id = $5', [newDestQty, transferUnitPrice, destinationBin, destinationLocation.id, sourceItem.id]);
     }
 
     await addStockLot(client, {
       itemId: sourceItem.id,
-      storeId: transfer.to_store_id,
+      storeId: destinationStoreId,
       receivedDate: transfer.date,
       unitPrice: transferUnitPrice,
       qty: transfer.qty,
@@ -749,14 +763,14 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
       unitPrice: transferUnitPrice,
       balance: newDestQty,
       actorName,
-      storeId: transfer.to_store_id,
+      storeId: destinationStoreId,
       bin: destinationBin,
       sourceType: 'Transfer',
       sourceId: transfer.transfer_ref
     });
     await upsertBinCard(client, {
       bin: destinationBin,
-      storeId: transfer.to_store_id,
+      storeId: destinationStoreId,
       itemId: sourceItem.id,
       delta: Number(transfer.qty),
       date: transfer.date,
