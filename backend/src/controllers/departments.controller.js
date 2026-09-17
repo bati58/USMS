@@ -18,6 +18,13 @@ const SELECT = `
   LEFT JOIN users u ON u.id = d.head_user_id
 `;
 
+async function resolveDepartmentHead(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const { rows } = await query('SELECT id FROM users WHERE id = $1 AND role = $2 AND active = TRUE LIMIT 1', [value, 'Department Head']);
+    if (!rows[0]) throw new AppError('Department Head must be an active Department Head user.', 400);
+    return rows[0].id;
+}
+
 const list = asyncHandler(async (req, res) => {
     const { rows } = await query(`${SELECT} ORDER BY d.name`);
     res.json(rows.map(mapDepartment));
@@ -31,16 +38,17 @@ const getOne = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
     const { code, name, headUserId, active } = req.body;
-    if (!code || !name) throw new AppError('code and name are required.', 400);
+    if (!String(code || '').trim() || !String(name || '').trim()) throw new AppError('code and name are required.', 400);
+    const resolvedHeadUserId = await resolveDepartmentHead(headUserId);
     const { rows } = await query(
         `INSERT INTO departments (code, name, head_user_id, active) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [code, name, headUserId || null, active !== undefined ? active : true]
+        [String(code).trim(), String(name).trim(), resolvedHeadUserId, active !== undefined ? Boolean(active) : true]
     );
 
-    if (headUserId) {
+    if (resolvedHeadUserId) {
         await query(
             `UPDATE users SET department = $1, updated_at = NOW() WHERE id = $2`,
-            [name, headUserId]
+            [String(name).trim(), resolvedHeadUserId]
         );
     }
 
@@ -54,24 +62,29 @@ const update = asyncHandler(async (req, res) => {
     const existing = await query(`${SELECT} WHERE d.id = $1`, [req.params.id]);
     if (!existing.rows[0]) throw new AppError('Department not found.', 404);
 
+    if (code !== undefined && !String(code || '').trim()) throw new AppError('Department code cannot be empty.', 400);
+    if (name !== undefined && !String(name || '').trim()) throw new AppError('Department name cannot be empty.', 400);
     const previousHeadUserId = existing.rows[0].head_user_id;
-    const nextDepartmentName = name || existing.rows[0].name;
+    const nextDepartmentName = name === undefined ? existing.rows[0].name : String(name).trim();
+    const resolvedHeadUserId = await resolveDepartmentHead(headUserId);
+    const headWasProvided = headUserId !== undefined;
 
     const { rows } = await query(
         `UPDATE departments SET code = COALESCE($1, code), name = COALESCE($2, name),
-       head_user_id = COALESCE($3, head_user_id), active = COALESCE($4, active), updated_at = NOW()
-     WHERE id = $5 RETURNING id`,
-        [code, name, headUserId, active, req.params.id]
+             head_user_id = CASE WHEN $3::boolean THEN $4::integer ELSE head_user_id END,
+             active = COALESCE($5, active), updated_at = NOW()
+    WHERE id = $6 RETURNING id`,
+        [code === undefined ? null : String(code).trim(), name === undefined ? null : String(name).trim(), headWasProvided, resolvedHeadUserId, active === undefined ? null : Boolean(active), req.params.id]
     );
 
-    if (headUserId) {
+    if (headWasProvided && resolvedHeadUserId) {
         await query(
             `UPDATE users SET department = $1, updated_at = NOW() WHERE id = $2`,
-            [nextDepartmentName, headUserId]
+            [nextDepartmentName, resolvedHeadUserId]
         );
     }
 
-    if (previousHeadUserId && previousHeadUserId !== headUserId) {
+    if (previousHeadUserId && (!headWasProvided || Number(previousHeadUserId) !== Number(resolvedHeadUserId))) {
         await query(
             `UPDATE users SET department = NULL, updated_at = NOW() WHERE id = $1 AND department = $2`,
             [previousHeadUserId, existing.rows[0].name]

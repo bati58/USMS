@@ -236,6 +236,12 @@ test('supplier master data requires code and name while contact and address rema
     assert.equal(String('').trim() || null, null);
 });
 
+test('department master data requires code and name while head assignment remains optional', () => {
+    assert.equal(String(' DEPT-TEST ').trim(), 'DEPT-TEST');
+    assert.equal(String(' Engineering ').trim(), 'Engineering');
+    assert.equal(null, null);
+});
+
 test('auth store resolver accepts the pg query function contract used in login', async () => {
     const { resolveAssignedStoreName } = require('../src/controllers/auth.controller');
 
