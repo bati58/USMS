@@ -60,7 +60,7 @@ async function consumeFifo(client, itemId, qty, storeId = null) {
 
   const { rows: lots } = await client.query(
     `SELECT id, unit_price, qty_remaining
-     FROM stock_lots
+     FROM stock_lots sl
      WHERE item_id = $1 AND qty_remaining > 0${storeClause}
      ORDER BY received_date ASC, id ASC
      FOR UPDATE`,
