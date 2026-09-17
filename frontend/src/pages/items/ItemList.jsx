@@ -12,7 +12,7 @@ import Badge from '../../components/ui/Badge'
 import { itemService, categoryService, locationService, storeService } from '../../services'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
-import { canPerformAction } from '../../utils/rolePermissions'
+import { canAccessPage, canPerformAction } from '../../utils/rolePermissions'
 import { UNITS } from '../../utils/constants'
 
 const EMPTY_FORM = {
@@ -56,10 +56,11 @@ export default function ItemList() {
   async function load() {
     setLoading(true)
     try {
+      const canViewLocations = canAccessPage(user?.role, '/locations')
       const [itemsData, categoriesData, locationData, storeData] = await Promise.all([
         itemService.listMaster(),
         categoryService.list(),
-        locationService.list(),
+        canViewLocations ? locationService.list() : Promise.resolve([]),
         storeService.list()
       ])
       setItems(itemsData)
