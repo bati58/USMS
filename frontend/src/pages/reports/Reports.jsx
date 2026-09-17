@@ -320,7 +320,7 @@ export default function Reports() {
   const exportCsv = (columns, rows) => {
     const header = columns.map((c) => c.header).join(',')
     const body = rows
-      .map((row) => columns.map((c) => `"${String(c.render ? c.render(row) : row[c.key] || '').replace(/"/g, '""')}"`).join(','))
+      .map((row) => columns.map((c) => `"${String(row[c.key] ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n')
     const blob = new Blob([`${header}\n${body}`], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)

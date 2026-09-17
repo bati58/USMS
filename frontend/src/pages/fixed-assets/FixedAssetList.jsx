@@ -106,7 +106,7 @@ export default function FixedAssetList() {
             }))
           }
         },
-        { name: 'status', label: 'Status', type: 'select', required: true, options: ['In Store', 'Assigned', 'In Use', 'Under Repair', 'Disposed'] },
+        { name: 'status', label: 'Status', type: 'select', required: true, options: ['Registered', 'In Store', 'Assigned', 'In Use', 'Maintenance', 'Under Repair', 'Lost', 'Damaged', 'Disposed'] },
         { name: 'acquisitionDate', label: 'Acquisition Date', type: 'date', required: true, disabled: (form) => Boolean(form.sourceGrnRef) },
         { name: 'value', label: 'Value (Birr)', type: 'number', required: true, placeholder: 'e.g. 85000.00', disabled: (form) => Boolean(form.sourceGrnRef) }
       ]}

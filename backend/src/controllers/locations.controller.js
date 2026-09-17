@@ -109,17 +109,19 @@ const getOne = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
     const { storeId, store, parentId, type, code, name, active } = req.body;
-    if ((!storeId && !store) || !type || !code || !name) {
+    if ((!storeId && !String(store || '').trim()) || !String(type || '').trim() || !String(code || '').trim() || !String(name || '').trim()) {
         throw new AppError('store or storeId, type, code, and name are required.', 400);
     }
     const resolvedStoreId = storeId || await resolveStoreId(store);
     await assertLocationStoreAccess(req.user, resolvedStoreId);
+    const { rows: storeRows } = await query('SELECT active FROM stores WHERE id = $1', [resolvedStoreId]);
+    if (!storeRows[0]?.active) throw new AppError('Locations can only be created under an active store.', 400);
     await validateLocationHierarchy({ storeId: resolvedStoreId, parentId, type });
 
     const { rows } = await query(
         `INSERT INTO locations (store_id, parent_id, type, code, name, active)
       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [resolvedStoreId, parentId || null, type, code, name, active !== undefined ? active : true]
+        [resolvedStoreId, parentId || null, type, String(code).trim(), String(name).trim(), active !== undefined ? Boolean(active) : true]
     );
 
     await logAudit(query, {
@@ -138,6 +140,8 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
     const { parentId, type, code, name, active } = req.body;
+    if (code !== undefined && !String(code || '').trim()) throw new AppError('Location code cannot be empty.', 400);
+    if (name !== undefined && !String(name || '').trim()) throw new AppError('Location name cannot be empty.', 400);
     const { rows: currentRows } = await query('SELECT store_id, parent_id, type FROM locations WHERE id = $1', [req.params.id]);
     if (!currentRows[0]) throw new AppError('Location not found.', 404);
     await assertLocationStoreAccess(req.user, currentRows[0].store_id);
@@ -153,7 +157,7 @@ const update = asyncHandler(async (req, res) => {
        code = COALESCE($3, code), name = COALESCE($4, name),
        active = COALESCE($5, active), updated_at = NOW()
      WHERE id = $6 RETURNING id`,
-        [parentId, type, code, name, active, req.params.id]
+        [parentId, type, code === undefined ? null : String(code).trim(), name === undefined ? null : String(name).trim(), active === undefined ? null : Boolean(active), req.params.id]
     );
     await logAudit(query, {
         userId: req.user.id,

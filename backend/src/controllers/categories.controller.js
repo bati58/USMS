@@ -23,11 +23,11 @@ const getOne = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
   const { code, name, description, active } = req.body;
-  if (!code || !name) throw new AppError('code and name are required.', 400);
+  if (!String(code || '').trim() || !String(name || '').trim()) throw new AppError('code and name are required.', 400);
 
   const { rows } = await query(
     'INSERT INTO categories (code, name, store_id, description, active) VALUES ($1, $2, NULL, $3, $4) RETURNING id',
-    [code, name, description || null, active !== undefined ? active : true]
+    [String(code).trim(), String(name).trim(), String(description || '').trim() || null, active !== undefined ? Boolean(active) : true]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created category ${name}`, module: 'Item Category' });
@@ -38,18 +38,20 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { code, name, description, active } = req.body;
+  if (code !== undefined && !String(code || '').trim()) throw new AppError('Category code cannot be empty.', 400);
+  if (name !== undefined && !String(name || '').trim()) throw new AppError('Category name cannot be empty.', 400);
 
   const { rows } = await query(
     `UPDATE categories SET
        code = COALESCE($1, code), name = COALESCE($2, name),
-       store_id = NULL, description = COALESCE($3, description),
+       store_id = NULL, description = CASE WHEN $3::text IS NULL THEN description ELSE NULLIF($3::text, '') END,
        active = COALESCE($4, active), updated_at = NOW()
      WHERE id = $5 RETURNING id`,
-    [code, name, description, active, req.params.id]
+    [code === undefined ? null : String(code).trim(), name === undefined ? null : String(name).trim(), description === undefined ? null : String(description).trim(), active === undefined ? null : Boolean(active), req.params.id]
   );
   if (!rows[0]) throw new AppError('Category not found.', 404);
 
-  await logAudit(query, { userName: req.user.name, action: `Updated category ${name || ''}`, module: 'Item Category' });
+  await logAudit(query, { userName: req.user.name, action: `Updated category ${name || rows[0].id}`, module: 'Item Category' });
 
   const { rows: full } = await query(`${SELECT} WHERE c.id = $1`, [rows[0].id]);
   res.json(mapCategory(full[0]));

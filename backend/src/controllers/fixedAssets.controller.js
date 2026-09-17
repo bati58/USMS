@@ -10,6 +10,7 @@ const SELECT = `
   FROM fixed_assets fa
   LEFT JOIN stores s ON s.id = fa.store_id
 `;
+const ASSET_STATUSES = ['Registered', 'In Store', 'Assigned', 'In Use', 'Maintenance', 'Under Repair', 'Lost', 'Damaged', 'Disposed'];
 
 const list = asyncHandler(async (req, res) => {
   const visibility = await getUserStoreVisibility(req.user, { query });
@@ -34,6 +35,9 @@ const getOne = asyncHandler(async (req, res) => {
 const create = asyncHandler(async (req, res) => {
   const { assetTag, name, category, assignedTo, status, acquisitionDate, value, sourceGrnRef } = req.body;
   if (!sourceGrnRef || !assignedTo) throw new AppError('sourceGrnRef and assignedTo are required.', 400);
+  if (status !== undefined && status !== null && !ASSET_STATUSES.includes(status)) {
+    throw new AppError(`Invalid fixed asset status: ${status}.`, 400);
+  }
   if (value !== undefined && value !== null && value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
     throw new AppError('Asset value must be a valid non-negative number.', 400);
   }
@@ -76,6 +80,9 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
   const { assetTag, name, category, store, assignedTo, status, acquisitionDate, value } = req.body;
+  if (status !== undefined && status !== null && !ASSET_STATUSES.includes(status)) {
+    throw new AppError(`Invalid fixed asset status: ${status}.`, 400);
+  }
   if (value !== undefined && value !== null && value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
     throw new AppError('Asset value must be a valid non-negative number.', 400);
   }

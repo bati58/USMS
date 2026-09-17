@@ -4,6 +4,8 @@ const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
 const { assertUserCanAccessStoreRecord } = require('./_helpers');
 
+const CUSTODY_STATUSES = ['In Use', 'Maintenance', 'Lost', 'Damaged', 'Returned'];
+
 const SELECT = `
     SELECT uc.*, i.name AS item_name, u.name AS current_user_name
   FROM user_cards uc
@@ -81,13 +83,16 @@ const create = asyncHandler(async (req, res) => {
     if (!user || !item || !issueRef || !issueDate || !qty) {
         throw new AppError('user, item, issueRef, issueDate, and qty are required.', 400);
     }
+    if (!CUSTODY_STATUSES.includes(status)) throw new AppError(`Invalid custody status: ${status}.`, 400);
+    if (status === 'Returned' && !returnedDate) throw new AppError('A returned date is required when closing a custody card.', 400);
+    if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) throw new AppError('Custody quantity must be greater than zero.', 400);
     const { rows: userRows } = await query(
         `SELECT id, name, department FROM users WHERE name = $1 AND active = TRUE LIMIT 1`,
         [user]
     );
     if (!userRows[0]) throw new AppError('The custody recipient must be an active system user.', 400);
     const { rows: voucherRows } = await query(
-        `SELECT iv.id, i.id AS item_id, r.store_id
+        `SELECT iv.id, i.id AS item_id, ivi.qty AS issued_qty, r.store_id
          FROM issue_vouchers iv
          JOIN issue_voucher_items ivi ON ivi.issue_voucher_id = iv.id
          JOIN items i ON i.id = ivi.item_id
@@ -98,6 +103,16 @@ const create = asyncHandler(async (req, res) => {
     );
     if (!voucherRows[0]) {
         throw new AppError('User material cards must be created from a posted issue voucher with sufficient issued quantity.', 400);
+    }
+    const { rows: assignedRows } = await query(
+        `SELECT COALESCE(SUM(qty), 0) AS assigned_qty
+         FROM user_cards
+         WHERE issue_ref = $1 AND item_id = $2 AND status <> 'Returned'`,
+        [issueRef, voucherRows[0].item_id]
+    );
+    const remainingQty = Number(voucherRows[0].issued_qty || 0) - Number(assignedRows[0]?.assigned_qty || 0);
+    if (Number(qty) > remainingQty) {
+        throw new AppError(`Only ${Math.max(0, remainingQty)} unit(s) remain available for custody from ${issueRef}.`, 400);
     }
     await assertUserCanAccessStoreRecord(req.user, voucherRows[0].store_id, { query });
     const itemId = voucherRows[0].item_id;
@@ -114,6 +129,7 @@ const create = asyncHandler(async (req, res) => {
 
 const update = asyncHandler(async (req, res) => {
     const { status, returnedDate, notes } = req.body;
+    if (status !== undefined && !CUSTODY_STATUSES.includes(status)) throw new AppError(`Invalid custody status: ${status}.`, 400);
     if (status === 'Returned' && !returnedDate) throw new AppError('A returned date is required when closing a custody card.', 400);
     await assertCardStoreAccess(req.user, req.params.id, { query });
     const { rows } = await query(

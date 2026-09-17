@@ -43,11 +43,14 @@ const verify = asyncHandler(async (req, res) => {
         });
 
         if (req.params.resource === 'goods-receipts') {
+            const nextActionMessage = ['Submitted', 'Store Head Review'].includes(currentRows[0].status)
+                ? ' It can proceed to the next receiving workflow step.'
+                : '';
             await notify(client, {
                 role: 'Store Head',
                 storeId: currentRows[0].store_id,
                 title: 'Gate verification completed',
-                message: `${rows[0].reference} was verified at the gate and can proceed to Store Head review.`,
+                message: `${rows[0].reference} was verified at the gate.${nextActionMessage}`,
                 type: 'success',
                 route: '/goods-receipt',
                 entityType: 'goods_receipt',

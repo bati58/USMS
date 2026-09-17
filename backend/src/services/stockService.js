@@ -952,27 +952,39 @@ async function postStockTaking(client, { sessionId, actorName }) {
   const session = rows[0];
   if (!session) throw new AppError('Stock-taking session not found.', 404);
   if (session.status !== 'Approved') throw new AppError(`Only an approved stock-taking session can be posted; current status is ${session.status}.`, 409);
-  const { rows: lines } = await client.query('SELECT sti.*, i.name, i.bin, i.store_id, i.unit_price FROM stock_taking_items sti JOIN items i ON i.id = sti.item_id WHERE sti.session_id = $1 FOR UPDATE', [sessionId]);
+  const { rows: lines } = await client.query(
+    `SELECT sti.*, i.name, i.unit, i.store_id AS legacy_store_id,
+            ii.bin, ii.store_id, ii.unit_price
+     FROM stock_taking_items sti
+     JOIN items i ON i.id = sti.item_id
+     JOIN stock_taking_sessions sts ON sts.id = sti.session_id
+     JOIN item_inventory ii ON ii.item_id = sti.item_id AND ii.store_id = sts.store_id
+     WHERE sti.session_id = $1 FOR UPDATE OF sti, ii`,
+    [sessionId]
+  );
   if (lines.some((line) => line.physical_qty == null)) {
     throw new AppError('Every item must have a physical count before the session can be posted.', 400);
   }
   const { nextRef } = require('../utils/refGenerator');
   for (const line of lines) {
-    const item = await getItemForUpdate(client, line.item_id);
+    const item = await getItemForUpdate(client, line.item_id, session.store_id);
     const countedQty = line.recount_physical_qty == null ? Number(line.physical_qty) : Number(line.recount_physical_qty);
     const variance = countedQty - Number(item.qty_on_hand);
     if (Math.abs(variance) < 0.0001) continue;
     if (!line.reason) throw new AppError(`A reason is required for the variance on "${line.name}".`, 400);
     const reference = session.session_ref;
     if (variance > 0) {
-      await addStockLot(client, { itemId: item.id, receivedDate: session.count_date, unitPrice: item.unit_price, qty: variance, sourceRef: reference });
+      await addStockLot(client, { itemId: item.id, storeId: session.store_id, receivedDate: session.count_date, unitPrice: item.unit_price, qty: variance, sourceRef: reference });
     } else {
-      await consumeFifo(client, item.id, Math.abs(variance));
+      await consumeFifo(client, item.id, Math.abs(variance), session.store_id);
     }
     const newQty = Number(item.qty_on_hand) + variance;
-    await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
-    await insertStockTransaction(client, { itemId: item.id, date: session.count_date, type: 'Adjustment', ref: reference, qtyIn: variance > 0 ? variance : 0, qtyOut: variance < 0 ? Math.abs(variance) : 0, unitPrice: item.unit_price, balance: newQty, actorName, storeId: item.store_id, bin: line.bin || item.bin, reason: line.reason, sourceType: 'Stock Taking', sourceId: String(sessionId) });
-    await upsertBinCard(client, { bin: line.bin || item.bin, storeId: item.store_id, itemId: item.id, delta: variance, date: session.count_date, reference, type: 'Adjustment', actorName, reason: line.reason });
+    await client.query('UPDATE item_inventory SET qty_on_hand = $1, updated_at = NOW() WHERE item_id = $2 AND store_id = $3', [newQty, item.id, session.store_id]);
+    if (Number(line.legacy_store_id) === Number(session.store_id)) {
+      await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
+    }
+    await insertStockTransaction(client, { itemId: item.id, date: session.count_date, type: 'Adjustment', ref: reference, qtyIn: variance > 0 ? variance : 0, qtyOut: variance < 0 ? Math.abs(variance) : 0, unitPrice: item.unit_price, balance: newQty, actorName, storeId: session.store_id, bin: line.bin || item.bin, reason: line.reason, sourceType: 'Stock Taking', sourceId: String(sessionId) });
+    await upsertBinCard(client, { bin: line.bin || item.bin, storeId: session.store_id, itemId: item.id, delta: variance, date: session.count_date, reference, type: 'Adjustment', actorName, reason: line.reason });
     await client.query('UPDATE stock_taking_items SET adjustment_ref = $1 WHERE id = $2', [reference, line.id]);
   }
   await client.query("UPDATE stock_taking_sessions SET status = 'Closed', closed_by = $1, closed_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, sessionId]);
@@ -1010,14 +1022,20 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
   const executedStatus = disposal.status === 'Ready for Disposal' ? 'Disposed' : 'Executed';
   assertTransition('disposal', disposal.status, executedStatus);
 
-  const item = await getItemForUpdate(client, disposal.item_id);
+  const item = await getItemForUpdate(client, disposal.item_id, disposal.store_id);
   if (Number(item.qty_on_hand) < Number(disposal.qty)) {
     throw new AppError('Not enough stock on hand to dispose of this quantity.', 400);
   }
 
-  const fifoUnitPrice = await consumeFifo(client, item.id, disposal.qty);
+  const fifoUnitPrice = await consumeFifo(client, item.id, disposal.qty, disposal.store_id);
   const newQty = Number(item.qty_on_hand) - Number(disposal.qty);
-  await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
+  await client.query(
+    'UPDATE item_inventory SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE item_id = $3 AND store_id = $4',
+    [newQty, fifoUnitPrice, item.id, disposal.store_id]
+  );
+  if (Number(item.store_id) === Number(disposal.store_id)) {
+    await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE id = $3', [newQty, fifoUnitPrice, item.id]);
+  }
 
   await insertStockTransaction(client, {
     itemId: item.id,
@@ -1028,7 +1046,7 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
     unitPrice: fifoUnitPrice,
     balance: newQty,
     actorName,
-    storeId: item.store_id,
+    storeId: disposal.store_id,
     bin: item.bin,
     sourceType: 'Disposal',
     sourceId: disposal.disposal_ref
@@ -1036,7 +1054,7 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
 
   await upsertBinCard(client, {
     bin: item.bin,
-    storeId: item.store_id,
+    storeId: disposal.store_id,
     itemId: item.id,
     delta: -Number(disposal.qty),
     date: disposal.date_flagged,

@@ -143,7 +143,13 @@ const create = asyncHandler(async (req, res) => {
         for (const line of items) {
             const itemId = await resolveItemId(line.item, client, storeId);
             if (!itemId) throw new AppError(`Unknown item: "${line.item}".`, 400);
-            const { rows: stockRows } = await client.query('SELECT qty_on_hand, store_id, bin FROM items WHERE id = $1 AND store_id = $2', [itemId, storeId]);
+            const { rows: stockRows } = await client.query(
+                `SELECT ii.qty_on_hand, ii.bin, i.store_id
+                 FROM item_inventory ii
+                 JOIN items i ON i.id = ii.item_id
+                 WHERE ii.item_id = $1 AND ii.store_id = $2`,
+                [itemId, storeId]
+            );
             if (!stockRows[0]) throw new AppError(`Item "${line.item}" does not belong to the selected store.`, 400);
             const systemQty = Number(stockRows[0].qty_on_hand);
             await client.query(
@@ -153,6 +159,15 @@ const create = asyncHandler(async (req, res) => {
             );
         }
         await logAudit(client, { userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: `Created stock-taking session ${sessionRef}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: rows[0].id, entityReference: sessionRef });
+        await notify(client, {
+            userId: assignedUsers[0].id,
+            title: 'Stock-taking session assigned',
+            message: `${sessionRef} was assigned to you for physical counting at ${store}.`,
+            type: 'info',
+            route: '/stock-taking',
+            entityType: 'stock-taking-session',
+            entityId: rows[0].id
+        });
         return fetchSession(rows[0].id, client);
     });
     res.status(201).json(result);
@@ -347,8 +362,8 @@ const reconciliation = asyncHandler(async (req, res) => {
     }
 
     const { rows } = await query(`
-    SELECT st.session_ref, st.count_date, st.status, s.name AS store, i.name AS item,
-           sti.bin, sti.system_qty,
+        SELECT st.session_ref, st.count_date, st.status, s.name AS store, i.name AS item,
+            sti.bin, sti.system_qty,
            COALESCE(sti.recount_physical_qty, sti.physical_qty) AS physical_qty,
            COALESCE(sti.recount_physical_qty, sti.physical_qty) - sti.system_qty AS variance,
            sti.reason, sti.adjustment_ref
@@ -356,7 +371,8 @@ const reconciliation = asyncHandler(async (req, res) => {
     JOIN stock_taking_sessions st ON st.id = sti.session_id
     JOIN stores s ON s.id = st.store_id
     JOIN items i ON i.id = sti.item_id
-    WHERE COALESCE(sti.recount_physical_qty, sti.physical_qty) - sti.system_qty <> 0${scope}
+        WHERE st.status NOT IN ('Draft', 'Scheduled', 'In Progress', 'Recount Required')
+            AND COALESCE(sti.recount_physical_qty, sti.physical_qty) - sti.system_qty <> 0${scope}
     ORDER BY st.count_date DESC, sti.id DESC
   `, params);
     res.json(rows.map((row) => ({ ...row, systemQty: Number(row.system_qty), physicalQty: Number(row.physical_qty), variance: Number(row.variance) })));

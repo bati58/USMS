@@ -147,8 +147,21 @@ const update = asyncHandler(async (req, res) => {
   const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked, expiryDate, batchNo, condition } = req.body;
   const categoryId = category !== undefined ? await resolveCategoryId(category) : undefined;
   const storeId = store !== undefined ? await resolveStoreId(store) : undefined;
-  const { rows: currentRows } = await query('SELECT store_id, location_id FROM items WHERE id = $1', [req.params.id]);
+  const { rows: currentRows } = await query('SELECT * FROM items WHERE id = $1', [req.params.id]);
   if (!currentRows[0]) throw new AppError('Item not found.', 404);
+  validateItemFields({
+    code: code === undefined ? currentRows[0].code : code,
+    name: name === undefined ? currentRows[0].name : name,
+    category: category === undefined ? 'existing' : category,
+    unit: unit === undefined ? currentRows[0].unit : unit,
+    minLevel: minLevel === undefined ? currentRows[0].min_level : minLevel,
+    maxLevel: maxLevel === undefined ? currentRows[0].max_level : maxLevel,
+    reorderLevel: reorderLevel === undefined ? currentRows[0].reorder_level : reorderLevel,
+    unitPrice: unitPrice === undefined ? currentRows[0].unit_price : unitPrice,
+    expiryTracked: expiryTracked === undefined ? currentRows[0].expiry_tracked : expiryTracked,
+    expiryDate: expiryDate === undefined ? currentRows[0].expiry_date : expiryDate,
+    condition
+  });
   await assertItemStoreAccess(req.user, currentRows[0].store_id);
   const nextStoreId = storeId === undefined ? currentRows[0].store_id : storeId;
   await assertItemStoreAccess(req.user, nextStoreId);
@@ -165,8 +178,9 @@ const update = asyncHandler(async (req, res) => {
     ? currentRows[0].location_id
     : await resolveLocationId(locationId, nextStoreId);
   const { rows: locationRows } = resolvedLocationId
-    ? await query('SELECT code FROM locations WHERE id = $1', [resolvedLocationId])
+    ? await query('SELECT code, type FROM locations WHERE id = $1', [resolvedLocationId])
     : { rows: [] };
+  if (locationRows[0] && locationRows[0].type !== 'BIN') throw new AppError('Items must be assigned to a BIN location.', 400);
 
   const { rows } = await query(
     `UPDATE items SET
@@ -184,6 +198,17 @@ const update = asyncHandler(async (req, res) => {
     [code, name, categoryId, storeId, locationRows[0]?.code || bin, resolvedLocationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked, expiryDate, batchNo, condition, req.params.id]
   );
   if (!rows[0]) throw new AppError('Item not found.', 404);
+
+  await query(
+    `UPDATE item_inventory SET
+       location_id = COALESCE($1, location_id), bin = COALESCE($2, bin), unit = COALESCE($3, unit),
+       min_level = COALESCE($4, min_level), max_level = COALESCE($5, max_level), reorder_level = COALESCE($6, reorder_level),
+       unit_price = COALESCE($7, unit_price), expiry_tracked = COALESCE($8, expiry_tracked),
+       expiry_date = CASE WHEN COALESCE($8, expiry_tracked) THEN COALESCE($9, expiry_date) ELSE NULL END,
+       batch_no = COALESCE($10, batch_no), item_condition = COALESCE($11, item_condition), updated_at = NOW()
+     WHERE item_id = $12 AND store_id = $13`,
+    [resolvedLocationId, locationRows[0]?.code || bin, unit, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked, expiryDate, batchNo, condition, req.params.id, currentRows[0].store_id]
+  );
 
   await logAudit(query, { userName: req.user.name, action: `Updated item ${name || rows[0].id}`, module: 'Items & Locations' });
 

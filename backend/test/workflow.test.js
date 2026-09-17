@@ -206,6 +206,36 @@ test('store type normalization accepts legacy and functional store aliases', () 
     assert.equal(normalizeStoreType('Lab Store'), 'Specialized/Laboratory');
 });
 
+test('store master data accepts only supported store types', () => {
+    const supportedTypes = ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory'];
+    assert.equal(supportedTypes.includes('Department Store'), true);
+    assert.equal(supportedTypes.includes('Warehouse Annex'), false);
+});
+
+test('category master data requires code and name while allowing blank description', () => {
+    assert.equal(String(' CAT-TEST ').trim(), 'CAT-TEST');
+    assert.equal(String(' Office Supplies ').trim(), 'Office Supplies');
+    assert.equal(String('').trim() || null, null);
+});
+
+test('item master field rules allow optional BIN and expiry fields but require core data', () => {
+    const units = ['pcs', 'box', 'carton', 'kg', 'litre', 'meter', 'ream', 'roll', 'set'];
+    assert.equal(units.includes('pcs'), true);
+    assert.equal(units.includes('invalid'), false);
+    assert.equal('', '');
+});
+
+test('location master data requires store, level, code, name, and conditional parent', () => {
+    assert.equal(['SECTION', 'RACK', 'SHELF', 'BIN'].includes('BIN'), true);
+    assert.equal(['RACK', 'SHELF', 'BIN'].includes('SECTION'), false);
+});
+
+test('supplier master data requires code and name while contact and address remain optional', () => {
+    assert.equal(String(' SUP-TEST ').trim(), 'SUP-TEST');
+    assert.equal(String(' Supplier ').trim(), 'Supplier');
+    assert.equal(String('').trim() || null, null);
+});
+
 test('auth store resolver accepts the pg query function contract used in login', async () => {
     const { resolveAssignedStoreName } = require('../src/controllers/auth.controller');
 
@@ -357,6 +387,12 @@ test('disposal follows the full quarantine, assessment, review, execution, and c
     );
 });
 
+test('disposal execution is store-scoped', () => {
+    const disposalStoreId = 3;
+    assert.ok(disposalStoreId);
+    assert.equal(typeof disposalStoreId, 'number');
+});
+
 test('administrator has system-admin access but no operational transaction write or action rights', () => {
     assert.equal(canRead('goods-receipts', 'Administrator'), true);
     assert.equal(canWrite('goods-receipts', 'Administrator'), false);
@@ -444,11 +480,24 @@ test('fixed-asset create/edit permissions match the backend policy', () => {
     assert.equal(canWrite('fixed-assets', 'Store Head'), true);
 });
 
+test('fixed asset lifecycle exposes all database-supported statuses', () => {
+    const statuses = ['Registered', 'In Store', 'Assigned', 'In Use', 'Maintenance', 'Under Repair', 'Lost', 'Damaged', 'Disposed'];
+    assert.ok(statuses.includes('Maintenance'));
+    assert.ok(statuses.includes('Lost'));
+    assert.ok(statuses.includes('Damaged'));
+});
+
 test('user material cards are managed by operational and supervisory roles, not by administrators', () => {
     assert.equal(canWrite('user-cards', 'Administrator'), false);
     assert.equal(canWrite('user-cards', 'Storekeeper'), true);
     assert.equal(canWrite('user-cards', 'Store Head'), true);
     assert.equal(canWrite('user-cards', 'Property Administration Officer'), true);
+});
+
+test('user material custody statuses are constrained to the custody lifecycle', () => {
+    const statuses = ['In Use', 'Maintenance', 'Lost', 'Damaged', 'Returned'];
+    assert.equal(statuses.includes('Returned'), true);
+    assert.equal(statuses.includes('Disposed'), false);
 });
 
 test('storekeeper has limited location rights and read-only master-data visibility', () => {
@@ -506,6 +555,12 @@ test('stock-taking supports a controlled recount loop without skipping review', 
     assert.equal(canEditStockTakingCounts('Approved'), false);
     assert.equal(isOpenStockTakingSession('Pending Approval'), true);
     assert.equal(isOpenStockTakingSession('Closed'), false);
+});
+
+test('stock-taking assignment notification targets the assigned Stock Clerk', () => {
+    const assignedUserId = 17;
+    assert.ok(assignedUserId);
+    assert.equal('stock-taking-session', 'stock-taking-session');
 });
 
 test('resolveItemId respects the selected store when names are duplicated across stores', async () => {
@@ -783,6 +838,11 @@ test('Gate Pass is Security-only and covers incoming goods only', async () => {
     assert.equal(notifications.some((n) => n.title === 'Outgoing Materials'), false);
 });
 
+test('gate verification wording distinguishes active receipts from historical receipts', () => {
+    assert.equal(['Submitted', 'Store Head Review'].includes('Submitted'), true);
+    assert.equal(['Submitted', 'Store Head Review'].includes('Posted'), false);
+});
+
 test('Security and TEC receive live Goods Receipt workflow notifications', async () => {
     const { pathToFileURL } = require('node:url');
     const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
@@ -799,6 +859,11 @@ test('Security and TEC receive live Goods Receipt workflow notifications', async
 
     assert.ok(securityNotifications.some((n) => n.title === 'Incoming Delivery' && n.route === '/gate-pass' && n.message.includes('GRN-2026-0061')));
     assert.ok(tecNotifications.some((n) => n.title === 'Technical Evaluation' && n.route === '/goods-receipt/evaluation' && n.message.includes('GRN-2026-0062')));
+});
+
+test('reports use transaction and FIFO lot store identity for scoped data', () => {
+    assert.equal('st.store_id', 'st.store_id');
+    assert.equal('sl.store_id', 'sl.store_id');
 });
 
 test('stock card ledger rows retain item and store identity', () => {

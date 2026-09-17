@@ -131,14 +131,14 @@ const stockMovement = asyncHandler(async (req, res) => {
     params.push(item);
     conditions.push(`i.name = $${params.length}`);
   }
-  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
+  await addStoreScope(req, conditions, params, 'st.store_id = ANY(?::int[])');
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await query(
     `SELECT st.date, i.name AS item, st.type, st.ref, st.qty_in, st.qty_out, st.balance
      FROM stock_transactions st
      JOIN items i ON i.id = st.item_id
-     JOIN stores s ON s.id = i.store_id
+    JOIN stores s ON s.id = st.store_id
      ${where}
      ORDER BY st.date DESC, st.id DESC`,
     params
@@ -394,7 +394,7 @@ const issueStatus = asyncHandler(async (req, res) => {
 const returnStatus = asyncHandler(async (req, res) => {
   const params = [];
   const conditions = dateConditions('mr.date', req.query, params);
-  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
+  await addStoreScope(req, conditions, params, 'mr.store_id = ANY(?::int[])');
   const departmentScope = scopeForDepartmentHead(req, 'mr.department');
   if (departmentScope) {
     params.push(departmentScope.value);
@@ -483,13 +483,14 @@ const disposalStatus = asyncHandler(async (req, res) => {
 const fifoValuation = asyncHandler(async (req, res) => {
   const conditions = ['sl.qty_remaining > 0'];
   const params = [];
-  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
+  await addStoreScope(req, conditions, params, 'sl.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT i.code, i.name, i.unit, sl.unit_price, sl.qty_remaining,
            (sl.unit_price * sl.qty_remaining) AS lot_value,
            sl.received_date, sl.source_ref
     FROM stock_lots sl
     JOIN items i ON i.id = sl.item_id
+    JOIN stores s ON s.id = sl.store_id
     WHERE ${conditions.join(' AND ')}
     ORDER BY i.name, sl.received_date ASC
   `, params);

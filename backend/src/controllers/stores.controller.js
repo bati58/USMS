@@ -40,6 +40,8 @@ function normalizeStoreType(value) {
   return normalized;
 }
 
+const STORE_TYPES = ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory'];
+
 async function resolveEligibleAssignment(value, role) {
   if (value === null || value === undefined || value === '') return null;
 
@@ -169,8 +171,11 @@ const hasStorekeeperColumn = async () => {
 
 const create = asyncHandler(async (req, res) => {
   const { name, code, type, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
-  if (!name || !code || !type) throw new AppError('name, code, and type are required.', 400);
+  if (!String(name || '').trim() || !String(code || '').trim() || !type || !String(headOfStore || '').trim()) {
+    throw new AppError('name, code, type, and an active Store Head are required.', 400);
+  }
   const normalizedType = normalizeStoreType(type);
+  if (!STORE_TYPES.includes(normalizedType)) throw new AppError(`Invalid store type: ${type}.`, 400);
   await resolveEligibleAssignment(headOfStore, 'Store Head');
   await resolveEligibleAssignment(storekeeper, 'Storekeeper');
   const headName = await resolveEligibleAssignmentName(headOfStore, 'Store Head');
@@ -182,7 +187,7 @@ const create = asyncHandler(async (req, res) => {
     const { rows } = await query(
       `INSERT INTO stores (name, code, type, department, location, head_of_store, storekeeper, description, contact_info, active)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [name, code, normalizedType, department || null, location || null, headName, storekeeperName, description || null, contactInfo || null, active !== undefined ? active : true]
+      [String(name).trim(), String(code).trim(), normalizedType, department?.trim() || null, location?.trim() || null, headName, storekeeperName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
     );
 
     await logAudit(query, { userName: req.user.name, action: `Created store ${name}`, module: 'Store Management' });
@@ -193,7 +198,7 @@ const create = asyncHandler(async (req, res) => {
   const { rows } = await query(
     `INSERT INTO stores (name, code, type, department, location, head_of_store, description, contact_info, active)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [name, code, normalizedType, department || null, location || null, headName, description || null, contactInfo || null, active !== undefined ? active : true]
+    [String(name).trim(), String(code).trim(), normalizedType, department?.trim() || null, location?.trim() || null, headName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created store ${name}`, module: 'Store Management' });
@@ -204,6 +209,7 @@ const create = asyncHandler(async (req, res) => {
 const update = asyncHandler(async (req, res) => {
   const { name, code, type, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
   const normalizedType = normalizeStoreType(type);
+  if (type !== undefined && !STORE_TYPES.includes(normalizedType)) throw new AppError(`Invalid store type: ${type}.`, 400);
   const hasColumn = await hasStorekeeperColumn();
   await resolveEligibleAssignment(headOfStore, 'Store Head');
   await resolveEligibleAssignment(storekeeper, 'Storekeeper');

@@ -39,6 +39,8 @@ export default function ReconciliationList() {
         const variant = {
             'Draft': 'default',
             'Submitted': 'warning',
+            'Under Review': 'warning',
+            'Pending Approval': 'warning',
             'Approved': 'info',
             'Closed': 'success'
         }[status] || 'default'
@@ -58,6 +60,7 @@ export default function ReconciliationList() {
             width: '12%',
             render: (row) => getVarianceStatus(row.variance)
         },
+        { key: 'status', header: 'Session Status', width: '12%', render: (row) => getStatusBadge(row.status) },
         { key: 'reason', header: 'Reason', width: '16%', render: (row) => row.reason ? <span className="text-sm">{row.reason}</span> : '-' }
     ]
 
@@ -71,9 +74,9 @@ export default function ReconciliationList() {
         const rows = data.map(row =>
             columns.map(col => {
                 const val = row[col.key]
-                if (col.key === 'variance') return val
+                if (col.key === 'variance') return Number(row.variance).toFixed(2)
                 if (col.key === 'systemQty' || col.key === 'physicalQty') return Number(val).toFixed(2)
-                return val || ''
+                return String(val ?? '').replaceAll('"', '""')
             })
         )
 
