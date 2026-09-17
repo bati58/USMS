@@ -38,7 +38,7 @@ import {
   disposalService,
   fixedAssetService,
   goodsReceiptService,
-  itemService,
+  itemInventoryService,
   materialReturnService,
   materialTransferService,
   reconciliationService,
@@ -66,7 +66,7 @@ const MAX_APPROVAL_ROWS = 6
 // 1:1 to the state setters below, so a role only pays for the data it renders.
 const DASHBOARD_DATA_BY_ROLE = {
   [ROLES.ADMIN]: {
-    items: itemService,
+    items: itemInventoryService,
     grns: goodsReceiptService,
     reqs: requisitionService,
     returns: materialReturnService,
@@ -77,7 +77,7 @@ const DASHBOARD_DATA_BY_ROLE = {
     audit: auditService
   },
   [ROLES.PAO]: {
-    items: itemService,
+    items: itemInventoryService,
     grns: goodsReceiptService,
     reqs: requisitionService,
     vouchers: issueVoucherService,
@@ -88,14 +88,14 @@ const DASHBOARD_DATA_BY_ROLE = {
     audit: auditService
   },
   [ROLES.STORE_HEAD]: {
-    items: itemService,
+    items: itemInventoryService,
     grns: goodsReceiptService,
     reqs: requisitionService,
     vouchers: issueVoucherService,
     transactions: stockTransactionService
   },
   [ROLES.STOREKEEPER]: {
-    items: itemService,
+    items: itemInventoryService,
     grns: goodsReceiptService,
     reqs: requisitionService,
     returns: materialReturnService,
@@ -104,7 +104,7 @@ const DASHBOARD_DATA_BY_ROLE = {
     vouchers: issueVoucherService
   },
   [ROLES.STOCK_CLERK]: {
-    items: itemService,
+    items: itemInventoryService,
     transactions: stockTransactionService,
     reconciliation: reconciliationService,
     stockTaking: stockTakingService
@@ -113,13 +113,13 @@ const DASHBOARD_DATA_BY_ROLE = {
     grns: goodsReceiptService
   },
   [ROLES.DEPT_HEAD]: {
-    items: itemService,
+    items: itemInventoryService,
     reqs: requisitionService,
     returns: materialReturnService,
     userCards: userCardService
   },
   [ROLES.ACCOUNTANT]: {
-    items: itemService,
+    items: itemInventoryService,
     grns: goodsReceiptService,
     vouchers: issueVoucherService,
     returns: materialReturnService,
@@ -312,7 +312,7 @@ export default function Dashboard() {
     [grns]
   )
   const grnsHistory = useMemo(
-    () => grns.filter((g) => [GRN_STATUS.ACCEPTED, GRN_STATUS.PARTIALLY_ACCEPTED, GRN_STATUS.REJECTED, GRN_STATUS.GRN_GENERATED].includes(g.status)),
+    () => grns.filter((g) => Boolean(g.evaluatedBy) || [GRN_STATUS.ACCEPTED, GRN_STATUS.PARTIALLY_ACCEPTED, GRN_STATUS.REJECTED, GRN_STATUS.GRN_GENERATED, GRN_STATUS.POSTED].includes(g.status)),
     [grns]
   )
 
@@ -512,7 +512,7 @@ export default function Dashboard() {
 
   // ---- Gate movement (Security) ----
   const gateEligibleIncoming = useMemo(
-    () => grns.filter((g) => g.status === GRN_STATUS.GRN_GENERATED),
+    () => grns.filter((g) => ['Submitted', GRN_STATUS.STORE_HEAD_REVIEW, GRN_STATUS.PENDING_EVAL, GRN_STATUS.UNDER_EVAL, GRN_STATUS.ACCEPTED, GRN_STATUS.PARTIALLY_ACCEPTED, GRN_STATUS.GRN_GENERATED, GRN_STATUS.POSTED].includes(g.status)),
     [grns]
   )
   const rejectedGateDocuments = useMemo(

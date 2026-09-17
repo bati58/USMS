@@ -57,13 +57,46 @@ async function assertItemStoreAccess(user, storeId) {
 }
 
 const list = asyncHandler(async (req, res) => {
-  if (req.query.catalog === 'requisition' && req.user?.role === 'Storekeeper') {
-    const { rows } = await query(`${SELECT} JOIN stores main_store ON main_store.id = i.store_id WHERE main_store.type = 'Main Store' AND main_store.active = TRUE ORDER BY i.id`);
+  if (req.query.catalog === 'master' || req.query.catalog === 'requisition') {
+    const { rows } = await query(`${SELECT} ORDER BY i.id`);
     return res.json(rows.map(mapItem));
+  }
+  if (req.query.inventory === 'true') {
+    const { rows } = await query(`
+      SELECT i.*, ii.store_id AS inventory_store_id, ii.bin AS inventory_bin,
+             ii.location_id AS inventory_location_id, ii.qty_on_hand AS inventory_qty_on_hand,
+             ii.unit_price AS inventory_unit_price, ii.min_level AS inventory_min_level,
+             ii.max_level AS inventory_max_level, ii.reorder_level AS inventory_reorder_level,
+             ii.expiry_tracked AS inventory_expiry_tracked, ii.expiry_date AS inventory_expiry_date,
+             ii.batch_no AS inventory_batch_no, ii.item_condition AS inventory_condition,
+             c.name AS category_name, s.name AS store_name,
+             l.name AS location_name, l.code AS location_code
+      FROM item_inventory ii
+      JOIN items i ON i.id = ii.item_id
+      LEFT JOIN categories c ON c.id = i.category_id
+      JOIN stores s ON s.id = ii.store_id
+      LEFT JOIN locations l ON l.id = ii.location_id
+      ORDER BY i.name, s.name
+    `);
+    return res.json(rows.map((row) => mapItem({
+      ...row,
+      store_id: row.inventory_store_id,
+      bin: row.inventory_bin,
+      location_id: row.inventory_location_id,
+      qty_on_hand: row.inventory_qty_on_hand,
+      unit_price: row.inventory_unit_price,
+      min_level: row.inventory_min_level,
+      max_level: row.inventory_max_level,
+      reorder_level: row.inventory_reorder_level,
+      expiry_tracked: row.inventory_expiry_tracked,
+      expiry_date: row.inventory_expiry_date,
+      batch_no: row.inventory_batch_no,
+      item_condition: row.inventory_condition
+    })));
   }
   const scope = await getItemStoreScope(req.user);
   const params = scope === null ? [] : [scope];
-  const where = scope === null ? '' : ' WHERE i.store_id = ANY($1::int[])';
+  const where = scope === null ? '' : ' WHERE EXISTS (SELECT 1 FROM item_inventory ii_scope WHERE ii_scope.item_id = i.id AND ii_scope.store_id = ANY($1::int[]))';
   const { rows } = await query(`${SELECT}${where} ORDER BY i.id`, params);
   res.json(rows.map(mapItem));
 });
@@ -76,27 +109,32 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { code, name, category, store, bin, locationId, unit, minLevel, maxLevel, reorderLevel, qtyOnHand, unitPrice, expiryTracked = false, expiryDate, batchNo, condition } = req.body;
-  if (!code || !name || !store || !unit || !locationId) {
-    throw new AppError('code, name, store, unit, and a BIN location are required.', 400);
+  const { code, name, category, locationId, unit, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked = false, expiryDate, batchNo, condition } = req.body;
+  if (!code || !name || !unit) {
+    throw new AppError('code, name, and unit are required for an item master record.', 400);
   }
 
   const categoryId = await resolveCategoryId(category);
-  const storeId = await resolveStoreId(store);
-  await assertItemStoreAccess(req.user, storeId);
-  if (categoryId) {
-    const { rows: categoryRows } = await query('SELECT store_id FROM categories WHERE id = $1', [categoryId]);
-    if (categoryRows[0]?.store_id && String(categoryRows[0].store_id) !== String(storeId)) {
-      throw new AppError('Category must belong to the selected store.', 400);
-    }
+  const { rows: mainStores } = await query("SELECT id FROM stores WHERE type = 'Main Store' AND active = TRUE ORDER BY id LIMIT 1");
+  if (!mainStores[0]) throw new AppError('A Main Store must exist before creating item master records.', 409);
+  const storeId = mainStores[0].id;
+  const resolvedLocationId = locationId ? await resolveLocationId(locationId, storeId) : null;
+  let locationCode = null;
+  if (resolvedLocationId) {
+    const { rows: locationRows } = await query('SELECT code, type FROM locations WHERE id = $1', [resolvedLocationId]);
+    if (locationRows[0]?.type !== 'BIN') throw new AppError('Items must be assigned to a BIN location.', 400);
+    locationCode = locationRows[0].code;
   }
-  const resolvedLocationId = await resolveLocationId(locationId, storeId);
-  const { rows: locationRows } = await query('SELECT code FROM locations WHERE id = $1', [resolvedLocationId]);
 
   const { rows } = await query(
     `INSERT INTO items (code, name, category_id, store_id, bin, location_id, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price, expiry_tracked, expiry_date, batch_no, item_condition)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-    [code, name, categoryId, storeId, locationRows[0].code, resolvedLocationId, unit, minLevel || 0, maxLevel || 0, reorderLevel || 0, qtyOnHand || 0, unitPrice || 0, Boolean(expiryTracked), expiryTracked ? expiryDate || null : null, batchNo || null, condition || null]
+    [code, name, categoryId, storeId, locationCode, resolvedLocationId, unit, minLevel || 0, maxLevel || 0, reorderLevel || 0, 0, unitPrice || 0, Boolean(expiryTracked), expiryTracked ? expiryDate || null : null, batchNo || null, condition || null]
+  );
+  await query(
+    `INSERT INTO item_inventory (item_id, store_id, location_id, bin, qty_on_hand, unit_price, min_level, max_level, reorder_level, expiry_tracked, expiry_date, batch_no, item_condition)
+     VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [rows[0].id, storeId, resolvedLocationId, locationCode, unitPrice || 0, minLevel || 0, maxLevel || 0, reorderLevel || 0, Boolean(expiryTracked), expiryTracked ? expiryDate || null : null, batchNo || null, condition || null]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created item ${name} (${code})`, module: 'Items & Locations' });

@@ -65,13 +65,14 @@ function dateConditions(column, queryParams, values) {
 const inventorySummary = asyncHandler(async (req, res) => {
   const conditions = [];
   const params = [];
-  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
+  await addStoreScope(req, conditions, params, 'ii.store_id = ANY(?::int[])');
   const { rows } = await query(`
-      SELECT i.code, i.name, c.name AS category, i.bin, s.name AS store, i.qty_on_hand, i.unit_price,
-           (i.qty_on_hand * i.unit_price) AS value
-      FROM items i
+    SELECT i.code, i.name, c.name AS category, ii.bin, s.name AS store, ii.qty_on_hand, ii.unit_price,
+           (ii.qty_on_hand * ii.unit_price) AS value
+    FROM item_inventory ii
+    JOIN items i ON i.id = ii.item_id
       LEFT JOIN categories c ON c.id = i.category_id
-      JOIN stores s ON s.id = i.store_id
+    JOIN stores s ON s.id = ii.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY i.name
   `, params);
@@ -91,12 +92,14 @@ const inventorySummary = asyncHandler(async (req, res) => {
 
 // GET /api/reports/low-stock
 const lowStock = asyncHandler(async (req, res) => {
-  const conditions = ['i.qty_on_hand <= i.reorder_level'];
+  const conditions = ['ii.qty_on_hand <= ii.reorder_level'];
   const params = [];
-  await addStoreScope(req, conditions, params, 'i.store_id = ANY(?::int[])');
+  await addStoreScope(req, conditions, params, 'ii.store_id = ANY(?::int[])');
   const { rows } = await query(`
-    SELECT i.code, i.name, s.name AS store, i.qty_on_hand, i.reorder_level
-    FROM items i JOIN stores s ON s.id = i.store_id
+    SELECT i.code, i.name, s.name AS store, ii.qty_on_hand, ii.reorder_level
+    FROM item_inventory ii
+    JOIN items i ON i.id = ii.item_id
+    JOIN stores s ON s.id = ii.store_id
     WHERE ${conditions.join(' AND ')}
     ORDER BY i.name
   `, params);

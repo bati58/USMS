@@ -7,10 +7,12 @@ const { mapBinCard, getUserStoreVisibility, assertUserCanAccessStoreRecord } = r
 const list = asyncHandler(async (req, res) => {
   const visibility = await getUserStoreVisibility(req.user, { query });
   let sql = `
-    SELECT bc.*, s.name AS store_name, i.name AS item_name, i.qty_on_hand AS item_qty_on_hand
+        SELECT bc.*, s.name AS store_name, i.name AS item_name,
+          COALESCE(ii.qty_on_hand, i.qty_on_hand) AS item_qty_on_hand
     FROM bin_cards bc
     LEFT JOIN stores s ON s.id = bc.store_id
     LEFT JOIN items i ON i.id = bc.item_id
+        LEFT JOIN item_inventory ii ON ii.item_id = bc.item_id AND ii.store_id = bc.store_id
   `;
   const params = [];
   if (visibility.storeFilter && !visibility.canViewAllStores) {

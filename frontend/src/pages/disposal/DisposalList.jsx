@@ -65,7 +65,7 @@ export default function DisposalList() {
   async function load() {
     setLoading(true)
     try {
-      const results = await Promise.allSettled([disposalService.list(), storeService.list(), itemService.list()])
+      const results = await Promise.allSettled([disposalService.list(), storeService.list(), itemService.listInventory()])
       const [disposalResult, storeResult, itemResult] = results
       if (disposalResult.status === 'fulfilled') setRows(disposalResult.value)
       else push(disposalResult.reason?.message || 'Could not load disposal records.', 'error')
@@ -103,7 +103,7 @@ export default function DisposalList() {
     try {
       const latestItems = assignedStoreName
         ? await disposalService.eligibleItems(assignedStoreName)
-        : await itemService.list()
+        : await itemService.listInventory()
       setDisposalOptions(Array.isArray(latestItems) ? latestItems : [])
     } catch (err) {
       push(err.message || 'Could not refresh item conditions.', 'error')

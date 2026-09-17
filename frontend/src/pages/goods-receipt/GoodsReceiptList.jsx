@@ -51,7 +51,7 @@ export default function GoodsReceiptList() {
     const selectedStore = stores.find((store) => store.name === header.store)
     if (!selectedStore || selectedStore.type !== 'Main Store') return []
 
-    return uniqueItemsByName(items.filter((item) => item.store === selectedStore.name))
+    return uniqueItemsByName(items)
   }, [items, stores, header.store])
   const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = canManage
@@ -63,7 +63,7 @@ export default function GoodsReceiptList() {
   async function load() {
     setLoading(true)
     try {
-      const [grns, storeList, itemList, supplierList] = await Promise.all([goodsReceiptService.list(), storeService.list(), itemService.list(), supplierService.list()])
+      const [grns, storeList, itemList, supplierList] = await Promise.all([goodsReceiptService.list(), storeService.list(), itemService.listMaster(), supplierService.list()])
       setRows(grns)
       setStores(storeList.filter((store) => store.active !== false))
       setItems(itemList)
@@ -140,10 +140,7 @@ export default function GoodsReceiptList() {
 
     setSaving(true)
     try {
-      const count = rows.length + 1
-      const grnRef = `GRN-2026-${String(count).padStart(4, '0')}`
       await goodsReceiptService.create({
-        grnRef,
         ...header,
         materialType: header.type,
         type: undefined,
@@ -153,7 +150,7 @@ export default function GoodsReceiptList() {
         evaluationNote: '',
         evaluatedBy: ''
       })
-      push(`Draft ${grnRef} created. No stock changed. Submit it next so the Store Head and Security Officer can act.`, 'success', successToast)
+      push('Draft receipt created. No stock changed. Submit it next so the Store Head and Security Officer can act.', 'success', successToast)
       setFieldErrors({})
       setModalOpen(false)
       await load()
@@ -184,6 +181,20 @@ export default function GoodsReceiptList() {
     try {
       await api.action('goodsReceipts', row.id, 'status', { status: GRN_STATUS.PENDING_EVAL })
       push(`${row.grnRef} sent to Technical Evaluation. TEC is the next responsible actor.`, 'success', successToast)
+      await load()
+    } catch (e) {
+      push(e.message, 'error')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  async function handleStartStoreHeadReview(row) {
+    if (actionBusy) return
+    setActionBusy(`review-${row.id}`)
+    try {
+      await api.action('goodsReceipts', row.id, 'status', { status: GRN_STATUS.STORE_HEAD_REVIEW })
+      push(`${row.grnRef} is now under Store Head review.`, 'success', successToast)
       await load()
     } catch (e) {
       push(e.message, 'error')
@@ -249,7 +260,12 @@ export default function GoodsReceiptList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1 items-center">
-          {canNotifyTec && canManageRow(row) && row.status === GRN_STATUS.SUBMITTED && row.gateVerified && (
+          {canNotifyTec && canManageRow(row) && row.status === GRN_STATUS.SUBMITTED && (
+            <button disabled={Boolean(actionBusy)} onClick={() => handleStartStoreHeadReview(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50 disabled:cursor-not-allowed disabled:opacity-50" title="Start Store Head review">
+              <Send size={15} />
+            </button>
+          )}
+          {canNotifyTec && canManageRow(row) && row.status === GRN_STATUS.STORE_HEAD_REVIEW && row.gateVerified && (
             <button disabled={Boolean(actionBusy)} onClick={() => handleNotifyTEC(row)} className="rounded-md p-1.5 text-info-600 hover:bg-info-50 disabled:cursor-not-allowed disabled:opacity-50" title="Notify TEC">
               <Send size={15} />
             </button>
@@ -272,7 +288,7 @@ export default function GoodsReceiptList() {
           <button onClick={() => setViewing(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600" title="View">
             <Eye size={15} />
           </button>
-          {canManage && canManageRow(row) && [GRN_STATUS.DRAFT, GRN_STATUS.SUBMITTED, GRN_STATUS.PENDING, GRN_STATUS.PENDING_EVAL].includes(row.status) && (
+          {canManage && canManageRow(row) && [GRN_STATUS.DRAFT, GRN_STATUS.SUBMITTED, GRN_STATUS.STORE_HEAD_REVIEW, GRN_STATUS.PENDING, GRN_STATUS.PENDING_EVAL].includes(row.status) && (
             <button disabled={Boolean(actionBusy)} onClick={() => setDeleteTarget(row)} className="rounded-md p-1.5 text-ink-500 hover:bg-danger-50 hover:text-danger-700 disabled:cursor-not-allowed disabled:opacity-50" title="Delete">
               <Trash2 size={15} />
             </button>

@@ -31,6 +31,7 @@ const cleanupOrder = [
     'bin_card_movements',
     'bin_cards',
     'bin_transfers',
+    'item_inventory',
     'locations',
     'categories',
     'departments',

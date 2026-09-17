@@ -176,7 +176,7 @@ export default function MaterialTransferList() {
     setSaving(true)
     try {
       await api.action('materialTransfers', viewing.id, 'resubmit', {})
-      push(`${viewing.transferRef} resubmitted. PAO approval is the next step.`, 'success', successToast)
+      push(`${viewing.transferRef} resubmitted. Source Store Head approval is the next step.`, 'success', successToast)
       setViewing(null)
       await load()
     } catch (err) {

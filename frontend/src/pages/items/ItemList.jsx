@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Pencil, Trash2, AlertTriangle, Lock } from 'lucide-react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -9,88 +9,11 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import Badge from '../../components/ui/Badge'
-import { itemService, categoryService, storeService, locationService, businessRulesService } from '../../services'
+import { itemService, categoryService, locationService, storeService } from '../../services'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { canPerformAction } from '../../utils/rolePermissions'
-import { formatCurrency, formatNumber } from '../../utils/formatters'
 import { UNITS } from '../../utils/constants'
-
-function LocationSelectors({ locations, store, storeId, locationId, onChange, required }) {
-  const [selectedPath, setSelectedPath] = useState({ sectionId: '', rackId: '', shelfId: '', binId: '' })
-  const storeLocations = locations.filter((location) => (
-    storeId ? Number(location.storeId) === Number(storeId) : location.store === store
-  ))
-  const sections = storeLocations.filter((location) => location.type === 'SECTION')
-  const selectedSection = storeLocations.find((location) => String(location.id) === String(selectedPath.sectionId))
-  const selectedRack = storeLocations.find((location) => String(location.id) === String(selectedPath.rackId))
-  const selectedShelf = storeLocations.find((location) => String(location.id) === String(selectedPath.shelfId))
-  const selectedBin = storeLocations.find((location) => String(location.id) === String(selectedPath.binId))
-  const racks = storeLocations.filter((location) => location.type === 'RACK' && (!selectedSection || String(location.parentId) === String(selectedSection.id)))
-  const shelves = storeLocations.filter((location) => location.type === 'SHELF' && (!selectedRack || String(location.parentId) === String(selectedRack.id)))
-  const bins = storeLocations.filter((location) => location.type === 'BIN' && (!selectedShelf || String(location.parentId) === String(selectedShelf.id)))
-
-  useEffect(() => {
-    if (!storeLocations.length) {
-      setSelectedPath({ sectionId: '', rackId: '', shelfId: '', binId: '' })
-      return
-    }
-
-    const bin = storeLocations.find((location) => String(location.id) === String(locationId) && location.type === 'BIN')
-    const shelf = bin?.parentId ? storeLocations.find((location) => String(location.id) === String(bin.parentId)) : null
-    const rack = shelf?.parentId ? storeLocations.find((location) => String(location.id) === String(shelf.parentId)) : null
-    const section = rack?.parentId ? storeLocations.find((location) => String(location.id) === String(rack.parentId)) : null
-    setSelectedPath((current) => bin
-      ? { sectionId: section?.id || '', rackId: rack?.id || '', shelfId: shelf?.id || '', binId: bin.id }
-      : current.binId && !storeLocations.some((location) => String(location.id) === String(current.binId))
-        ? { sectionId: '', rackId: '', shelfId: '', binId: '' }
-        : current)
-  }, [store, storeId, locationId, locations])
-
-  function selectLevel(type, value) {
-    const selected = storeLocations.find((location) => String(location.id) === String(value))
-    if (!selected) {
-      setSelectedPath({ sectionId: '', rackId: '', shelfId: '', binId: '' })
-      onChange('')
-      return
-    }
-
-    const nextPath = type === 'SECTION'
-      ? { sectionId: selected.id, rackId: '', shelfId: '', binId: '' }
-      : type === 'RACK'
-        ? { ...selectedPath, rackId: selected.id, shelfId: '', binId: '' }
-        : type === 'SHELF'
-          ? { ...selectedPath, shelfId: selected.id, binId: '' }
-          : { ...selectedPath, binId: selected.id }
-    setSelectedPath(nextPath)
-    onChange(nextPath.binId)
-  }
-
-  return (
-    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-4 gap-4 border-y border-ink-100 py-4 my-2">
-      <LocationSelect label="Section" value={selectedSection?.id || ''} options={sections} onChange={(value) => selectLevel('SECTION', value)} />
-      <LocationSelect label="Rack" value={selectedRack?.id || ''} options={racks} onChange={(value) => selectLevel('RACK', value)} disabled={!selectedSection} />
-      <LocationSelect label="Shelf" value={selectedShelf?.id || ''} options={shelves} onChange={(value) => selectLevel('SHELF', value)} disabled={!selectedRack} />
-      <LocationSelect label="Bin" value={selectedBin?.id || ''} options={bins} onChange={(value) => selectLevel('BIN', value)} disabled={!selectedShelf} required={required} />
-      {store && !sections.length && <p className="sm:col-span-4 text-xs text-warning-700">No sections exist for this store. Create the location hierarchy in Locations first: Section, Rack, Shelf, then Bin.</p>}
-      {selectedSection && !racks.length && <p className="sm:col-span-4 text-xs text-warning-700">No racks exist in this section. Add a Rack under the selected Section in Locations.</p>}
-      {selectedRack && !shelves.length && <p className="sm:col-span-4 text-xs text-warning-700">No shelves exist in this rack. Add a Shelf under the selected Rack in Locations.</p>}
-      {selectedShelf && !bins.length && <p className="sm:col-span-4 text-xs text-warning-700">No bins exist on this shelf. Add a Bin under the selected Shelf in Locations.</p>}
-    </div>
-  )
-}
-
-function LocationSelect({ label, value, options, onChange, disabled, required }) {
-  return (
-    <label className="block text-sm font-medium text-ink-700">
-      {label}{required && <span className="ml-1 text-danger-600">*</span>}
-      <select className="input mt-1 w-full" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} required={required}>
-        <option value="">Select {label.toLowerCase()}</option>
-        {options.map((option) => <option key={option.id} value={option.id}>{option.name} ({option.code})</option>)}
-      </select>
-    </label>
-  )
-}
 
 const EMPTY_FORM = {
   code: '',
@@ -115,8 +38,7 @@ export default function ItemList() {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
-  const [stores, setStores] = useState([])
-  const [locations, setLocations] = useState([])
+  const [mainStoreBins, setMainStoreBins] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -124,41 +46,26 @@ export default function ItemList() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [shelfLifeWarningDays, setShelfLifeWarningDays] = useState(90)
 
   // Permission checks
   const canCreate = canPerformAction(user?.role, 'create', 'items')
   const canEdit = canPerformAction(user?.role, 'edit', 'items')
   const canDelete = canPerformAction(user?.role, 'delete', 'items')
-  const assignedStoreNames = [user?.store, ...(user?.assignedStores || [])].filter(Boolean)
-  const isSingleStoreHead = user?.role === 'Store Head' && assignedStoreNames.length === 1
-  const selectedStoreId = stores.find((store) => store.name === form.store)?.id
-  const selectedCategories = categories.filter((category) => (
-    selectedStoreId ? Number(category.storeId) === Number(selectedStoreId) : category.store === form.store
-  ))
+  const selectedCategories = categories
 
   async function load() {
     setLoading(true)
     try {
-      const [itemsData, categoriesData, storesData, locationsData] = await Promise.all([
-        itemService.list(),
+      const [itemsData, categoriesData, locationData, storeData] = await Promise.all([
+        itemService.listMaster(),
         categoryService.list(),
-        storeService.list(),
-        canCreate || canEdit ? locationService.list() : Promise.resolve([])
+        locationService.list(),
+        storeService.list()
       ])
       setItems(itemsData)
       setCategories(categoriesData)
-      const assignedStoreNames = [user?.store, ...(user?.assignedStores || [])].filter(Boolean)
-      setStores(storesData.filter((store) => (
-        user?.role !== 'Store Head' || assignedStoreNames.length === 0 || assignedStoreNames.includes(store.name)
-      )))
-      setLocations(locationsData.filter((location) => location.active !== false))
-      try {
-        const rule = await businessRulesService.getRule('SHELF_LIFE_WARNING_DAYS')
-        if (Number.isFinite(Number(rule.value)) && Number(rule.value) >= 0) setShelfLifeWarningDays(Number(rule.value))
-      } catch {
-        // Keep the default when rules are unavailable to non-admin sessions.
-      }
+      const mainStoreIds = new Set(storeData.filter((store) => store.active !== false && store.type === 'Main Store').map((store) => String(store.id)))
+      setMainStoreBins(locationData.filter((location) => location.active !== false && location.type === 'BIN' && mainStoreIds.has(String(location.storeId))))
     } catch (err) {
       push(err.message || 'Could not load items.', 'error')
     } finally {
@@ -181,7 +88,7 @@ export default function ItemList() {
       push('You do not have permission to create items.', 'error')
       return
     }
-    setForm({ ...EMPTY_FORM, ...(isSingleStoreHead ? { store: assignedStoreNames[0] } : {}) })
+    setForm({ ...EMPTY_FORM })
     setEditing(null)
     setModalOpen(true)
   }
@@ -239,28 +146,8 @@ export default function ItemList() {
     { key: 'code', header: 'Item Code' },
     { key: 'name', header: 'Item Name' },
     { key: 'category', header: 'Category' },
-    { key: 'store', header: 'Store' },
-    { key: 'location', header: 'Location', render: (r) => r.locationPath || r.location || r.bin || '-' },
-    {
-      key: 'qtyOnHand',
-      header: 'Qty on Hand',
-      render: (r) => (
-        <div className="flex items-center gap-1.5">
-          <span className="font-medium">{formatNumber(r.qtyOnHand)} {r.unit}</span>
-          {Number(r.qtyOnHand) <= Number(r.reorderLevel) && (
-            <span title="At or below reorder level">
-              <AlertTriangle size={14} className="text-warning-500" />
-            </span>
-          )}
-          {r.expiryTracked && r.expiryDate && new Date(r.expiryDate) < new Date(Date.now() + shelfLifeWarningDays * 24 * 60 * 60 * 1000) && (
-            <span title={`Expiring on ${r.expiryDate}`}>
-              <AlertTriangle size={14} className="text-danger-500" />
-            </span>
-          )}
-        </div>
-      )
-    },
-    { key: 'unitPrice', header: 'Unit Price', render: (r) => formatCurrency(r.unitPrice) }
+    { key: 'unit', header: 'Unit of Issue' },
+    { key: 'condition', header: 'Condition' }
   ].concat(
     !(user?.role === 'Storekeeper' && ['items'].includes('items')) && (canEdit || canDelete)
       ? [{
@@ -345,7 +232,7 @@ export default function ItemList() {
       >
         <form onSubmit={handleSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input label="Item Code" required placeholder="e.g. ITM-001" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
-          <Input label="Item Name" required placeholder="e.g. A4 Copy Paper" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <Input label="Item Name" required placeholder="e.g. A4 Photocopy Paper" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           <Select
             label="Category"
             required
@@ -354,25 +241,13 @@ export default function ItemList() {
             onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
           />
           <Select
-            label="Store"
-            required
-            options={stores.map((s) => s.name)}
-            value={form.store}
-            disabled={isSingleStoreHead}
-            onChange={(e) => setForm((f) => ({ ...f, store: e.target.value, locationId: '' }))}
+            label="Main Store BIN"
+            options={mainStoreBins.map((location) => ({ value: String(location.id), label: `${location.name} (${location.code})` }))}
+            value={form.locationId}
+            onChange={(e) => setForm((f) => ({ ...f, locationId: e.target.value }))}
+            placeholder="Select a BIN location..."
           />
           <Select label="Unit of Issue" required options={UNITS} value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />
-
-          <LocationSelectors
-            locations={locations}
-            store={form.store}
-            storeId={stores.find((store) => store.name === form.store)?.id}
-            locationId={form.locationId}
-            onChange={(locationId) => setForm((f) => ({ ...f, locationId }))}
-            required={!editing}
-          />
-
-          <Input label="Quantity on Hand" type="number" required placeholder="e.g. 100" value={form.qtyOnHand} onChange={(e) => setForm((f) => ({ ...f, qtyOnHand: e.target.value }))} />
           <Input label="Unit Price (Birr)" type="number" required placeholder="e.g. 125.00" value={form.unitPrice} onChange={(e) => setForm((f) => ({ ...f, unitPrice: e.target.value }))} />
           <Input label="Minimum Level" type="number" placeholder="e.g. 10" value={form.minLevel} onChange={(e) => setForm((f) => ({ ...f, minLevel: e.target.value }))} />
           <Input label="Reorder Level" type="number" placeholder="e.g. 20" value={form.reorderLevel} onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))} />

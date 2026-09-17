@@ -59,7 +59,7 @@ export function NotificationProvider({ children }) {
     if (!user) return
     setLoading(true)
     try {
-      const [items, grns, reqs, returns, transfers, disposals, vouchers, stockTaking, persisted] = await Promise.all([
+      const results = await Promise.allSettled([
         itemService.list(),
         goodsReceiptService.list(),
         requisitionService.list(),
@@ -70,6 +70,17 @@ export function NotificationProvider({ children }) {
         stockTakingService.list(),
         notificationService.list().catch(() => [])
       ])
+
+      const valueAt = (index, fallback = []) => results[index]?.status === 'fulfilled' ? results[index].value : fallback
+      const items = valueAt(0)
+      const grns = valueAt(1)
+      const reqs = valueAt(2)
+      const returns = valueAt(3)
+      const transfers = valueAt(4)
+      const disposals = valueAt(5)
+      const vouchers = valueAt(6)
+      const stockTaking = valueAt(7)
+      const persisted = valueAt(8)
 
       const built = buildNotifications(user, { items, grns, reqs, returns, transfers, disposals, vouchers, stockTaking })
       const dismissed = loadIds(dismissedKey(user.id)).map(String)

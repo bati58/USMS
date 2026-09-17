@@ -2,9 +2,10 @@ const { query, withTransaction } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
+const { notify } = require('../utils/notify');
 
 const TABLES = {
-    'goods-receipts': { table: 'goods_receipts', ref: 'grn_ref', eligibleStatuses: ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'] }
+    'goods-receipts': { table: 'goods_receipts', ref: 'grn_ref', eligibleStatuses: ['Submitted', 'Store Head Review', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'] }
 };
 
 const verify = asyncHandler(async (req, res) => {
@@ -12,7 +13,7 @@ const verify = asyncHandler(async (req, res) => {
     if (!target) throw new AppError('Unsupported gate-pass document.', 404);
 
     const result = await withTransaction(async (client) => {
-        const { rows: currentRows } = await client.query(`SELECT id, ${target.ref} AS reference, status, gate_verified FROM ${target.table} WHERE id = $1 FOR UPDATE`, [req.params.id]);
+        const { rows: currentRows } = await client.query(`SELECT id, ${target.ref} AS reference, status, store_id, gate_verified FROM ${target.table} WHERE id = $1 FOR UPDATE`, [req.params.id]);
         if (!currentRows[0]) throw new AppError('Gate-pass document not found.', 404);
         if (!target.eligibleStatuses.includes(currentRows[0].status)) {
             throw new AppError('This document is not approved for gate verification.', 409);
@@ -40,6 +41,19 @@ const verify = asyncHandler(async (req, res) => {
             afterData: { gateVerified: true, gateVerifiedBy: req.user.name },
             metadata: { resource: req.params.resource }
         });
+
+        if (req.params.resource === 'goods-receipts') {
+            await notify(client, {
+                role: 'Store Head',
+                storeId: currentRows[0].store_id,
+                title: 'Gate verification completed',
+                message: `${rows[0].reference} was verified at the gate and can proceed to Store Head review.`,
+                type: 'success',
+                route: '/goods-receipt',
+                entityType: 'goods_receipt',
+                entityId: rows[0].id
+            });
+        }
 
         return rows[0];
     });

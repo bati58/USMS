@@ -61,7 +61,7 @@ export default function StockTakingList() {
         try {
             const [storesList, itemsList] = await Promise.all([
                 storeService.list(),
-                itemService.list()
+                itemService.listInventory()
             ])
             setStores(storesList.filter((store) => store.active !== false))
             setItems(itemsList)

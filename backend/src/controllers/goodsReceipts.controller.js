@@ -22,7 +22,9 @@ async function assertMainStoreOperator(user, dbClient) {
 }
 
 const SELECT = `
-  SELECT g.*, g.received_date::text AS received_date, s.name AS store_name, grn.grn_number AS official_grn_ref
+    SELECT g.*, g.received_date::text AS received_date, s.name AS store_name,
+      grn.grn_number AS official_grn_ref, grn.generated_by AS official_grn_generated_by,
+      grn.generated_at AS official_grn_generated_at
   FROM goods_receipts g
   LEFT JOIN stores s ON s.id = g.store_id
   LEFT JOIN grns grn ON grn.goods_receipt_id = g.id
@@ -246,7 +248,7 @@ const generateGrn = asyncHandler(async (req, res) => {
 
   await withTransaction(async (client) => {
     await assertMainStoreOperator(req.user, client);
-    const { rows: receiptRows } = await client.query('SELECT store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
+    const { rows: receiptRows } = await client.query('SELECT store_id, grn_ref FROM goods_receipts WHERE id = $1', [req.params.id]);
     if (!receiptRows[0]) throw new AppError('Goods receipt not found.', 404);
     await assertUserCanAccessStoreRecord(req.user, receiptRows[0].store_id, client);
     await stockService.generateGrn(client, {
@@ -254,6 +256,16 @@ const generateGrn = asyncHandler(async (req, res) => {
       generatedBy: req.user.name,
       actorName: req.user.name,
       actorRole: req.user.role
+    });
+    await notify(client, {
+      role: 'Store Head',
+      storeId: receiptRows[0].store_id,
+      title: 'Official GRN generated',
+      message: `${receiptRows[0].grn_ref} has an official GRN ready for posting.`,
+      type: 'success',
+      route: '/grn-documents',
+      entityType: 'goods_receipt',
+      entityId: req.params.id
     });
   });
   res.json(await fetchWithLines(req.params.id));
@@ -266,16 +278,26 @@ const postStock = asyncHandler(async (req, res) => {
 
   await withTransaction(async (client) => {
     await assertMainStoreOperator(req.user, client);
-    const { rows: receiptRows } = await client.query('SELECT store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
+    const { rows: receiptRows } = await client.query('SELECT store_id, grn_ref FROM goods_receipts WHERE id = $1', [req.params.id]);
     if (!receiptRows[0]) throw new AppError('Goods receipt not found.', 404);
     await assertUserCanAccessStoreRecord(req.user, receiptRows[0].store_id, client);
     await stockService.postGrn(client, { grnId: req.params.id, actorName: req.user.name, actorRole: req.user.role });
+    await notify(client, {
+      role: 'Store Head',
+      storeId: receiptRows[0].store_id,
+      title: 'Goods receipt stock posted',
+      message: `${receiptRows[0].grn_ref} was posted to inventory successfully.`,
+      type: 'success',
+      route: '/stock-cards',
+      entityType: 'goods_receipt',
+      entityId: req.params.id
+    });
   });
   res.json(await fetchWithLines(req.params.id));
 });
 
 const setStatus = asyncHandler(async (req, res) => {
-  const allowed = ['Draft', 'Submitted', 'Pending', 'Pending Evaluation', 'Under Evaluation'];
+  const allowed = ['Draft', 'Submitted', 'Store Head Review', 'Pending', 'Pending Evaluation', 'Under Evaluation'];
   if (!allowed.includes(req.body.status)) throw new AppError('Invalid goods receipt workflow status.', 400);
 
   if (req.body.status === 'Submitted' && req.user.role !== 'Storekeeper') {
@@ -283,6 +305,12 @@ const setStatus = asyncHandler(async (req, res) => {
   }
   if (req.body.status === 'Pending Evaluation' && !canAct('goods-receipts-notify-tec', req.user.role)) {
     throw new AppError('Only the Store Head can notify the Technical Evaluation Committee.', 403);
+  }
+  if (req.body.status === 'Store Head Review' && req.user.role !== 'Store Head') {
+    throw new AppError('Only the Store Head can start the goods receipt review.', 403);
+  }
+  if (req.body.status === 'Pending Evaluation' && req.user.role !== 'Store Head') {
+    throw new AppError('Only the Store Head can send a receipt to technical evaluation.', 403);
   }
   if (req.body.status === 'Under Evaluation' && req.user.role !== 'Technical Evaluation Committee') {
     throw new AppError('Only the Technical Evaluation Committee can start an evaluation.', 403);
@@ -343,6 +371,20 @@ const setStatus = asyncHandler(async (req, res) => {
 
     }
 
+    if (req.body.status === 'Store Head Review') {
+      await notify(client, {
+        userId: storeHeadId || undefined,
+        role: storeHeadId ? undefined : 'Store Head',
+        storeId: currentRows[0].store_id,
+        title: 'Goods receipt pending Store Head review',
+        message: `${currentRows[0].grn_ref} is ready for your review before technical evaluation.`,
+        type: 'info',
+        route: '/goods-receipt',
+        entityType: 'goods_receipt',
+        entityId: req.params.id
+      });
+    }
+
     if (['Pending Evaluation', 'Under Evaluation'].includes(req.body.status)) {
       if (!currentRows[0].gate_verified) {
         throw new AppError('Security must verify the incoming delivery before it can be sent for technical evaluation.', 409);
@@ -366,7 +408,7 @@ const remove = asyncHandler(async (req, res) => {
   const { rows: check } = await query('SELECT status, store_id FROM goods_receipts WHERE id = $1', [req.params.id]);
   if (!check[0]) throw new AppError('Goods receipt not found.', 404);
   await assertUserCanAccessStoreRecord(req.user, check[0].store_id, { query });
-  if (!['Draft', 'Submitted', 'Pending', 'Pending Evaluation'].includes(check[0].status)) throw new AppError('Cannot delete a goods receipt that has already been processed.', 400);
+  if (!['Draft', 'Submitted', 'Store Head Review', 'Pending', 'Pending Evaluation'].includes(check[0].status)) throw new AppError('Cannot delete a goods receipt that has already been processed.', 400);
 
   const { rows } = await query('DELETE FROM goods_receipts WHERE id = $1 RETURNING grn_ref', [req.params.id]);
   await logAudit(query, { userName: req.user.name, action: `Deleted ${rows[0].grn_ref}`, module: 'Goods Receipt' });

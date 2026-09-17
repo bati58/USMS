@@ -57,7 +57,7 @@ export default function IssueVoucherList() {
       const requests = [
         issueVoucherService.list(),
         canGenerate ? requisitionService.list() : Promise.resolve([]),
-        (canGenerate || canPost) ? itemService.list() : Promise.resolve([])
+        (canGenerate || canPost) ? itemService.listInventory() : Promise.resolve([])
       ]
       const [vouchers, reqs, allItems] = await Promise.all(requests)
       setRows(vouchers)

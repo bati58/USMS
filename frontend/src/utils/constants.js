@@ -35,6 +35,7 @@ export const STATUS = {
 export const GRN_STATUS = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
+  STORE_HEAD_REVIEW: 'Store Head Review',
   PENDING_EVAL: 'Pending Evaluation',
   UNDER_EVAL: 'Under Evaluation',
   ACCEPTED: 'Accepted',
@@ -152,6 +153,7 @@ export const STATUS_COLOR = {
   [SIV_STATUS.POSTED]: 'bg-success-50 text-success-700',
 
   // GRN
+  [GRN_STATUS.STORE_HEAD_REVIEW]: 'bg-warning-50 text-warning-700',
   [GRN_STATUS.SUBMITTED]: 'bg-warning-50 text-warning-700',
   [GRN_STATUS.PENDING_EVAL]: 'bg-warning-50 text-warning-700',
   [GRN_STATUS.ACCEPTED]: 'bg-success-50 text-success-700',

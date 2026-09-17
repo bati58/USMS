@@ -145,7 +145,7 @@ const create = asyncHandler(async (req, res) => {
     const reqId = rows[0].id;
 
     for (const line of items) {
-      const itemId = await resolveItemId(line.item, client, itemStoreId);
+      const itemId = await resolveItemId(line.item, client);
       if (!itemId) throw new AppError(`Unknown item on this requisition: "${line.item}".`, 400);
       await client.query('INSERT INTO requisition_items (requisition_id, item_id, qty) VALUES ($1,$2,$3)', [
         reqId,
@@ -314,9 +314,12 @@ const decide = asyncHandler(async (req, res) => {
 
     if (isApproval) {
       // Approved by the issuing Store Head -> the Storekeeper prepares the issue voucher.
+      const nextStorekeeperStoreId = requesterRole === 'Storekeeper'
+        ? rows[0].issuing_store_id || rows[0].store_id
+        : rows[0].store_id;
       await notify(client, {
         role: 'Storekeeper',
-        storeId: rows[0].store_id,
+        storeId: nextStorekeeperStoreId,
         title: 'Requisition Approved',
         message: requesterRole === 'Storekeeper'
           ? `Requisition ${srRef} was ${decision.toLowerCase()}. Prepare the replenishment through Material Transfers.`

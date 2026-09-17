@@ -128,6 +128,31 @@ BEGIN
   END IF;
 END $$;
 
+-- Store-level inventory for the institution-wide item master. The legacy
+-- store/quantity columns on items remain during the transition so historical
+-- APIs and records continue to work.
+CREATE TABLE IF NOT EXISTS item_inventory (
+  id             SERIAL PRIMARY KEY,
+  item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+  store_id       INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+  location_id    INTEGER REFERENCES locations(id) ON DELETE RESTRICT,
+  bin            TEXT,
+  qty_on_hand    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (qty_on_hand >= 0),
+  unit_price     NUMERIC(14,2) NOT NULL DEFAULT 0,
+  min_level      NUMERIC(14,2) NOT NULL DEFAULT 0,
+  max_level      NUMERIC(14,2) NOT NULL DEFAULT 0,
+  reorder_level  NUMERIC(14,2) NOT NULL DEFAULT 0,
+  expiry_tracked BOOLEAN NOT NULL DEFAULT FALSE,
+  expiry_date    DATE,
+  batch_no       TEXT,
+  item_condition TEXT,
+  created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+  UNIQUE (item_id, store_id)
+);
+CREATE INDEX IF NOT EXISTS idx_item_inventory_store ON item_inventory(store_id);
+CREATE INDEX IF NOT EXISTS idx_item_inventory_item ON item_inventory(item_id);
+
 -- ---------- suppliers ----------
 CREATE TABLE IF NOT EXISTS suppliers (
   id           SERIAL PRIMARY KEY,
@@ -168,7 +193,7 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
   received_by               TEXT,
   store_id                  INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
   status                    TEXT NOT NULL DEFAULT 'Pending'
-                              CHECK (status IN ('Draft','Submitted','Pending','Pending Evaluation','Under Evaluation','Accepted','Partially Accepted','Approved','Rejected','GRN Generated','Posted')),
+                              CHECK (status IN ('Draft','Submitted','Store Head Review','Pending','Pending Evaluation','Under Evaluation','Accepted','Partially Accepted','Approved','Rejected','GRN Generated','Posted')),
   evaluation_status         TEXT NOT NULL DEFAULT 'Pending',
   evaluation_date           DATE,
   evaluation_note           TEXT,
@@ -216,6 +241,7 @@ CREATE TABLE IF NOT EXISTS grn_items (
 CREATE TABLE IF NOT EXISTS stock_lots (
   id             SERIAL PRIMARY KEY,
   item_id        INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  store_id       INTEGER REFERENCES stores(id) ON DELETE RESTRICT,
   received_date  DATE NOT NULL,
   unit_price     NUMERIC(14,2) NOT NULL,
   qty_received   NUMERIC(14,2) NOT NULL,

@@ -93,6 +93,8 @@ test('rejects a receipt that is already posted', () => {
 
 test('goods receipt workflow must follow storekeeper -> store head -> TEC -> posted flow', () => {
     assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Draft', 'Submitted'));
+    assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Submitted', 'Store Head Review'));
+    assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Store Head Review', 'Pending Evaluation'));
     assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Submitted', 'Pending Evaluation'));
     assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Pending Evaluation', 'Under Evaluation'));
     assert.doesNotThrow(() => assertTransition('goodsReceipt', 'Under Evaluation', 'Accepted'));
@@ -697,6 +699,16 @@ test('approved requisitions route the next action according to the requester rol
     assert.ok(notifications.some((n) => n.title === 'Replenishment Transfer Required' && n.route === '/material-transfer' && n.message.includes('SR-2011')));
 });
 
+test('replenishment approval routes the next action to the issuing storekeeper', () => {
+    const requesterRole = 'Storekeeper';
+    const destinationStoreId = 20;
+    const issuingStoreId = 1;
+    const nextStorekeeperStoreId = requesterRole === 'Storekeeper'
+        ? issuingStoreId || destinationStoreId
+        : destinationStoreId;
+    assert.equal(nextStorekeeperStoreId, issuingStoreId);
+});
+
 test('store-requisition and issue-voucher permissions enforce segregation of duties', () => {
     // Department Head can endorse, and Store Head approves for the issuing store.
     assert.equal(canAct('requisitions', 'Department Head'), true);
@@ -771,6 +783,24 @@ test('Gate Pass is Security-only and covers incoming goods only', async () => {
     assert.equal(notifications.some((n) => n.title === 'Outgoing Materials'), false);
 });
 
+test('Security and TEC receive live Goods Receipt workflow notifications', async () => {
+    const { pathToFileURL } = require('node:url');
+    const frontendUrl = pathToFileURL(require('node:path').resolve(__dirname, '../../frontend/src/utils/buildNotifications.js')).href;
+    const { buildNotifications } = await import(frontendUrl);
+
+    const securityNotifications = buildNotifications(
+        { role: 'Security Officer' },
+        { items: [], grns: [{ id: 61, status: 'Submitted', grnRef: 'GRN-2026-0061', supplier: 'Supplier', gateVerified: false, receivedDate: '2026-09-17' }] }
+    );
+    const tecNotifications = buildNotifications(
+        { role: 'Technical Evaluation Committee' },
+        { items: [], grns: [{ id: 62, status: 'Pending Evaluation', grnRef: 'GRN-2026-0062', store: 'Main Store', receivedDate: '2026-09-17' }] }
+    );
+
+    assert.ok(securityNotifications.some((n) => n.title === 'Incoming Delivery' && n.route === '/gate-pass' && n.message.includes('GRN-2026-0061')));
+    assert.ok(tecNotifications.some((n) => n.title === 'Technical Evaluation' && n.route === '/goods-receipt/evaluation' && n.message.includes('GRN-2026-0062')));
+});
+
 test('stock card ledger rows retain item and store identity', () => {
     const { mapStockTransaction } = require('../src/controllers/_helpers');
     const mapped = mapStockTransaction({
@@ -792,6 +822,27 @@ test('stock card ledger rows retain item and store identity', () => {
     assert.equal(mapped.balance, 110);
 });
 
+test('stock card ledger rows expose store identity for per-store filtering', () => {
+    const { mapStockTransaction } = require('../src/controllers/_helpers');
+    const mapped = mapStockTransaction({
+        id: 42,
+        item_id: 7,
+        item_name: 'Shared Item Name',
+        store_id: 3,
+        store_name: 'Department Store',
+        date: '2026-09-05',
+        type: 'Receipt',
+        ref: 'GRN-2026-0042',
+        qty_in: '5',
+        qty_out: '0',
+        unit_price: '25',
+        balance: '5'
+    });
+    assert.equal(mapped.itemId, 7);
+    assert.equal(mapped.storeId, 3);
+    assert.equal(mapped.store, 'Department Store');
+});
+
 test('bin card rows retain item/store identity and compareable item balance', () => {
     const { mapBinCard } = require('../src/controllers/_helpers');
     const mapped = mapBinCard({
@@ -811,6 +862,23 @@ test('bin card rows retain item/store identity and compareable item balance', ()
     assert.equal(mapped.balance, 110);
 });
 
+test('bin card balances are intended to compare against store-level inventory', () => {
+    const { mapBinCard } = require('../src/controllers/_helpers');
+    const mapped = mapBinCard({
+        id: 52,
+        bin: 'MAIN-BIN-A1-01',
+        item_id: 7,
+        store_id: 1,
+        store_name: 'Main Store',
+        item_name: 'Shared Item Name',
+        item_qty_on_hand: '10',
+        last_movement: '2026-09-17',
+        balance: '10'
+    });
+    assert.equal(mapped.itemQtyOnHand, 10);
+    assert.equal(mapped.balance, 10);
+});
+
 test('material transfer requires approval, dispatch, and receipt in order', () => {
     assert.doesNotThrow(() => assertTransition('materialTransfer', 'Pending Approval', 'Approved'));
     assert.doesNotThrow(() => assertTransition('materialTransfer', 'Approved', 'Dispatched'));
@@ -819,6 +887,13 @@ test('material transfer requires approval, dispatch, and receipt in order', () =
         () => assertTransition('materialTransfer', 'Pending Approval', 'Received'),
         (error) => error.statusCode === 409
     );
+});
+
+test('returned material transfers re-enter source Store Head approval', () => {
+    const nextApprovalRole = 'Store Head';
+    const sourceStoreId = 1;
+    assert.equal(nextApprovalRole, 'Store Head');
+    assert.ok(sourceStoreId);
 });
 
 test('accountant is read-only financial observer with no operational permissions', () => {

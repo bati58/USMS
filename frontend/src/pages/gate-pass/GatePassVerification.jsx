@@ -56,7 +56,7 @@ export default function GatePassVerification() {
   const incomingRows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return grns
-      .filter((g) => ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', GRN_STATUS.GRN_GENERATED, GRN_STATUS.POSTED].includes(g.status))
+      .filter((g) => ['Submitted', GRN_STATUS.STORE_HEAD_REVIEW, 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', GRN_STATUS.GRN_GENERATED, GRN_STATUS.POSTED].includes(g.status))
       .filter((g) => !q || `${g.grnRef} ${g.supplier} ${g.store}`.toLowerCase().includes(q))
       .sort((a, b) => new Date(b.receivedDate || 0) - new Date(a.receivedDate || 0))
   }, [grns, query])

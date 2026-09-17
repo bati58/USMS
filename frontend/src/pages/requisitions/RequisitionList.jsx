@@ -57,10 +57,7 @@ export default function RequisitionList() {
   const userAssignedStore = user?.store || user?.assignedStores?.[0] || ''
   const isScopedStoreUser = (isStoreHead || isStorekeeper) && !!userAssignedStore
   const isMainStoreStorekeeper = isStorekeeper && stores.some((store) => store.name === userAssignedStore && store.type === 'Main Store')
-  const mainStoreName = stores.find((store) => store.type === 'Main Store')?.name
-  const requestableItems = uniqueItemsByName(isStorekeeper
-    ? items.filter((item) => item.store === mainStoreName)
-    : items)
+  const requestableItems = uniqueItemsByName(items)
 
   const canEditApprovedQty = (isPao && viewing?.status === REQUISITION_STATUS.PENDING_APPROVAL) ||
     (isStoreHead && viewing?.status === REQUISITION_STATUS.SUBMITTED)

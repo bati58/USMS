@@ -20,7 +20,7 @@ export default function StockCardList() {
   async function load() {
     setLoading(true)
     try {
-      const [i, t] = await Promise.all([itemService.list(), stockTransactionService.list()])
+      const [i, t] = await Promise.all([itemService.listInventory(), stockTransactionService.list()])
       setItems(i)
       setTransactions(t)
     } catch (err) {
@@ -43,7 +43,15 @@ export default function StockCardList() {
   const ledger = useMemo(() => {
     if (!viewing) return []
     return transactions
-      .filter((t) => viewing.itemId ? Number(t.itemId) === Number(viewing.itemId) : t.item === viewing.name && t.store === viewing.store)
+      .filter((t) => {
+        const sameItem = viewing.itemId
+          ? Number(t.itemId) === Number(viewing.itemId)
+          : t.item === viewing.name
+        const sameStore = viewing.storeId != null
+          ? Number(t.storeId) === Number(viewing.storeId)
+          : t.store === viewing.store
+        return sameItem && sameStore
+      })
       .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0) || Number(a.id) - Number(b.id))
   }, [viewing, transactions])
 

@@ -177,7 +177,7 @@ export default function Reports() {
 
   useEffect(() => {
     Promise.allSettled([
-      itemService.list(),
+      itemService.listInventory(),
       stockTransactionService.list(),
       goodsReceiptService.list(),
       requisitionService.list(),

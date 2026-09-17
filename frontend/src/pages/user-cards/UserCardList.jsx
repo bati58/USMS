@@ -27,7 +27,7 @@ export default function UserCardList() {
     async function load() {
         setLoading(true)
         try {
-            const [cards, catalog] = await Promise.all([userCardService.list(), itemService.list()])
+            const [cards, catalog] = await Promise.all([userCardService.list(), itemService.listMaster()])
             setRows(cards)
             setItems(catalog)
         } catch (error) {

@@ -32,6 +32,7 @@ export function buildNotifications(user, data) {
   const pendingGrns = grns.filter((g) => [
     STATUS.PENDING,
     'Submitted',
+    'Store Head Review',
     'Pending Evaluation',
     STATUS.UNDER_EVALUATION
   ].includes(g.status))
@@ -43,7 +44,7 @@ export function buildNotifications(user, data) {
   ].includes(d.status))
   const pendingTransfers = transfers.filter((t) => ![STATUS.COMPLETED, STATUS.CANCELLED, STATUS.REJECTED].includes(t.status))
   const pendingReturns = returns.filter((r) => [STATUS.SUBMITTED, STATUS.PENDING, STATUS.UNDER_EVALUATION].includes(r.status))
-  const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
+  const pendingGateIn = grns.filter((g) => !g.gateVerified && ['Submitted', 'Store Head Review', 'Pending Evaluation', 'Under Evaluation', 'Accepted', 'Partially Accepted', 'Rejected', 'GRN Generated', 'Posted'].includes(g.status))
 
   function push(id, title, message, type, route, timestamp, options = {}) {
     notes.push({ id, title, message, type, route, timestamp: timestamp || new Date(), read: false, ...options })

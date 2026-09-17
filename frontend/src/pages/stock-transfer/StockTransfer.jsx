@@ -11,7 +11,7 @@ export default function StockTransfer() {
   const [items, setItems] = useState([])
 
   useEffect(() => {
-    itemService.list().then((loadedItems) => {
+    itemService.listInventory().then((loadedItems) => {
       const availableItems = loadedItems.filter((item) => {
         if (user?.role !== 'Storekeeper') return true
         const assignedStores = user.assignedStores?.length ? user.assignedStores : [user.store].filter(Boolean)

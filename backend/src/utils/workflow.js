@@ -3,7 +3,8 @@ const AppError = require('./AppError');
 const TRANSITIONS = {
     goodsReceipt: {
         Draft: ['Submitted', 'Pending'],
-        Submitted: ['Pending Evaluation', 'Under Evaluation'],
+        Submitted: ['Store Head Review', 'Pending Evaluation', 'Under Evaluation'],
+        'Store Head Review': ['Pending Evaluation'],
         Pending: ['Pending Evaluation', 'Under Evaluation'],
         'Pending Evaluation': ['Under Evaluation'],
         'Under Evaluation': ['Accepted', 'Partially Accepted', 'Rejected'],

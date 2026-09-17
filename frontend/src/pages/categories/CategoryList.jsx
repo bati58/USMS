@@ -1,15 +1,8 @@
 import CrudPage from '../../components/crud/CrudPage'
 import StatusBadge from '../../components/ui/StatusBadge'
-import { categoryService, storeService } from '../../services'
-import { useEffect, useState } from 'react'
+import { categoryService } from '../../services'
 
 export default function CategoryList() {
-  const [storeOptions, setStoreOptions] = useState([])
-
-  useEffect(() => {
-    storeService.list().then((stores) => setStoreOptions(stores.map((s) => s.name)))
-  }, [])
-
   return (
     <CrudPage
       title="Item Categories"
@@ -23,14 +16,12 @@ export default function CategoryList() {
       columns={[
         { key: 'code', header: 'Category Code' },
         { key: 'name', header: 'Category Name' },
-        { key: 'store', header: 'Belongs To Store' },
         { key: 'description', header: 'Description' },
         { key: 'active', header: 'Status', render: (row) => <StatusBadge status={row.active !== false ? 'Active' : 'Inactive'} /> }
       ]}
       fields={[
         { name: 'code', label: 'Category Code', required: true, placeholder: 'e.g. CAT-LAB' },
         { name: 'name', label: 'Category Name', required: true, placeholder: 'e.g. Office Supplies' },
-        { name: 'store', label: 'Belongs To Store', type: 'select', required: true, options: storeOptions },
         { name: 'description', label: 'Description', type: 'textarea', placeholder: 'e.g. Stationery and general office materials', fullWidth: true },
         { name: 'active', label: 'Active', type: 'checkbox' }
       ]}

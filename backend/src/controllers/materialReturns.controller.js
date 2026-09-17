@@ -247,13 +247,31 @@ const receive = asyncHandler(async (req, res) => {
 
 const resubmit = asyncHandler(async (req, res) => {
   await withTransaction(async (client) => {
-    const { rows: returnRows } = await client.query('SELECT store_id FROM material_returns WHERE id = $1', [req.params.id]);
+    const { rows: returnRows } = await client.query(
+      'SELECT store_id, created_by, department, srn_ref, status FROM material_returns WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
     if (!returnRows[0]) throw new AppError('Material return not found.', 404);
+    if (returnRows[0].created_by !== req.user.name) throw new AppError('Only the requester can resubmit this material return.', 403);
+    if (req.user.role === 'Department Head' && returnRows[0].department !== req.user.department) {
+      throw new AppError('You can only resubmit returns from your department.', 403);
+    }
+    if (returnRows[0].status !== 'Returned for Correction') throw new AppError('Only a returned material return can be resubmitted.', 409);
     await assertUserCanAccessStoreRecord(req.user, returnRows[0].store_id, client);
     await stockService.decideMaterialReturn(client, {
       returnId: req.params.id,
       decision: 'Submitted',
       actorName: req.user.name
+    });
+    await notify(client, {
+      role: 'Store Head',
+      storeId: returnRows[0].store_id,
+      title: 'Material return resubmitted for inspection',
+      message: `${returnRows[0].srn_ref} was corrected and resubmitted for Store Head review.`,
+      type: 'info',
+      route: '/material-return',
+      entityType: 'material_return',
+      entityId: req.params.id
     });
   });
 

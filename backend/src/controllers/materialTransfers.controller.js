@@ -325,9 +325,10 @@ const resubmit = asyncHandler(async (req, res) => {
     await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision: 'Pending Approval', actorName: req.user.name, actorRole: req.user.role });
     const { rows: transferDetails } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
     await notify(client, {
-      role: 'Property Administration Officer',
-      title: 'Store transfer awaiting approval',
-      message: `Transfer ${transferDetails[0]?.transfer_ref} was resubmitted and is awaiting review.`,
+      role: 'Store Head',
+      storeId: transferDetails[0]?.from_store_id,
+      title: 'Store transfer awaiting source approval',
+      message: `Transfer ${transferDetails[0]?.transfer_ref} was resubmitted and is awaiting source Store Head approval.`,
       type: 'info',
       route: '/material-transfer',
       entityType: 'material-transfer',

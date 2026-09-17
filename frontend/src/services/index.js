@@ -5,7 +5,10 @@ import { api } from './apiClient'
 export const storeService = createEntityService('stores')
 export const categoryService = createEntityService('categories')
 export const itemService = createEntityService('items')
-itemService.listRequisitionCatalog = () => api.raw('/items?catalog=requisition')
+itemService.listMaster = () => api.raw('/items?catalog=master')
+itemService.listRequisitionCatalog = () => api.raw('/items?catalog=master')
+itemService.listInventory = () => api.raw('/items?inventory=true')
+export const itemInventoryService = { list: () => itemService.listInventory() }
 export const goodsReceiptService = createEntityService('goodsReceipts')
 export const stockTransactionService = createEntityService('stockTransactions')
 export const binCardService = {

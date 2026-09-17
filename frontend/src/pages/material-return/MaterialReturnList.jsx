@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Eye, CheckCircle2, XCircle, Trash2, Printer, Send } from 'lucide-react'
+import { Plus, Eye, CheckCircle2, XCircle, Trash2, Printer, Send, RotateCcw } from 'lucide-react'
 import PageHeader from '../../components/ui/PageHeader'
 import SearchInput from '../../components/ui/SearchInput'
 import Table from '../../components/ui/Table'
@@ -57,7 +57,7 @@ export default function MaterialReturnList() {
       const [returns, storeList, itemList, departmentList] = await Promise.all([
         materialReturnService.list(),
         storeService.list(),
-        itemService.list(),
+        itemService.listInventory(),
         departmentService.list()
       ])
       setRows(returns)
@@ -142,24 +142,27 @@ export default function MaterialReturnList() {
       return
     }
 
-    const isReject = status !== RETURN_STATUS.RETURNED_TO_STOCK
-    if (isReject && !rejectReason.trim()) {
-      push('A rejection reason is required before rejecting this return.', 'error')
+    const isCorrection = status === RETURN_STATUS.RETURNED_FOR_CORRECTION
+    const isReject = status === RETURN_STATUS.REJECTED
+    if ((isReject || isCorrection) && !rejectReason.trim()) {
+      push(`${isCorrection ? 'A correction reason' : 'A rejection reason'} is required.`, 'error')
       return
     }
 
     setSaving(true)
     try {
       await api.action('materialReturns', viewing.id, 'approve', {
-        decision: status === RETURN_STATUS.RETURNED_TO_STOCK ? 'Approved' : 'Rejected',
+        decision: status === RETURN_STATUS.RETURNED_TO_STOCK ? 'Approved' : isCorrection ? 'Returned for Correction' : 'Rejected',
         qtyApproved: status === RETURN_STATUS.RETURNED_TO_STOCK ? (viewing.qtyApprovedInput ?? viewing.qty) : 0,
         findings: viewing.findingsInput,
         recommendation: viewing.recommendationInput,
-        reason: isReject ? rejectReason.trim() : undefined
+        reason: isReject || isCorrection ? rejectReason.trim() : undefined
       })
 
       if (status === RETURN_STATUS.RETURNED_TO_STOCK) {
         push(`${viewing.srnRef} accepted. Materials returned to active stock.`, 'success')
+      } else if (isCorrection) {
+        push(`${viewing.srnRef} returned for correction. The requester must update and resubmit it.`, 'info')
       } else {
         push(`${viewing.srnRef} rejected.`, 'info')
       }
@@ -217,6 +220,20 @@ export default function MaterialReturnList() {
       remarks: '',
       rejectionReason: ''
     })
+  }
+
+  async function handleResubmit(row) {
+    setSaving(true)
+    try {
+      await api.action('materialReturns', row.id, 'resubmit', {})
+      push(`${row.srnRef} resubmitted for Store Head inspection.`, 'success', successToast)
+      setViewing(null)
+      await load()
+    } catch (err) {
+      push(err.message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const hasAnyAction = filtered.some((row) => {
@@ -357,6 +374,8 @@ export default function MaterialReturnList() {
               <Button variant="secondary" icon={Printer} onClick={() => printReturnNote(viewing)}>Print SRN</Button>
               <Button icon={CheckCircle2} loading={saving} onClick={handleReceive}>Receive and Return to Stock</Button>
             </>
+          ) : viewing && viewing.status === RETURN_STATUS.RETURNED_FOR_CORRECTION && viewing.returnedBy === user?.name ? (
+            <Button icon={Send} loading={saving} onClick={() => handleResubmit(viewing)}>Resubmit for Review</Button>
           ) : viewing && canReviewRow(viewing) ? (
             <>
               <Button variant="secondary" icon={Printer} onClick={() => printReturnNote(viewing)}>Print SRN Preview</Button>
@@ -432,6 +451,9 @@ export default function MaterialReturnList() {
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                   />
+                  <Button variant="secondary" icon={RotateCcw} loading={saving} onClick={() => handleDecide(RETURN_STATUS.RETURNED_FOR_CORRECTION)}>
+                    Return for Correction
+                  </Button>
                 </div>
               )}
             </div>

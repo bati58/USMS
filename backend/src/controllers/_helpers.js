@@ -57,14 +57,24 @@ async function resolveCategoryId(categoryName, client = { query }) {
 async function resolveItemId(itemName, client = { query }, storeId = null) {
   if (!itemName) return null;
 
-  const sql = storeId == null
-    ? 'SELECT id FROM items WHERE name = $1'
-    : 'SELECT id FROM items WHERE name = $1 AND store_id = $2';
-  const params = storeId == null
-    ? [itemName]
-    : [itemName, storeId];
+  if (storeId != null) {
+    const { rows: legacyRows } = await client.query(
+      'SELECT id FROM items WHERE name = $1 AND store_id = $2',
+      [itemName, storeId]
+    );
+    if (legacyRows[0]) return legacyRows[0].id;
 
-  const { rows } = await client.query(sql, params);
+    const { rows: inventoryRows } = await client.query(
+      `SELECT i.id
+       FROM items i
+       JOIN item_inventory ii ON ii.item_id = i.id AND ii.store_id = $2
+       WHERE i.name = $1`,
+      [itemName, storeId]
+    );
+    if (inventoryRows[0]) return inventoryRows[0].id;
+  }
+
+  const { rows } = await client.query('SELECT id FROM items WHERE name = $1', [itemName]);
   if (!rows[0]) {
     throw new AppError(
       storeId == null ? `Unknown item: "${itemName}".` : `Unknown item: "${itemName}" in the selected store.`,
@@ -176,6 +186,8 @@ function mapGoodsReceipt(row, items = []) {
     receivedBy: row.received_by,
     store: row.store_name || null,
     status: row.status,
+    generatedBy: row.official_grn_generated_by || null,
+    generatedAt: row.official_grn_generated_at || null,
     evaluationNote: row.evaluation_note,
     evaluationDate: row.evaluation_date,
     evaluationFindings: row.evaluation_findings,

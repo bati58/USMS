@@ -100,11 +100,11 @@ ON CONFLICT (code) DO UPDATE SET
 INSERT INTO categories (code, name, store_id, description, active, created_at, updated_at)
 SELECT v.code, v.name, v.store_id, v.description, v.active, NOW(), NOW()
 FROM (VALUES
-  ('CAT-ADM', 'Office Supplies', (SELECT id FROM stores WHERE code = 'STR-MAIN'), 'General office consumables', TRUE),
-  ('CAT-ACC', 'Academic Supplies', (SELECT id FROM stores WHERE code = 'STR-DEPT'), 'General academic classroom and lab support materials', TRUE),
-  ('CAT-LAB', 'Laboratory Materials', (SELECT id FROM stores WHERE code = 'STR-LAB'), 'Scientific consumables and lab reagents', TRUE),
-  ('CAT-CAF', 'Catering Supplies', (SELECT id FROM stores WHERE code = 'STR-CAF'), 'Food service and kitchen materials', TRUE),
-  ('CAT-FAC', 'Maintenance Materials', (SELECT id FROM stores WHERE code = 'STR-SPEC'), 'Facilities and repair materials', TRUE)
+  ('CAT-ADM', 'Office Supplies', NULL, 'General office consumables', TRUE),
+  ('CAT-ACC', 'Academic Supplies', NULL, 'General academic classroom and lab support materials', TRUE),
+  ('CAT-LAB', 'Laboratory Materials', NULL, 'Scientific consumables and lab reagents', TRUE),
+  ('CAT-CAF', 'Catering Supplies', NULL, 'Food service and kitchen materials', TRUE),
+  ('CAT-FAC', 'Maintenance Materials', NULL, 'Facilities and repair materials', TRUE)
 ) AS v(code, name, store_id, description, active)
 WHERE NOT EXISTS (
   SELECT 1 FROM categories c WHERE c.code = v.code
@@ -134,6 +134,24 @@ ON CONFLICT (code, store_id) DO UPDATE SET
   unit_price = EXCLUDED.unit_price,
   qty_on_hand = EXCLUDED.qty_on_hand,
   updated_at = NOW();
+
+INSERT INTO item_inventory (item_id, store_id, bin, qty_on_hand, unit_price, min_level, max_level, reorder_level)
+SELECT i.id, i.store_id, i.bin, i.qty_on_hand, i.unit_price, i.min_level, i.max_level, i.reorder_level
+FROM items i
+ON CONFLICT (item_id, store_id) DO UPDATE SET
+  bin = EXCLUDED.bin,
+  qty_on_hand = EXCLUDED.qty_on_hand,
+  unit_price = EXCLUDED.unit_price,
+  min_level = EXCLUDED.min_level,
+  max_level = EXCLUDED.max_level,
+  reorder_level = EXCLUDED.reorder_level,
+  updated_at = NOW();
+
+INSERT INTO item_inventory (item_id, store_id, qty_on_hand, unit_price, min_level, max_level, reorder_level)
+SELECT i.id, s.id, 0, i.unit_price, i.min_level, i.max_level, i.reorder_level
+FROM items i
+JOIN stores s ON s.code = 'STR-MAIN'
+ON CONFLICT (item_id, store_id) DO NOTHING;
 
 -- Department-specific storage is represented with locations/bins under Department Store.
 INSERT INTO locations (store_id, parent_id, type, code, name, active, created_at, updated_at)
