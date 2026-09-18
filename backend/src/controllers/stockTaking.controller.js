@@ -350,7 +350,7 @@ const post = asyncHandler(async (req, res) => {
 const reconciliation = asyncHandler(async (req, res) => {
     let scope = '';
     let params = [];
-    if (req.user.role === 'Store Head') {
+    if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
         const visibility = await getUserStoreVisibility(req.user, { query });
         if (!visibility.canViewAllStores && visibility.assignedStoreId) {
             scope = ' AND st.store_id = $1';

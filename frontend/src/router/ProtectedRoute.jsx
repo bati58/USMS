@@ -21,16 +21,7 @@ export default function ProtectedRoute() {
 
   // Check if user has access to this route
   if (!canAccessPage(user?.role, location.pathname)) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-ink-900">Access Denied</h1>
-          <p className="mt-2 text-ink-600">
-            Your role ({user?.role}) does not have access to this page.
-          </p>
-        </div>
-      </div>
-    )
+    return <Navigate to="/" replace />
   }
 
   return <Outlet />

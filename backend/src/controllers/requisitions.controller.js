@@ -145,7 +145,7 @@ const create = asyncHandler(async (req, res) => {
     const reqId = rows[0].id;
 
     for (const line of items) {
-      const itemId = await resolveItemId(line.item, client);
+      const itemId = await resolveItemId(line.item, client, itemStoreId);
       if (!itemId) throw new AppError(`Unknown item on this requisition: "${line.item}".`, 400);
       await client.query('INSERT INTO requisition_items (requisition_id, item_id, qty) VALUES ($1,$2,$3)', [
         reqId,

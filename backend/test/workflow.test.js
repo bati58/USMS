@@ -523,6 +523,7 @@ test('storekeeper has limited location rights and read-only master-data visibili
     assert.equal(canAct('issue-voucher-post', 'Storekeeper'), true);
     assert.equal(canAct('stock-taking-post', 'Storekeeper'), false);
     assert.equal(canWrite('business-rules', 'Storekeeper'), false);
+    assert.equal(canRead('reconciliation', 'Storekeeper'), true);
 });
 
 test('department head can create but cannot approve or delete transfers', () => {

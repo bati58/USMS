@@ -112,8 +112,8 @@ const create = asyncHandler(async (req, res) => {
     const { rows: requestLines } = await client.query(
       `SELECT ri.qty, ri.qty_approved, i.id, i.name
        FROM requisition_items ri JOIN items i ON i.id = ri.item_id
-       WHERE ri.requisition_id = $1 AND i.store_id = $2`,
-      [requisitionId, fromStoreId]
+       WHERE ri.requisition_id = $1`,
+      [requisitionId]
     );
     const toStoreId = request.store_id;
     const selectedItems = new Set();
@@ -133,12 +133,13 @@ const create = asyncHandler(async (req, res) => {
       if (quantity > approvedQty) {
         throw new AppError(`Transfer quantity for "${itemName}" cannot exceed the approved quantity of ${approvedQty}.`, 400);
       }
+      const sourceItemId = await resolveItemId(itemName, client, fromStoreId);
 
       const transferRef = await nextRef(client, 'TRF');
       const { rows } = await client.query(
         `INSERT INTO material_transfers (transfer_ref, from_store_id, to_store_id, item_id, qty, date, status, department, requested_by)
          VALUES ($1,$2,$3,$4,$5,COALESCE($6, CURRENT_DATE),'Pending Approval',$7,$8) RETURNING id`,
-        [transferRef, fromStoreId, toStoreId, requestLine.id, quantity, date || null, req.user.department || null, req.user.name]
+        [transferRef, fromStoreId, toStoreId, sourceItemId, quantity, date || null, req.user.department || null, req.user.name]
       );
       await client.query('UPDATE material_transfers SET requisition_id = $1 WHERE id = $2', [requisitionId, rows[0].id]);
 

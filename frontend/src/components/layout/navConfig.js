@@ -99,7 +99,7 @@ const ROLE_NAV = {
     ['Stock', ['stockCards', 'binCards', 'stockTransfer']],
     ['Requisitions & Issues', ['requisitions', 'issueVouchers']],
     ['Returns & Transfers', ['materialReturn', 'materialTransfer']],
-    ['Stock Control', ['stockTaking', 'reconciliation']],
+    ['Stock Control', ['stockTaking']],
     ['Assets & Disposal', ['userCards', 'disposal']],
     ['Gate Verification', ['gatePass']],
     ['Reports', ['reports']],
