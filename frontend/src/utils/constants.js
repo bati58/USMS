@@ -208,4 +208,4 @@ export const STATUS_COLOR = {
   [ASSET_STATUS.DISPOSED]: 'bg-ink-200 text-ink-500'
 }
 
-export const UNITS = ['pcs', 'box', 'carton', 'kg', 'litre', 'meter', 'ream', 'roll', 'set']
+export const UNITS = ['pcs', 'pack', 'box', 'carton', 'bag', 'kg', 'litre', 'meter', 'ream', 'roll', 'set']

@@ -9,7 +9,7 @@ import Button from '../../components/ui/Button'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import Badge from '../../components/ui/Badge'
-import { itemService, categoryService, locationService, storeService } from '../../services'
+import { itemService, categoryService, locationService } from '../../services'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessPage, canPerformAction } from '../../utils/rolePermissions'
@@ -38,7 +38,7 @@ export default function ItemList() {
   const { user } = useAuth()
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
-  const [mainStoreBins, setMainStoreBins] = useState([])
+  const [availableBins, setAvailableBins] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -57,16 +57,17 @@ export default function ItemList() {
     setLoading(true)
     try {
       const canViewLocations = canAccessPage(user?.role, '/locations')
-      const [itemsData, categoriesData, locationData, storeData] = await Promise.all([
+      const [itemsData, categoriesData, locationData] = await Promise.all([
         itemService.listMaster(),
         categoryService.list(),
-        canViewLocations ? locationService.list() : Promise.resolve([]),
-        storeService.list()
+        canViewLocations ? locationService.list() : Promise.resolve([])
       ])
       setItems(itemsData)
       setCategories(categoriesData)
-      const mainStoreIds = new Set(storeData.filter((store) => store.active !== false && store.type === 'Main Store').map((store) => String(store.id)))
-      setMainStoreBins(locationData.filter((location) => location.active !== false && location.type === 'BIN' && mainStoreIds.has(String(location.storeId))))
+      const bins = locationData.filter((location) => location.active !== false && location.type === 'BIN')
+      setAvailableBins(['Store Head', 'Storekeeper'].includes(user?.role)
+        ? bins
+        : bins)
     } catch (err) {
       push(err.message || 'Could not load items.', 'error')
     } finally {
@@ -242,8 +243,8 @@ export default function ItemList() {
             onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
           />
           <Select
-            label="Main Store BIN"
-            options={mainStoreBins.map((location) => ({ value: String(location.id), label: `${location.name} (${location.code})` }))}
+            label="Store BIN"
+            options={availableBins.map((location) => ({ value: String(location.id), label: `${location.name} (${location.code})` }))}
             value={form.locationId}
             onChange={(e) => setForm((f) => ({ ...f, locationId: e.target.value }))}
             placeholder="Select a BIN location..."

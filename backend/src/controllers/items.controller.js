@@ -2,7 +2,7 @@ const { query } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
-const { mapItem, resolveStoreId, resolveCategoryId, resolveLocationId } = require('./_helpers');
+const { mapItem, resolveStoreId, resolveCategoryId, resolveLocationId, getUserStoreVisibility, assertUserCanAccessStoreRecord } = require('./_helpers');
 
 const SELECT = `
   SELECT i.*, c.name AS category_name, s.name AS store_name,
@@ -18,6 +18,23 @@ const SELECT = `
   LEFT JOIN locations rack_location ON rack_location.id = shelf_location.parent_id
   LEFT JOIN locations section_location ON section_location.id = rack_location.parent_id
 `;
+
+function validateItemFields({ code, name, unit, minLevel, maxLevel, reorderLevel, unitPrice }) {
+  if (!String(code || '').trim() || !String(name || '').trim() || !String(unit || '').trim()) {
+    throw new AppError('code, name, and unit are required for an item master record.', 400);
+  }
+
+  for (const [label, value] of [
+    ['minimum level', minLevel],
+    ['maximum level', maxLevel],
+    ['reorder level', reorderLevel],
+    ['unit price', unitPrice]
+  ]) {
+    if (value !== undefined && value !== null && value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0)) {
+      throw new AppError(`${label} must be a non-negative number.`, 400);
+    }
+  }
+}
 
 async function getItemStoreScope(user) {
   if (!['Store Head', 'Storekeeper'].includes(user?.role)) return null;
@@ -109,15 +126,28 @@ const getOne = asyncHandler(async (req, res) => {
 });
 
 const create = asyncHandler(async (req, res) => {
-  const { code, name, category, locationId, unit, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked = false, expiryDate, batchNo, condition } = req.body;
+  const { code, name, category, store, locationId, unit, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked = false, expiryDate, batchNo, condition } = req.body;
   if (!code || !name || !unit) {
     throw new AppError('code, name, and unit are required for an item master record.', 400);
   }
 
   const categoryId = await resolveCategoryId(category);
-  const { rows: mainStores } = await query("SELECT id FROM stores WHERE type = 'Main Store' AND active = TRUE ORDER BY id LIMIT 1");
-  if (!mainStores[0]) throw new AppError('A Main Store must exist before creating item master records.', 409);
-  const storeId = mainStores[0].id;
+  const visibility = await getUserStoreVisibility(req.user);
+  let storeId;
+  if (visibility !== null) {
+    if (store) storeId = await resolveStoreId(store);
+    if (!storeId && locationId) {
+      const { rows: locationStoreRows } = await query('SELECT store_id FROM locations WHERE id = $1', [locationId]);
+      storeId = locationStoreRows[0]?.store_id;
+    }
+    if (!storeId && visibility.assignedStoreId) storeId = visibility.assignedStoreId;
+    if (!storeId) throw new AppError('Your account is not assigned to a store for item creation.', 403);
+    await assertItemStoreAccess(req.user, storeId);
+  } else {
+    const { rows: mainStores } = await query("SELECT id FROM stores WHERE type = 'Main Store' AND active = TRUE ORDER BY id LIMIT 1");
+    if (!mainStores[0]) throw new AppError('A Main Store must exist before creating item master records.', 409);
+    storeId = mainStores[0].id;
+  }
   const resolvedLocationId = locationId ? await resolveLocationId(locationId, storeId) : null;
   let locationCode = null;
   if (resolvedLocationId) {
@@ -201,13 +231,13 @@ const update = asyncHandler(async (req, res) => {
 
   await query(
     `UPDATE item_inventory SET
-       location_id = COALESCE($1, location_id), bin = COALESCE($2, bin), unit = COALESCE($3, unit),
-       min_level = COALESCE($4, min_level), max_level = COALESCE($5, max_level), reorder_level = COALESCE($6, reorder_level),
-       unit_price = COALESCE($7, unit_price), expiry_tracked = COALESCE($8, expiry_tracked),
-       expiry_date = CASE WHEN COALESCE($8, expiry_tracked) THEN COALESCE($9, expiry_date) ELSE NULL END,
-       batch_no = COALESCE($10, batch_no), item_condition = COALESCE($11, item_condition), updated_at = NOW()
-     WHERE item_id = $12 AND store_id = $13`,
-    [resolvedLocationId, locationRows[0]?.code || bin, unit, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked, expiryDate, batchNo, condition, req.params.id, currentRows[0].store_id]
+       location_id = COALESCE($1, location_id), bin = COALESCE($2, bin),
+       min_level = COALESCE($3, min_level), max_level = COALESCE($4, max_level), reorder_level = COALESCE($5, reorder_level),
+       unit_price = COALESCE($6, unit_price), expiry_tracked = COALESCE($7, expiry_tracked),
+       expiry_date = CASE WHEN COALESCE($7, expiry_tracked) THEN COALESCE($8, expiry_date) ELSE NULL END,
+       batch_no = COALESCE($9, batch_no), item_condition = COALESCE($10, item_condition), updated_at = NOW()
+     WHERE item_id = $11 AND store_id = $12`,
+    [resolvedLocationId, locationRows[0]?.code || bin, minLevel, maxLevel, reorderLevel, unitPrice, expiryTracked, expiryDate, batchNo, condition, req.params.id, currentRows[0].store_id]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Updated item ${name || rows[0].id}`, module: 'Items & Locations' });
