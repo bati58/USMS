@@ -97,12 +97,15 @@ const create = asyncHandler(async (req, res) => {
          JOIN issue_voucher_items ivi ON ivi.issue_voucher_id = iv.id
          JOIN items i ON i.id = ivi.item_id
          JOIN requisitions r ON r.sr_ref = iv.sr_ref
-         WHERE iv.siv_ref = $1 AND iv.status = 'Posted' AND i.name = $2 AND ivi.qty >= $3
+                 WHERE TRIM(iv.siv_ref) = TRIM($1)
+                       AND iv.status IN ('Posted', 'Issued')
+                     AND LOWER(TRIM(i.name)) = LOWER(TRIM($2))
+                     AND ivi.qty >= $3
          LIMIT 1`,
         [issueRef, item, qty]
     );
     if (!voucherRows[0]) {
-        throw new AppError('User material cards must be created from a posted issue voucher with sufficient issued quantity.', 400);
+        throw new AppError('User material cards must be created from a posted or issued voucher with sufficient issued quantity.', 400);
     }
     const { rows: assignedRows } = await query(
         `SELECT COALESCE(SUM(qty), 0) AS assigned_qty
