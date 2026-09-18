@@ -69,7 +69,7 @@ export default function MaterialTransferList() {
         materialTransferService.list(),
         storeService.list(),
         requisitionService.list(),
-        locationService.list()
+        isStorekeeper ? locationService.list() : Promise.resolve([])
       ])
       setRows(transfers)
       setStores(storeList.filter((store) => store.active !== false))
