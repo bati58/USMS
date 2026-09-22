@@ -124,13 +124,15 @@ const eligibleItems = asyncHandler(async (req, res) => {
   const storeId = await resolveStoreId(req.query.store);
   await assertUserCanAccessStoreRecord(req.user, storeId, { query });
   const { rows } = await query(
-    `SELECT i.*, c.name AS category_name, s.name AS store_name, l.name AS location_name
+    `SELECT i.*, ii.store_id, ii.qty_on_hand, ii.bin, ii.location_id,
+            ii.item_condition, ii.expiry_tracked, ii.expiry_date,
+            c.name AS category_name, s.name AS store_name, l.name AS location_name
      FROM items i
+     JOIN item_inventory ii ON ii.item_id = i.id AND ii.store_id = $1
      LEFT JOIN categories c ON c.id = i.category_id
-     JOIN stores s ON s.id = i.store_id
-     LEFT JOIN locations l ON l.id = i.location_id
-     WHERE i.store_id = $1
-       AND i.qty_on_hand > 0
+     JOIN stores s ON s.id = ii.store_id
+     LEFT JOIN locations l ON l.id = ii.location_id
+     WHERE ii.qty_on_hand > 0
        AND (
          LOWER(COALESCE(i.item_condition, '')) IN ('damaged', 'unusable', 'obsolete', 'scrap', 'condemned')
          OR (i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE)
@@ -169,13 +171,14 @@ const create = asyncHandler(async (req, res) => {
     const storeId = await resolveStoreId(store, client);
     await assertUserCanAccessStoreRecord(req.user, storeId, client);
     const resolvedItemId = itemId
-      ? (await client.query('SELECT id FROM items WHERE id = $1 AND store_id = $2', [itemId, storeId])).rows[0]?.id
+      ? (await client.query('SELECT item_id FROM item_inventory WHERE item_id = $1 AND store_id = $2', [itemId, storeId])).rows[0]?.item_id
       : await resolveItemId(item, client, storeId);
     if (!resolvedItemId) throw new AppError(`Unknown item: "${item || itemId}" in the selected store.`, 400);
     const { rows: stockRows } = await client.query(
-      `SELECT qty_on_hand, item_condition, expiry_tracked, expiry_date
-       FROM items WHERE id = $1 FOR UPDATE`,
-      [resolvedItemId]
+      `SELECT ii.qty_on_hand, ii.item_condition, ii.expiry_tracked, ii.expiry_date
+       FROM item_inventory ii
+       WHERE ii.item_id = $1 AND ii.store_id = $2 FOR UPDATE`,
+      [resolvedItemId, storeId]
     );
     if (!stockRows[0] || Number(stockRows[0].qty_on_hand) < Number(qty)) {
       throw new AppError('The requested disposal quantity exceeds the current stock on hand.', 400);

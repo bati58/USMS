@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "test": "node --test test/workflow.test.js",
     "db:migrate": "node src/db/migrate.js",
+    "db:consistency": "node src/db/consistencyReport.js",
     "db:schema": "node src/db/runSql.js src/db/schema.sql",
     "db:seed": "node src/db/runSql.js src/db/seed.sql",
     "db:reset": "npm run db:schema && npm run db:seed",
@@ -21,6 +22,7 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.0.10",
     "pg": "^8.12.0",
     "zod": "^3.23.8"
   },

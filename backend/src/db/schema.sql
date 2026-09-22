@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS stores (
   name           TEXT NOT NULL,
   code           TEXT NOT NULL UNIQUE,
   type           TEXT NOT NULL,
+  category       TEXT NOT NULL DEFAULT 'General',
   department     TEXT,
   location       TEXT,
   head_of_store  TEXT,
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS items (
   code           TEXT NOT NULL,
   name           TEXT NOT NULL,
   category_id    INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  description    TEXT,
   store_id       INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
   bin            TEXT,
   unit           TEXT NOT NULL,
@@ -102,6 +104,8 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS idx_items_store ON items(store_id);
 CREATE INDEX IF NOT EXISTS idx_items_code ON items(code);
 CREATE INDEX IF NOT EXISTS idx_items_location ON items(location_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_items_institution_code ON items(code);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_institution_code ON categories(code);
 
 -- ---------- structured store locations ----------
 CREATE TABLE IF NOT EXISTS locations (
@@ -216,8 +220,15 @@ CREATE TABLE IF NOT EXISTS goods_receipt_items (
   item_id            INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
   qty                NUMERIC(14,2) NOT NULL CHECK (qty > 0),
   unit_price         NUMERIC(14,2) NOT NULL,
+  expected_qty       NUMERIC(14,2),
+  received_qty       NUMERIC(14,2),
   qty_accepted       NUMERIC(14,2),
-  qty_rejected       NUMERIC(14,2)
+  qty_rejected       NUMERIC(14,2),
+  posted_qty         NUMERIC(14,2) NOT NULL DEFAULT 0,
+  CHECK (expected_qty IS NULL OR expected_qty >= 0),
+  CHECK (received_qty IS NULL OR received_qty > 0),
+  CHECK (posted_qty >= 0),
+  CHECK (received_qty IS NULL OR posted_qty <= received_qty)
 );
 
 -- ---------- GRN documents ----------
@@ -303,6 +314,9 @@ CREATE INDEX IF NOT EXISTS idx_bin_movement_card_date ON bin_card_movements(bin_
 CREATE TABLE IF NOT EXISTS bin_transfers (
   id              SERIAL PRIMARY KEY,
   item_id         INTEGER NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
+  store_id        INTEGER REFERENCES stores(id) ON DELETE RESTRICT,
+  from_location_id INTEGER REFERENCES locations(id) ON DELETE RESTRICT,
+  to_location_id   INTEGER REFERENCES locations(id) ON DELETE RESTRICT,
   from_bin        TEXT NOT NULL,
   to_bin          TEXT NOT NULL,
   qty             NUMERIC(14,2) NOT NULL CHECK (qty > 0),
@@ -310,6 +324,8 @@ CREATE TABLE IF NOT EXISTS bin_transfers (
   transferred_by  TEXT,
   created_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_bin_transfers_store ON bin_transfers(store_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bin_transfers_locations ON bin_transfers(from_location_id, to_location_id);
 
 -- ---------- requisitions + line items (§5.9) ----------
 CREATE TABLE IF NOT EXISTS requisitions (
@@ -449,6 +465,7 @@ CREATE TABLE IF NOT EXISTS material_transfers (
   status               TEXT NOT NULL DEFAULT 'Pending'
                          CHECK (status IN ('Draft','Submitted','Pending','Pending Approval','Approved','Dispatched','Received','Completed','Rejected','Returned for Correction')),
   destination_bin      TEXT,
+  destination_location_id INTEGER REFERENCES locations(id) ON DELETE RESTRICT,
   dispatched_by        TEXT,
   dispatched_at        TIMESTAMP,
   received_by          TEXT,
@@ -462,6 +479,7 @@ CREATE TABLE IF NOT EXISTS material_transfers (
 );
 CREATE INDEX IF NOT EXISTS idx_material_transfers_department ON material_transfers(department);
 CREATE INDEX IF NOT EXISTS idx_material_transfers_requisition ON material_transfers(requisition_id);
+CREATE INDEX IF NOT EXISTS idx_material_transfers_destination_location ON material_transfers(destination_location_id);
 
 -- ---------- disposals (§5.15) ----------
 CREATE TABLE IF NOT EXISTS disposals (

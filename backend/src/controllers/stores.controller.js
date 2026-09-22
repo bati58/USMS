@@ -1,4 +1,4 @@
-const { query } = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
@@ -21,11 +21,14 @@ function normalizeStoreType(value) {
     cafeteria: 'Cafe Store',
     'cafeteria store': 'Cafe Store',
     laboratory: 'Specialized/Laboratory',
+    'laboratory store': 'Specialized/Laboratory',
     'specialized/laboratory': 'Specialized/Laboratory',
     'specialized laboratory': 'Specialized/Laboratory',
     'specialized / laboratory': 'Specialized/Laboratory',
     'lab store': 'Specialized/Laboratory',
-    'specialized store': 'Specialized/Laboratory'
+    'specialized store': 'Specialized/Laboratory',
+    pharmacy: 'Pharmacy Store',
+    'pharmacy store': 'Pharmacy Store'
   };
 
   const direct = aliases[normalized.toLowerCase()];
@@ -40,7 +43,7 @@ function normalizeStoreType(value) {
   return normalized;
 }
 
-const STORE_TYPES = ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory'];
+const STORE_TYPES = ['Main Store', 'Other Store'];
 
 async function resolveEligibleAssignment(value, role) {
   if (value === null || value === undefined || value === '') return null;
@@ -170,9 +173,9 @@ const hasStorekeeperColumn = async () => {
 };
 
 const create = asyncHandler(async (req, res) => {
-  const { name, code, type, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
-  if (!String(name || '').trim() || !String(code || '').trim() || !type || !String(headOfStore || '').trim()) {
-    throw new AppError('name, code, type, and an active Store Head are required.', 400);
+  const { name, code, type, category, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
+  if (!String(name || '').trim() || !String(code || '').trim() || !type || !String(category || '').trim() || !String(headOfStore || '').trim()) {
+    throw new AppError('name, code, type, category, and an active Store Head are required.', 400);
   }
   const normalizedType = normalizeStoreType(type);
   if (!STORE_TYPES.includes(normalizedType)) throw new AppError(`Invalid store type: ${type}.`, 400);
@@ -185,9 +188,9 @@ const create = asyncHandler(async (req, res) => {
 
   if (hasColumn) {
     const { rows } = await query(
-      `INSERT INTO stores (name, code, type, department, location, head_of_store, storekeeper, description, contact_info, active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [String(name).trim(), String(code).trim(), normalizedType, department?.trim() || null, location?.trim() || null, headName, storekeeperName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
+      `INSERT INTO stores (name, code, type, category, department, location, head_of_store, storekeeper, description, contact_info, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [String(name).trim(), String(code).trim(), normalizedType, String(category).trim(), department?.trim() || null, location?.trim() || null, headName, storekeeperName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
     );
 
     await logAudit(query, { userName: req.user.name, action: `Created store ${name}`, module: 'Store Management' });
@@ -196,9 +199,9 @@ const create = asyncHandler(async (req, res) => {
   }
 
   const { rows } = await query(
-    `INSERT INTO stores (name, code, type, department, location, head_of_store, description, contact_info, active)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [String(name).trim(), String(code).trim(), normalizedType, department?.trim() || null, location?.trim() || null, headName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
+    `INSERT INTO stores (name, code, type, category, department, location, head_of_store, description, contact_info, active)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [String(name).trim(), String(code).trim(), normalizedType, String(category).trim(), department?.trim() || null, location?.trim() || null, headName, description?.trim() || null, contactInfo?.trim() || null, active !== undefined ? Boolean(active) : true]
   );
 
   await logAudit(query, { userName: req.user.name, action: `Created store ${name}`, module: 'Store Management' });
@@ -207,7 +210,7 @@ const create = asyncHandler(async (req, res) => {
 });
 
 const update = asyncHandler(async (req, res) => {
-  const { name, code, type, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
+  const { name, code, type, category, department, location, headOfStore, storekeeper, description, contactInfo, active } = req.body;
   const normalizedType = normalizeStoreType(type);
   if (type !== undefined && !STORE_TYPES.includes(normalizedType)) throw new AppError(`Invalid store type: ${type}.`, 400);
   const hasColumn = await hasStorekeeperColumn();
@@ -219,13 +222,13 @@ const update = asyncHandler(async (req, res) => {
   if (hasColumn) {
     const { rows } = await query(
       `UPDATE stores SET
-         name = COALESCE($1, name), code = COALESCE($2, code), type = COALESCE($3, type),
-         department = COALESCE($4, department), location = COALESCE($5, location),
-         head_of_store = COALESCE($6, head_of_store), storekeeper = COALESCE($7, storekeeper),
-         description = COALESCE($8, description), contact_info = COALESCE($9, contact_info),
-         active = COALESCE($10, active), updated_at = NOW()
-       WHERE id = $11 RETURNING *`,
-      [name, code, normalizedType, department, location, headName, storekeeperName, description, contactInfo, active, req.params.id]
+         name = COALESCE($1, name), code = COALESCE($2, code), type = COALESCE($3, type), category = COALESCE($4, category),
+         department = COALESCE($5, department), location = COALESCE($6, location),
+         head_of_store = COALESCE($7, head_of_store), storekeeper = COALESCE($8, storekeeper),
+         description = COALESCE($9, description), contact_info = COALESCE($10, contact_info),
+         active = COALESCE($11, active), updated_at = NOW()
+       WHERE id = $12 RETURNING *`,
+      [name, code, normalizedType, category, department, location, headName, storekeeperName, description, contactInfo, active, req.params.id]
     );
     if (!rows[0]) throw new AppError('Store not found.', 404);
 
@@ -236,13 +239,13 @@ const update = asyncHandler(async (req, res) => {
 
   const { rows } = await query(
     `UPDATE stores SET
-       name = COALESCE($1, name), code = COALESCE($2, code), type = COALESCE($3, type),
-       department = COALESCE($4, department), location = COALESCE($5, location),
-       head_of_store = COALESCE($6, head_of_store),
-       description = COALESCE($7, description), contact_info = COALESCE($8, contact_info),
-       active = COALESCE($9, active), updated_at = NOW()
-     WHERE id = $10 RETURNING *`,
-    [name, code, normalizedType, department, location, headName, description, contactInfo, active, req.params.id]
+       name = COALESCE($1, name), code = COALESCE($2, code), type = COALESCE($3, type), category = COALESCE($4, category),
+       department = COALESCE($5, department), location = COALESCE($6, location),
+       head_of_store = COALESCE($7, head_of_store),
+       description = COALESCE($8, description), contact_info = COALESCE($9, contact_info),
+       active = COALESCE($10, active), updated_at = NOW()
+     WHERE id = $11 RETURNING *`,
+    [name, code, normalizedType, category, department, location, headName, description, contactInfo, active, req.params.id]
   );
   if (!rows[0]) throw new AppError('Store not found.', 404);
 
@@ -252,10 +255,13 @@ const update = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-  const { rows } = await query('DELETE FROM stores WHERE id = $1 RETURNING name', [req.params.id]);
-  if (!rows[0]) throw new AppError('Store not found.', 404);
+  const result = await withTransaction(async (client) => {
+    await client.query('DELETE FROM store_user_assignments WHERE store_id = $1', [req.params.id]);
+    return client.query('DELETE FROM stores WHERE id = $1 RETURNING name', [req.params.id]);
+  });
+  if (!result.rows[0]) throw new AppError('Store not found.', 404);
 
-  await logAudit(query, { userName: req.user.name, action: `Deleted store ${rows[0].name}`, module: 'Store Management' });
+  await logAudit(query, { userName: req.user.name, action: `Deleted store ${result.rows[0].name}`, module: 'Store Management' });
   res.status(204).send();
 });
 

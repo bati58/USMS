@@ -158,7 +158,7 @@ export function buildNotifications(user, data) {
             `${t.transferRef}: ${t.fromStore} → ${t.toStore} is awaiting action`,
             'info',
             '/material-transfer',
-            t.date
+            t.updatedAt || t.createdAt || t.date
           )
         })
 
@@ -214,7 +214,7 @@ export function buildNotifications(user, data) {
           `${t.transferRef}: ${t.fromStore} → ${t.toStore}`,
           'info',
           '/material-transfer',
-          t.date
+          t.updatedAt || t.createdAt || t.date
         )
       })
       pendingDisposals.slice(0, 5).forEach((d) => {
@@ -276,7 +276,7 @@ export function buildNotifications(user, data) {
               : `${t.transferRef}: ${t.fromStore} → ${t.toStore} is approved and ready to dispatch`,
             t.status === 'Dispatched' ? 'info' : 'success',
             '/material-transfer',
-            t.date
+            t.updatedAt || t.createdAt || t.date
           )
         })
       // The Storekeeper no longer generates vouchers — they issue the ones the PAO has

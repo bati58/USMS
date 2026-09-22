@@ -129,6 +129,9 @@ const DASHBOARD_DATA_BY_ROLE = {
   [ROLES.SECURITY]: {
     grns: goodsReceiptService,
     vouchers: issueVoucherService
+  },
+  [ROLES.DISPOSAL_COMMITTEE]: {
+    disposals: disposalService
   }
 }
 
@@ -168,6 +171,8 @@ function getRoleSubtext(user, storeName) {
       return "Here's the current financial position of inventory."
     case ROLES.SECURITY:
       return 'Verify gate passes for materials entering and leaving the premises.'
+    case ROLES.DISPOSAL_COMMITTEE:
+      return 'Review disposal decisions and confirm authorized write-offs.'
     default:
       return "Here's what's happening across your stores today."
   }
@@ -1353,6 +1358,40 @@ export default function Dashboard() {
     </>
   )
 
+  const renderDisposalCommittee = () => {
+    const authorizationQueue = disposals.filter((d) => ['Pending Authorization', 'Pending Review', 'Requested'].includes(d.status))
+    const confirmationQueue = disposals.filter((d) => ['Pending Confirmation', 'Confirmed', 'Posted'].includes(d.status))
+    const committeeQueue = [...authorizationQueue, ...confirmationQueue]
+
+    return (
+      <>
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {renderStatCardLink('/disposal', 'Awaiting Authorization', authorizationQueue.length, ClipboardCheck, 'warning', 'Committee decision required')}
+          {renderStatCardLink('/disposal', 'Awaiting Confirmation', confirmationQueue.length, CheckCircle2, 'brand', 'Confirm or post disposal')}
+          {renderStatCardLink('/disposal', 'All Disposal Records', disposals.length, Trash2, 'ink', 'View the disposal register')}
+        </div>
+
+        <Card title="Disposal Committee Queue" subtitle="Review, confirm, and post disposal decisions" actions={<Link to="/disposal" className="text-sm font-medium text-brand-600 hover:text-brand-700">Open disposal management</Link>}>
+          {committeeQueue.length === 0 ? (
+            <EmptyState title="Committee queue is clear" message="There are no disposal decisions waiting for committee action." icon={CheckCircle2} />
+          ) : (
+            <ul className="space-y-3">
+              {committeeQueue.slice(0, MAX_APPROVAL_ROWS).map((disposal) => (
+                <li key={disposal.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-100 bg-ink-50/40 p-3 text-sm">
+                  <div>
+                    <p className="font-medium text-ink-900">{disposal.disposalRef} · {disposal.item}</p>
+                    <p className="text-xs text-ink-500">{disposal.store} · {disposal.qty} · {disposal.status}</p>
+                  </div>
+                  <Link to="/disposal" className="text-xs font-medium text-brand-600">Review</Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </>
+    )
+  }
+
   const renderByRole = () => {
     switch (user?.role) {
       case ROLES.ADMIN:
@@ -1373,6 +1412,8 @@ export default function Dashboard() {
         return renderAccountant()
       case ROLES.SECURITY:
         return renderSecurity()
+      case ROLES.DISPOSAL_COMMITTEE:
+        return renderDisposalCommittee()
       default:
         return renderAdmin()
     }

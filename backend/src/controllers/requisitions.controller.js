@@ -94,8 +94,10 @@ const getOne = asyncHandler(async (req, res) => {
 // POST /api/requisitions — Backend-SRS §6.2 step 1 (Pending only, no stock change)
 const create = asyncHandler(async (req, res) => {
   const { department, requestedBy, date, store, items, reason } = req.body;
-  const effectiveDepartment = req.user.role === 'Department Head' ? req.user.department : department;
-  if (req.user.role === 'Department Head' && department && department !== req.user.department) {
+  const userDepartment = String(req.user.department || '').trim();
+  const requestedDepartment = String(department || '').trim();
+  const effectiveDepartment = req.user.role === 'Department Head' ? userDepartment : requestedDepartment;
+  if (req.user.role === 'Department Head' && requestedDepartment && requestedDepartment.toLowerCase() !== userDepartment.toLowerCase()) {
     throw new AppError('You can only create requisitions for your own department.', 403);
   }
   if ((!effectiveDepartment && req.user.role !== 'Storekeeper') || !store || !reason?.trim() || !Array.isArray(items) || items.length === 0) {

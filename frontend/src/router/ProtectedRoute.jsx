@@ -19,6 +19,13 @@ export default function ProtectedRoute() {
     return <Navigate to="/login" replace />
   }
 
+  if (user?.mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
+  }
+
+  // The forced-change page is available to every authenticated role.
+  if (location.pathname === '/change-password') return <Outlet />
+
   // Check if user has access to this route
   if (!canAccessPage(user?.role, location.pathname)) {
     return <Navigate to="/" replace />

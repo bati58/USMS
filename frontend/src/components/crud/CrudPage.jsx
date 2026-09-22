@@ -29,6 +29,7 @@ export default function CrudPage({
   emptyTitle = 'No records yet',
   emptyMessage = 'Create the first record to get started.',
   extraActions,
+  extraRowActions,
   validatePayload,
   onSaved,
   initialValues = {},
@@ -203,6 +204,7 @@ export default function CrudPage({
 
         return (
           <div className="flex justify-end gap-1">
+            {extraRowActions && extraRowActions(row)}
             {canEdit && (
               <button
                 onClick={() => openEdit(row)}

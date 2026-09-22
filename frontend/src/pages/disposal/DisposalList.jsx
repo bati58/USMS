@@ -65,7 +65,12 @@ export default function DisposalList() {
   async function load() {
     setLoading(true)
     try {
-      const results = await Promise.allSettled([disposalService.list(), storeService.list(), itemService.listInventory()])
+      const canLoadSupportingMasterData = canCreate || isStoreHead
+      const results = await Promise.allSettled([
+        disposalService.list(),
+        canLoadSupportingMasterData ? storeService.list() : Promise.resolve([]),
+        canLoadSupportingMasterData ? itemService.listInventory() : Promise.resolve([])
+      ])
       const [disposalResult, storeResult, itemResult] = results
       if (disposalResult.status === 'fulfilled') setRows(disposalResult.value)
       else push(disposalResult.reason?.message || 'Could not load disposal records.', 'error')

@@ -9,10 +9,16 @@ const list = asyncHandler(async (req, res) => {
   const visibility = await getUserStoreVisibility(req.user, { query });
   const { item, itemId } = req.query;
   let sql = `
-    SELECT st.*, i.name AS item_name, s.name AS store_name
+    SELECT st.*, i.name AS item_name, s.name AS store_name,
+      grn.grn_number AS official_grn_ref
     FROM stock_transactions st
     JOIN items i ON i.id = st.item_id
     LEFT JOIN stores s ON s.id = st.store_id
+    LEFT JOIN grns grn
+      ON grn.goods_receipt_id = CASE
+        WHEN st.source_id ~ '^[0-9]+$' THEN st.source_id::INTEGER
+        ELSE NULL
+      END
   `;
   const params = [];
   const conditions = [];

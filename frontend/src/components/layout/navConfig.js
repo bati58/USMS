@@ -164,6 +164,11 @@ const ROLE_NAV = {
     ['Campus Movement', ['gatePass']],
     ['Reports & Audit', ['reports', 'auditLog']],
   ],
+
+  [ROLES.DISPOSAL_COMMITTEE]: [
+    ['Overview', ['dashboard']],
+    ['Disposal Review', ['disposal']],
+  ],
 }
 
 /**

@@ -64,7 +64,11 @@ const list = asyncHandler(async (req, res) => {
   const results = [];
   for (const row of rows) {
     const { rows: lines } = await query(
-      `SELECT gi.*, i.name AS item_name FROM goods_receipt_items gi JOIN items i ON i.id = gi.item_id WHERE gi.goods_receipt_id = $1`,
+      `SELECT gi.*, i.name AS item_name, COALESCE(c.name, 'Uncategorized') AS category_name
+       FROM goods_receipt_items gi
+       JOIN items i ON i.id = gi.item_id
+       LEFT JOIN categories c ON c.id = i.category_id
+       WHERE gi.goods_receipt_id = $1`,
       [row.id]
     );
     results.push(mapGoodsReceipt(row, lines));
@@ -126,6 +130,7 @@ const create = asyncHandler(async (req, res) => {
   items.forEach((line, index) => {
     if (!line.item?.trim()) throw new AppError(`Item is required on line ${index + 1}.`, 400);
     if (!Number.isFinite(Number(line.qty)) || Number(line.qty) <= 0) throw new AppError(`Quantity must be greater than zero on line ${index + 1}.`, 400);
+    if (line.expectedQty !== undefined && (!Number.isFinite(Number(line.expectedQty)) || Number(line.expectedQty) < 0)) throw new AppError(`Expected quantity must be zero or greater on line ${index + 1}.`, 400);
     if (!Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0) throw new AppError(`Unit price must be zero or greater on line ${index + 1}.`, 400);
   });
 
@@ -157,8 +162,10 @@ const create = asyncHandler(async (req, res) => {
       const itemId = await resolveItemId(line.item, client, storeId);
       if (!itemId) throw new AppError(`Unknown item on this receipt: "${line.item}".`, 400);
       await client.query(
-        'INSERT INTO goods_receipt_items (goods_receipt_id, item_id, qty, unit_price) VALUES ($1,$2,$3,$4)',
-        [grnId, itemId, line.qty, line.unitPrice]
+        `INSERT INTO goods_receipt_items
+         (goods_receipt_id, item_id, qty, unit_price, expected_qty, received_qty)
+         VALUES ($1, $2, $3, $4, $5, $3)`,
+        [grnId, itemId, line.qty, line.unitPrice, line.expectedQty == null ? line.qty : line.expectedQty]
       );
     }
 

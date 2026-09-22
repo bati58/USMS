@@ -164,7 +164,8 @@ const login = asyncHandler(async (req, res) => {
       department: resolvedDepartment,
       departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
       assignedStores,
-      store: resolvedStore
+      store: resolvedStore,
+      authVersion: user.auth_version || 0
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
@@ -182,7 +183,8 @@ const login = asyncHandler(async (req, res) => {
       departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
       assignedStores,
       store: resolvedStore,
-      active: user.active
+      active: user.active,
+      mustChangePassword: Boolean(user.must_change_password)
     }
   });
 });
@@ -191,7 +193,8 @@ const login = asyncHandler(async (req, res) => {
 // the session on page load using only the stored token.
 const me = asyncHandler(async (req, res) => {
   const { rows } = await query(
-    `SELECT u.id, u.name, u.username, u.role, u.email, COALESCE(u.department, d.name) AS department, u.active
+    `SELECT u.id, u.name, u.username, u.role, u.email, COALESCE(u.department, d.name) AS department,
+          u.active, u.must_change_password, u.auth_version
      FROM users u
      LEFT JOIN departments d ON d.head_user_id = u.id AND d.active = TRUE
      WHERE u.id = $1`,
@@ -210,7 +213,8 @@ const me = asyncHandler(async (req, res) => {
     department: resolvedDepartment,
     departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
     assignedStores,
-    store: resolvedStore
+    store: resolvedStore,
+    mustChangePassword: Boolean(rows[0].must_change_password)
   });
 });
 
@@ -258,6 +262,33 @@ const changePassword = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
+const completeForcedPasswordChange = asyncHandler(async (req, res) => {
+  const { newPassword } = req.body;
+  if (!newPassword) throw new AppError('New password is required.', 400);
+  if (newPassword.length < 8) throw new AppError('Password must be at least 8 characters.', 400);
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  const { rows } = await query(
+    `UPDATE users
+     SET password_hash = $1, must_change_password = FALSE, updated_at = NOW()
+     WHERE id = $2 AND must_change_password = TRUE
+     RETURNING id, name`,
+    [passwordHash, req.user.id]
+  );
+  if (!rows[0]) throw new AppError('A forced password change is not pending for this account.', 409);
+  await logAudit(query, {
+    userId: rows[0].id,
+    userName: rows[0].name,
+    userRole: req.user.role,
+    action: 'PASSWORD_RESET_COMPLETED',
+    module: 'Authentication',
+    entityType: 'user',
+    entityId: rows[0].id,
+    metadata: { method: 'forced_password_change' }
+  });
+  res.status(204).send();
+});
+
 const refreshToken = asyncHandler(async (req, res) => {
   const oldToken = req.headers.authorization?.split(' ')[1];
   if (!oldToken) throw new AppError('No token provided', 401);
@@ -280,6 +311,9 @@ const refreshToken = asyncHandler(async (req, res) => {
   `, [decoded.id]);
   const user = rows[0];
   if (!user) throw new AppError('User not found or deactivated', 401);
+  if (Number(decoded.authVersion || 0) !== Number(user.auth_version || 0)) {
+    throw new AppError('Invalid or expired session. Please log in again.', 401);
+  }
 
   const resolvedDepartment = user.department || user.department_name || null;
   const resolvedDepartments = await resolveAssignedDepartments(user.id, query);
@@ -295,7 +329,8 @@ const refreshToken = asyncHandler(async (req, res) => {
       department: resolvedDepartment,
       departments: resolvedDepartments.length ? resolvedDepartments : (resolvedDepartment ? [resolvedDepartment] : []),
       assignedStores,
-      store: resolvedStore
+      store: resolvedStore,
+      authVersion: user.auth_version || 0
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
@@ -304,4 +339,4 @@ const refreshToken = asyncHandler(async (req, res) => {
   res.json({ token });
 });
 
-module.exports = { login, me, logout, changePassword, refreshToken, resolveAssignedStoreName, resolveAssignedStoreNames, resolveAssignedDepartments };
+module.exports = { login, me, logout, changePassword, completeForcedPasswordChange, refreshToken, resolveAssignedStoreName, resolveAssignedStoreNames, resolveAssignedDepartments };

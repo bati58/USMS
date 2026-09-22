@@ -3,6 +3,9 @@ import ProtectedRoute from './router/ProtectedRoute'
 import DashboardLayout from './components/layout/DashboardLayout'
 
 import Login from './pages/auth/Login'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
+import ChangePassword from './pages/auth/ChangePassword'
 import Dashboard from './pages/dashboard/Dashboard'
 import StoreList from './pages/stores/StoreList'
 import CategoryList from './pages/categories/CategoryList'
@@ -37,6 +40,11 @@ export default function App() {
     return (
         <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route element={<ProtectedRoute />}>
+                <Route path="/change-password" element={<ChangePassword />} />
+            </Route>
             <Route element={<ProtectedRoute />}>
                 <Route element={<DashboardLayout />}>
                     <Route path="/" element={<Dashboard />} />

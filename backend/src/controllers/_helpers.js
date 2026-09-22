@@ -102,7 +102,8 @@ function mapUser(row) {
     role: row.role,
     email: row.email,
     department: row.department,
-    active: row.active
+    active: row.active,
+    mustChangePassword: Boolean(row.must_change_password)
   };
 }
 
@@ -112,6 +113,7 @@ function mapStore(row) {
     name: row.name,
     code: row.code,
     type: row.type,
+    category: row.category || 'General',
     department: row.department || null,
     location: row.location,
     headOfStore: row.head_of_store,
@@ -200,9 +202,12 @@ function mapGoodsReceipt(row, items = []) {
     items: items.map((i) => ({
       item: i.item_name,
       category: i.category_name || 'Uncategorized',
-      qty: Number(i.qty),
+      qty: Number(i.received_qty ?? i.qty),
+      expectedQty: i.expected_qty == null ? Number(i.received_qty ?? i.qty) : Number(i.expected_qty),
+      receivedQty: i.received_qty == null ? Number(i.qty) : Number(i.received_qty),
       qtyAccepted: i.qty_accepted == null ? null : Number(i.qty_accepted),
       qtyRejected: i.qty_rejected == null ? null : Number(i.qty_rejected),
+      postedQty: i.posted_qty == null ? 0 : Number(i.posted_qty),
       unitPrice: Number(i.unit_price)
     }))
   };
@@ -214,7 +219,7 @@ function mapStockTransaction(row) {
     item: row.item_name,
     date: row.date,
     type: row.type,
-    ref: row.ref,
+    ref: row.official_grn_ref || row.ref,
     qtyIn: Number(row.qty_in),
     qtyOut: Number(row.qty_out),
     unitPrice: Number(row.unit_price),
@@ -232,6 +237,7 @@ function mapStockTransaction(row) {
 function mapBinCard(row) {
   return {
     id: row.id,
+    locationId: row.location_id || null,
     bin: row.bin,
     itemId: row.item_id,
     storeId: row.store_id,
@@ -340,6 +346,8 @@ function mapMaterialTransfer(row) {
     id: row.id,
     transferRef: row.transfer_ref,
     requisitionId: row.requisition_id || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
     requestedBy: row.requested_by || null,
     fromStore: row.from_store_name || null,
     toStore: row.to_store_name || null,
@@ -348,6 +356,7 @@ function mapMaterialTransfer(row) {
     date: row.date,
     status: row.status,
     destinationBin: row.destination_bin || null,
+    destinationLocationId: row.destination_location_id || null,
     dispatchedBy: row.dispatched_by || null,
     dispatchedAt: row.dispatched_at || null,
     receivedBy: row.received_by || null,
@@ -408,6 +417,11 @@ function mapAuditLog(row) {
     ipAddress: row.metadata?.ip || null,
     userAgent: row.metadata?.userAgent || null,
     metadata: row.metadata,
+    storeId: row.metadata?.storeId || null,
+    itemId: row.metadata?.itemId || null,
+    locationId: row.metadata?.locationId || null,
+    bin: row.metadata?.bin || null,
+    transactionReference: row.metadata?.transactionReference || null,
     timestamp: row.created_at
   };
 }

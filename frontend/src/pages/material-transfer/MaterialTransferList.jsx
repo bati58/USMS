@@ -24,7 +24,6 @@ export default function MaterialTransferList() {
   const { push } = useToast()
   const { user } = useAuth()
   const [rows, setRows] = useState([])
-  const [stores, setStores] = useState([])
   const [locations, setLocations] = useState([])
   const [requisitions, setRequisitions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -38,7 +37,7 @@ export default function MaterialTransferList() {
 
   const [header, setHeader] = useState({ requisitionId: '', date: '' })
   const [lines, setLines] = useState([{ ...EMPTY_LINE }])
-  const [receiveBin, setReceiveBin] = useState('')
+  const [receiveLocationId, setReceiveLocationId] = useState('')
 
   const canApprove = canPerformAction(user?.role, 'approve', 'materialTransfers')
   const canCreate = canPerformAction(user?.role, 'create', 'materialTransfers')
@@ -58,7 +57,7 @@ export default function MaterialTransferList() {
   const selectedRequisition = approvedRequisitions.find((request) => String(request.id) === String(header.requisitionId))
   const availableItems = selectedRequisition?.items || []
   const destinationBins = useMemo(
-    () => locations.filter((location) => location.store === viewing?.toStore),
+    () => locations.filter((location) => location.store === viewing?.toStore && location.active !== false),
     [locations, viewing?.toStore]
   )
 
@@ -72,7 +71,6 @@ export default function MaterialTransferList() {
         isStorekeeper ? locationService.list() : Promise.resolve([])
       ])
       setRows(transfers)
-      setStores(storeList.filter((store) => store.active !== false))
       setRequisitions(requisitionList)
       setLocations(locationList.filter((location) => location.active !== false && location.type === 'BIN'))
     } catch (err) {
@@ -154,12 +152,11 @@ export default function MaterialTransferList() {
         await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Dispatched' })
         push(`${viewing.transferRef} dispatched. The destination Storekeeper is the next actor and must receive it.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RECEIVED) {
-        const destinationBin = receiveBin.trim()
-        if (!destinationBin) {
+        if (!receiveLocationId) {
           push('Select a destination bin before receiving the materials.', 'error')
           return
         }
-        await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Received', destinationBin })
+        await api.action('materialTransfers', viewing.id, 'execute', { decision: 'Received', destinationLocationId: Number(receiveLocationId) })
         push(`${viewing.transferRef} received. Destination stock, Stock Cards, Bin Cards, and FIFO lots were updated.`, 'success', successToast)
       } else if (status === TRANSFER_STATUS.RETURNED) {
         await api.action('materialTransfers', viewing.id, 'approve', { decision: 'Returned for Correction' })
@@ -170,7 +167,7 @@ export default function MaterialTransferList() {
       }
 
       setViewing(null)
-      setReceiveBin('')
+      setReceiveLocationId('')
       await load()
     } catch (err) {
       push(err.message, 'error')
@@ -228,7 +225,7 @@ export default function MaterialTransferList() {
       className: 'text-right',
       render: (row) => (
         <div className="flex justify-end gap-1 items-center">
-          <button onClick={() => { setViewing(row); setReceiveBin('') }} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
+          <button onClick={() => { setViewing(row); setReceiveLocationId('') }} className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-brand-600">
             <Eye size={15} />
           </button>
           {[TRANSFER_STATUS.PENDING_APPROVAL, TRANSFER_STATUS.RETURNED].includes(row.status) && canCreate && (
@@ -401,11 +398,11 @@ export default function MaterialTransferList() {
                     required
                     placeholder="Select a destination bin..."
                     options={destinationBins.map((location) => ({
-                      value: location.code,
+                      value: String(location.id),
                       label: `${location.code} - ${location.name}`
                     }))}
-                    value={receiveBin}
-                    onChange={(e) => setReceiveBin(e.target.value)}
+                    value={receiveLocationId}
+                    onChange={(e) => setReceiveLocationId(e.target.value)}
                   />
                 </div>
               )}

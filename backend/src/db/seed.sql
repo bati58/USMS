@@ -15,8 +15,28 @@ INSERT INTO users (name, username, password_hash, role, email, active) VALUES
   ('Dr. Fikru Wolde','tec',         '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Technical Evaluation Committee', 'tec@sms.local', TRUE),
   ('Hana Girma',     'depthead',    '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Department Head', 'depthead@sms.local', TRUE),
   ('Biniam Assefa',  'accountant',  '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Accountant', 'accountant@sms.local', TRUE),
-  ('Samuel Tadesse', 'security',    '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Security Officer', 'security@sms.local', TRUE)
+  ('Samuel Tadesse',  'security',    '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Security Officer', 'security@sms.local', TRUE)
 ON CONFLICT (username) DO NOTHING;
+
+-- Normalize the legacy Disposal Committee demo account to the canonical login.
+UPDATE users
+SET name = 'Disposal Committee',
+    username = 'disposal',
+    email = 'disposal@sms.local',
+    role = 'Disposal Committee',
+    active = TRUE,
+    updated_at = NOW()
+WHERE (username = 'bati' OR email = 'batijano58@gmail.com')
+  AND NOT EXISTS (SELECT 1 FROM users WHERE username = 'disposal');
+
+INSERT INTO users (name, username, password_hash, role, email, active) VALUES
+  ('Disposal Committee', 'disposal', '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrUq', 'Disposal Committee', 'disposal@sms.local', TRUE)
+ON CONFLICT (username) DO UPDATE SET
+  name = EXCLUDED.name,
+  role = EXCLUDED.role,
+  email = EXCLUDED.email,
+  active = EXCLUDED.active,
+  updated_at = NOW();
 
 -- Keep the development demo actors on the documented shared password even
 -- when the seed is run against an existing database.
@@ -25,7 +45,7 @@ SET password_hash = '$2a$10$KR4J5q./5aeuMqhMNrUZcerIwKfoyFfhPWFI7TAbro.vJ1tuOSrU
     failed_login_attempts = 0,
     locked_until = NULL,
     updated_at = NOW()
-WHERE username IN ('admin', 'pao', 'storehead', 'storekeeper', 'clerk', 'tec', 'depthead', 'accountant', 'security');
+WHERE username IN ('admin', 'pao', 'storehead', 'storekeeper', 'clerk', 'tec', 'depthead', 'accountant', 'security', 'disposal');
 
 UPDATE users
 SET department = 'Software Engineering', updated_at = NOW()
@@ -53,16 +73,18 @@ WHERE u.username = 'depthead'
   AND d.code = 'DEPT-SWE';
 
 -- Functional stores following the refactored store model.
-INSERT INTO stores (name, code, type, location, description, contact_info, active, created_at, updated_at)
+INSERT INTO stores (name, code, type, category, location, description, contact_info, active, created_at, updated_at)
 VALUES
-  ('Main Store', 'STR-MAIN', 'Main Store', 'Central Warehouse', 'Institutional receiving and distribution store.', 'Warehouse Office', TRUE, NOW(), NOW()),
-  ('Department Store', 'STR-DEPT', 'Department Store', 'Academic Building Store', 'Shared departmental inventory serving academic units.', 'Academic Store Office', TRUE, NOW(), NOW()),
-  ('Laboratory Store', 'STR-LAB', 'Laboratory Store', 'Science Complex Lab Area', 'Central laboratory materials and consumables store.', 'Lab Services Office', TRUE, NOW(), NOW()),
-  ('Cafe Store', 'STR-CAF', 'Cafe Store', 'Student Center', 'Catering and cafeteria consumables store.', 'Cafeteria Office', TRUE, NOW(), NOW()),
-  ('Specialized Store', 'STR-SPEC', 'Specialized Store', 'Service Block', 'Specialized maintenance and facilities materials store.', 'Facilities Office', TRUE, NOW(), NOW())
+  ('Main Store', 'STR-MAIN', 'Main Store', 'Main', 'Central Warehouse', 'Institutional receiving and distribution store.', 'Warehouse Office', TRUE, NOW(), NOW()),
+  ('Department Store', 'STR-DEPT', 'Other Store', 'Department', 'Academic Building Store', 'Shared departmental inventory serving academic units.', 'Academic Store Office', TRUE, NOW(), NOW()),
+  ('Laboratory Store', 'STR-LAB', 'Other Store', 'Laboratory', 'Science Complex Lab Area', 'Central laboratory materials and consumables store.', 'Lab Services Office', TRUE, NOW(), NOW()),
+  ('Cafe Store', 'STR-CAF', 'Other Store', 'Cafe', 'Student Center', 'Catering and cafeteria consumables store.', 'Cafeteria Office', TRUE, NOW(), NOW()),
+  ('Specialized Store', 'STR-SPEC', 'Other Store', 'Specialized', 'Service Block', 'Specialized maintenance and facilities materials.', 'Facilities Office', TRUE, NOW(), NOW()),
+  ('Pharmacy Store', 'STR-PHA', 'Other Store', 'Pharmacy', 'Health Services Building', 'Medicines and health supplies with expiry tracking.', 'Pharmacy Office', TRUE, NOW(), NOW())
 ON CONFLICT (code) DO UPDATE SET
   name = EXCLUDED.name,
   type = EXCLUDED.type,
+  category = EXCLUDED.category,
   location = EXCLUDED.location,
   description = EXCLUDED.description,
   contact_info = EXCLUDED.contact_info,
@@ -74,14 +96,14 @@ INSERT INTO store_user_assignments (store_id, user_id, assignment_role, active, 
 SELECT s.id, u.id, 'Store Head', TRUE, CURRENT_DATE, NOW()
 FROM stores s
 JOIN users u ON u.username = 'storehead'
-WHERE s.code IN ('STR-MAIN', 'STR-DEPT', 'STR-LAB', 'STR-CAF', 'STR-SPEC')
+WHERE s.code IN ('STR-MAIN', 'STR-DEPT', 'STR-LAB', 'STR-CAF', 'STR-SPEC', 'STR-PHA')
 ON CONFLICT (store_id, user_id, assignment_role) DO NOTHING;
 
 INSERT INTO store_user_assignments (store_id, user_id, assignment_role, active, effective_from, updated_at)
 SELECT s.id, u.id, 'Storekeeper', TRUE, CURRENT_DATE, NOW()
 FROM stores s
 JOIN users u ON u.username = 'storekeeper'
-WHERE s.code IN ('STR-MAIN', 'STR-DEPT', 'STR-LAB', 'STR-CAF', 'STR-SPEC')
+WHERE s.code IN ('STR-MAIN', 'STR-DEPT', 'STR-LAB', 'STR-CAF', 'STR-SPEC', 'STR-PHA')
 ON CONFLICT (store_id, user_id, assignment_role) DO NOTHING;
 
 -- Shared master data.
@@ -104,7 +126,8 @@ FROM (VALUES
   ('CAT-ACC', 'Academic Supplies', NULL, 'General academic classroom and lab support materials', TRUE),
   ('CAT-LAB', 'Laboratory Materials', NULL, 'Scientific consumables and lab reagents', TRUE),
   ('CAT-CAF', 'Catering Supplies', NULL, 'Food service and kitchen materials', TRUE),
-  ('CAT-FAC', 'Maintenance Materials', NULL, 'Facilities and repair materials', TRUE)
+  ('CAT-FAC', 'Maintenance Materials', NULL, 'Facilities and repair materials', TRUE),
+  ('CAT-PHA', 'Pharmacy Supplies', NULL, 'Medicines and health supplies tracked by expiry date', TRUE)
 ) AS v(code, name, store_id, description, active)
 WHERE NOT EXISTS (
   SELECT 1 FROM categories c WHERE c.code = v.code
@@ -114,15 +137,16 @@ UPDATE categories
 SET name = CASE WHEN name IS NULL OR name = '' THEN 'Updated Category' ELSE name END,
     description = CASE WHEN description IS NULL OR description = '' THEN 'General category' ELSE description END,
     updated_at = NOW()
-WHERE code IN ('CAT-ADM', 'CAT-ACC', 'CAT-LAB', 'CAT-CAF', 'CAT-FAC');
+WHERE code IN ('CAT-ADM', 'CAT-ACC', 'CAT-LAB', 'CAT-CAF', 'CAT-FAC', 'CAT-PHA');
 
-INSERT INTO items (code, name, category_id, store_id, bin, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price, created_at, updated_at)
+INSERT INTO items (code, name, category_id, store_id, bin, unit, min_level, max_level, reorder_level, qty_on_hand, unit_price, expiry_tracked, expiry_date, batch_no, created_at, updated_at)
 VALUES
   ('ITM-001', 'A4 Photocopy Paper', (SELECT id FROM categories WHERE code = 'CAT-ADM'), (SELECT id FROM stores WHERE code = 'STR-MAIN'), 'A-01', 'ream', 50, 500, 100, 0, 220, NOW(), NOW()),
   ('ITM-002', 'Marker Pen Set', (SELECT id FROM categories WHERE code = 'CAT-ADM'), (SELECT id FROM stores WHERE code = 'STR-MAIN'), 'A-02', 'box', 20, 100, 30, 0, 150, NOW(), NOW()),
-  ('ITM-003', 'Lab Glass Tubes', (SELECT id FROM categories WHERE code = 'CAT-LAB'), (SELECT id FROM stores WHERE code = 'STR-LAB'), 'LAB-01', 'pack', 10, 80, 20, 0, 480, NOW(), NOW()),
-  ('ITM-004', 'Rice 25kg', (SELECT id FROM categories WHERE code = 'CAT-CAF'), (SELECT id FROM stores WHERE code = 'STR-CAF'), 'CAF-01', 'bag', 15, 120, 25, 0, 450, NOW(), NOW()),
-  ('ITM-005', 'PVC Pipe 2 inch', (SELECT id FROM categories WHERE code = 'CAT-FAC'), (SELECT id FROM stores WHERE code = 'STR-SPEC'), 'SPEC-01', 'pcs', 12, 90, 20, 0, 360, NOW(), NOW())
+  ('ITM-003', 'Lab Reagent Bottles', (SELECT id FROM categories WHERE code = 'CAT-LAB'), (SELECT id FROM stores WHERE code = 'STR-LAB'), 'LAB-01', 'bottle', 10, 80, 20, 0, 480, TRUE, CURRENT_DATE + INTERVAL '180 days', 'LAB-2026-001', NOW(), NOW()),
+  ('ITM-004', 'Rice 25kg', (SELECT id FROM categories WHERE code = 'CAT-CAF'), (SELECT id FROM stores WHERE code = 'STR-CAF'), 'CAF-01', 'bag', 15, 120, 25, 0, 450, TRUE, CURRENT_DATE + INTERVAL '120 days', 'CAF-2026-001', NOW(), NOW()),
+  ('ITM-005', 'PVC Pipe 2 inch', (SELECT id FROM categories WHERE code = 'CAT-FAC'), (SELECT id FROM stores WHERE code = 'STR-SPEC'), 'SPEC-01', 'pcs', 12, 90, 20, 0, 360, FALSE, NULL, NULL, NOW(), NOW()),
+  ('PHA-001', 'Paracetamol 500mg Tablets', (SELECT id FROM categories WHERE code = 'CAT-PHA'), (SELECT id FROM stores WHERE code = 'STR-PHA'), 'PHA-01', 'box', 20, 200, 40, 0, 85, TRUE, CURRENT_DATE + INTERVAL '365 days', 'PHA-2026-001', NOW(), NOW())
 ON CONFLICT (code, store_id) DO UPDATE SET
   name = EXCLUDED.name,
   category_id = EXCLUDED.category_id,
@@ -132,11 +156,14 @@ ON CONFLICT (code, store_id) DO UPDATE SET
   max_level = EXCLUDED.max_level,
   reorder_level = EXCLUDED.reorder_level,
   unit_price = EXCLUDED.unit_price,
+  expiry_tracked = EXCLUDED.expiry_tracked,
+  expiry_date = EXCLUDED.expiry_date,
+  batch_no = EXCLUDED.batch_no,
   qty_on_hand = EXCLUDED.qty_on_hand,
   updated_at = NOW();
 
-INSERT INTO item_inventory (item_id, store_id, bin, qty_on_hand, unit_price, min_level, max_level, reorder_level)
-SELECT i.id, i.store_id, i.bin, i.qty_on_hand, i.unit_price, i.min_level, i.max_level, i.reorder_level
+INSERT INTO item_inventory (item_id, store_id, bin, qty_on_hand, unit_price, min_level, max_level, reorder_level, expiry_tracked, expiry_date, batch_no)
+SELECT i.id, i.store_id, i.bin, i.qty_on_hand, i.unit_price, i.min_level, i.max_level, i.reorder_level, i.expiry_tracked, i.expiry_date, i.batch_no
 FROM items i
 ON CONFLICT (item_id, store_id) DO UPDATE SET
   bin = EXCLUDED.bin,
@@ -145,6 +172,9 @@ ON CONFLICT (item_id, store_id) DO UPDATE SET
   min_level = EXCLUDED.min_level,
   max_level = EXCLUDED.max_level,
   reorder_level = EXCLUDED.reorder_level,
+  expiry_tracked = EXCLUDED.expiry_tracked,
+  expiry_date = EXCLUDED.expiry_date,
+  batch_no = EXCLUDED.batch_no,
   updated_at = NOW();
 
 INSERT INTO item_inventory (item_id, store_id, qty_on_hand, unit_price, min_level, max_level, reorder_level)

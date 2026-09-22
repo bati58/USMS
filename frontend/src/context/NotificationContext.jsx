@@ -59,8 +59,9 @@ export function NotificationProvider({ children }) {
     if (!user) return
     setLoading(true)
     try {
+      const canReadItems = user.role !== 'Disposal Committee'
       const results = await Promise.allSettled([
-        itemService.list(),
+        canReadItems ? itemService.list() : Promise.resolve([]),
         goodsReceiptService.list(),
         requisitionService.list(),
         materialReturnService.list(),

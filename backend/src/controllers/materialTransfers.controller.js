@@ -92,6 +92,13 @@ const create = asyncHandler(async (req, res) => {
     const request = requests[0];
     if (!request) throw new AppError('Requisition not found.', 404);
     const fromStoreId = request.source_store_id;
+    const { rows: sourceStoreRows } = await client.query(
+      'SELECT type, active FROM stores WHERE id = $1',
+      [fromStoreId]
+    );
+    if (sourceStoreRows[0]?.type !== 'Main Store' || !sourceStoreRows[0]?.active) {
+      throw new AppError('Material transfers must be dispatched from the active Main Store.', 403);
+    }
     await assertUserCanAccessStoreRecord(req.user, fromStoreId, client);
     if (!['Approved', 'Partially Approved'].includes(request.status)) {
       throw new AppError('Only an approved requisition can be converted into a transfer.', 409);
@@ -196,8 +203,8 @@ const decide = asyncHandler(async (req, res) => {
     const transfer = transferRows[0];
     if (!transfer) throw new AppError('Material transfer not found.', 404);
 
-    if (decision === 'Approved' && req.user.role !== 'Store Head') {
-      throw new AppError('Only the Store Head of the source store can approve release of this transfer.', 403);
+    if (decision === 'Approved' && !['Store Head', 'Property Administration Officer'].includes(req.user.role)) {
+      throw new AppError('Only the source Store Head or PAO can approve release of this transfer.', 403);
     }
 
     if (['Store Head', 'Storekeeper'].includes(req.user.role)) {
@@ -236,9 +243,12 @@ const decide = asyncHandler(async (req, res) => {
 // POST /api/material-transfers/:id/execute — Backend-SRS §6.4 steps 3-4 (Dispatch / Receive).
 // Restricted to the store operators (material-transfers-execute), separate from approval (SoD).
 const execute = asyncHandler(async (req, res) => {
-  const { decision, destinationBin } = req.body;
+  const { decision, destinationBin, destinationLocationId } = req.body;
   if (!['Dispatched', 'Received'].includes(decision)) {
     throw new AppError('decision must be "Dispatched" or "Received".', 400);
+  }
+  if (req.user.role !== 'Storekeeper') {
+    throw new AppError('Only Storekeepers can dispatch or receive material transfers.', 403);
   }
 
   await withTransaction(async (client) => {
@@ -251,15 +261,18 @@ const execute = asyncHandler(async (req, res) => {
       await assertUserCanAccessStoreRecord(req.user, requiredStoreId, client);
     }
 
-    if (decision === 'Received' && !String(destinationBin || '').trim()) {
-      throw new AppError('The destination Storekeeper must select a destination bin when receiving.', 400);
+    if (decision === 'Received' && !destinationLocationId && !String(destinationBin || '').trim()) {
+      throw new AppError('The destination Storekeeper must select a destination BIN when receiving.', 400);
     }
 
-    if (decision === 'Received') {
-      await client.query('UPDATE material_transfers SET destination_bin = $1 WHERE id = $2', [String(destinationBin).trim(), req.params.id]);
-    }
-
-    await stockService.decideMaterialTransfer(client, { transferId: req.params.id, decision, actorName: req.user.name, actorRole: req.user.role });
+    await stockService.decideMaterialTransfer(client, {
+      transferId: req.params.id,
+      decision,
+      destinationBin,
+      destinationLocationId,
+      actorName: req.user.name,
+      actorRole: req.user.role
+    });
 
     const { rows: executeTransferRows } = await client.query(`${SELECT} WHERE mt.id = $1`, [req.params.id]);
     const executeTransfer = executeTransferRows[0];

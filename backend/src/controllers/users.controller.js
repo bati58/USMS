@@ -4,6 +4,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
 const { mapUser } = require('./_helpers');
+const passwordRecoveryService = require('../services/passwordRecovery.service');
 
 const list = asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM users ORDER BY id');
@@ -102,4 +103,13 @@ const remove = asyncHandler(async (req, res) => {
   res.status(204).send();
 });
 
-module.exports = { list, listStockClerks, listAssetCustodians, getOne, create, update, remove };
+const resetPassword = asyncHandler(async (req, res) => {
+  const result = await passwordRecoveryService.adminResetPassword(req.params.id, {
+    adminUserId: req.user.id,
+    ip: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || null,
+    userAgent: req.get('user-agent') || null
+  });
+  res.json(result);
+});
+
+module.exports = { list, listStockClerks, listAssetCustodians, getOne, create, update, remove, resetPassword };

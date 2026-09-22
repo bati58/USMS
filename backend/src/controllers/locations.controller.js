@@ -178,10 +178,22 @@ const remove = asyncHandler(async (req, res) => {
     if (!locationRows[0]) throw new AppError('Location not found.', 404);
     await assertLocationStoreAccess(req.user, locationRows[0].store_id);
     const { rows: childRows } = await query('SELECT 1 FROM locations WHERE parent_id = $1 LIMIT 1', [req.params.id]);
-    if (childRows[0]) throw new AppError('This location has child locations. Deactivate it instead of deleting it.', 409);
+    if (childRows[0]) throw new AppError('This location has child locations. Delete the child locations first.', 409);
     const { rows: itemRows } = await query('SELECT 1 FROM items WHERE location_id = $1 LIMIT 1', [req.params.id]);
-    if (itemRows[0]) throw new AppError('This location is assigned to stock items. Deactivate it instead of deleting it.', 409);
-    const { rows } = await query('UPDATE locations SET active = FALSE, updated_at = NOW() WHERE id = $1 RETURNING code', [req.params.id]);
+    if (itemRows[0]) throw new AppError('This location is assigned to stock items. Move those items first.', 409);
+    const { rows: inventoryRows } = await query('SELECT 1 FROM item_inventory WHERE location_id = $1 LIMIT 1', [req.params.id]);
+    if (inventoryRows[0]) throw new AppError('This location is assigned to inventory. Move that inventory first.', 409);
+    const { rows: binTransferRows } = await query(
+        'SELECT 1 FROM bin_transfers WHERE from_location_id = $1 OR to_location_id = $1 LIMIT 1',
+        [req.params.id]
+    );
+    if (binTransferRows[0]) throw new AppError('This location is referenced by a bin transfer and cannot be deleted.', 409);
+    const { rows: materialTransferRows } = await query(
+        'SELECT 1 FROM material_transfers WHERE destination_location_id = $1 LIMIT 1',
+        [req.params.id]
+    );
+    if (materialTransferRows[0]) throw new AppError('This location is referenced by a material transfer and cannot be deleted.', 409);
+    const { rows } = await query('DELETE FROM locations WHERE id = $1 RETURNING code', [req.params.id]);
     if (!rows[0]) throw new AppError('Location not found.', 404);
 
     await logAudit(query, {

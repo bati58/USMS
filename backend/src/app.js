@@ -36,6 +36,13 @@ const loginLimiter = rateLimit({
   message: { message: 'Too many login attempts. Please try again in a few minutes.' }
 });
 app.use('/api/auth/login', loginLimiter);
+const passwordRecoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: 'Too many password recovery attempts. Please try again later.' }
+});
+app.use('/api/auth/forgot-password', passwordRecoveryLimiter);
+app.use('/api/auth/reset-password', passwordRecoveryLimiter);
 
 app.get('/health', (req, res) => res.json({
   status: 'ok',

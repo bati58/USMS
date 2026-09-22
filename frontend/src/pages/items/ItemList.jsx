@@ -62,12 +62,20 @@ export default function ItemList() {
         categoryService.list(),
         canViewLocations ? locationService.list() : Promise.resolve([])
       ])
-      setItems(itemsData)
+      const uniqueItems = Array.from(
+        new Map(itemsData.map((item) => [item.id ?? String(item.code).trim().toLowerCase(), item])).values()
+      )
+      setItems(uniqueItems)
       setCategories(categoriesData)
-      const bins = locationData.filter((location) => location.active !== false && location.type === 'BIN')
-      setAvailableBins(['Store Head', 'Storekeeper'].includes(user?.role)
-        ? bins
-        : bins)
+      const assignedStoreNames = user?.assignedStores?.length
+        ? user.assignedStores
+        : [user?.store].filter(Boolean)
+      const bins = locationData.filter((location) => location.active !== false && location.type === 'BIN' && (
+        !['Store Head', 'Storekeeper'].includes(user?.role)
+        || !assignedStoreNames.length
+        || assignedStoreNames.includes(location.store)
+      ))
+      setAvailableBins(bins)
     } catch (err) {
       push(err.message || 'Could not load items.', 'error')
     } finally {
@@ -111,6 +119,7 @@ export default function ItemList() {
     try {
       const payload = {
         ...form,
+        locationId: form.locationId || null,
         minLevel: Number(form.minLevel) || 0,
         maxLevel: Number(form.maxLevel) || 0,
         reorderLevel: Number(form.reorderLevel) || 0,
@@ -259,7 +268,7 @@ export default function ItemList() {
               <input type="checkbox" checked={Boolean(form.expiryTracked)} onChange={(e) => setForm((f) => ({ ...f, expiryTracked: e.target.checked, expiryDate: e.target.checked ? f.expiryDate : '' }))} />
               Track expiry for this item
             </label>
-            {form.expiryTracked && <Input label="Expiry Date" type="date" value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />}
+            {form.expiryTracked && <Input label="Expiry Date" type="date" required value={form.expiryDate} onChange={(e) => setForm((f) => ({ ...f, expiryDate: e.target.value }))} />}
             <Input label="Batch Number" placeholder="e.g. BATCH-2026-001" value={form.batchNo} onChange={(e) => setForm((f) => ({ ...f, batchNo: e.target.value }))} />
             <Select
               label="Condition"

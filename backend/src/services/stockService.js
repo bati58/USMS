@@ -1,6 +1,7 @@
 const AppError = require('../utils/AppError');
 const { logAudit } = require('../utils/audit');
 const { assertTransition } = require('../utils/workflow');
+const storeInventoryService = require('./storeInventoryService');
 
 // =============================================================================
 // This file is the implementation of Backend-SRS.docx Section 6. Every
@@ -15,115 +16,37 @@ const { assertTransition } = require('../utils/workflow');
 // ---------------------------------------------------------------------------
 
 // Adds a new stock lot (a receipt or a return) for FIFO consumption later.
-async function addStockLot(client, { itemId, storeId = null, receivedDate, unitPrice, qty, sourceRef }) {
-  await client.query(
-    `INSERT INTO stock_lots (item_id, store_id, received_date, unit_price, qty_received, qty_remaining, source_ref)
-     VALUES ($1, $2, $3, $4, $5, $5, $6)`,
-    [itemId, storeId, receivedDate, unitPrice, qty, sourceRef]
-  );
-}
-
-// Consumes `qty` from the oldest available lots first (FIFO). Returns the
-// weighted average unit price of what was actually consumed, for recording
-// on the stock_transactions row. Throws if there isn't enough stock.
-async function consumeFifo(client, itemId, qty, storeId = null) {
-  const storeClause = storeId == null ? '' : ' AND sl.store_id = $2';
-  const itemParams = storeId == null ? [itemId] : [itemId, storeId];
-  const inventorySelect = storeId == null
-    ? 'i.qty_on_hand, i.unit_price'
-    : 'COALESCE(ii.qty_on_hand, i.qty_on_hand) AS qty_on_hand, COALESCE(ii.unit_price, i.unit_price) AS unit_price';
-  const inventoryJoin = storeId == null
-    ? ''
-    : ' LEFT JOIN item_inventory ii ON ii.item_id = i.id AND ii.store_id = $2';
-  const { rows: itemRows } = await client.query(
-    `SELECT ${inventorySelect},
-            COALESCE(SUM(sl.qty_remaining), 0) AS fifo_remaining
-     FROM items i
-     ${inventoryJoin}
-     LEFT JOIN stock_lots sl ON sl.item_id = i.id AND sl.qty_remaining > 0${storeClause}
-     WHERE i.id = $1
-     GROUP BY i.id${storeId == null ? '' : ', ii.qty_on_hand, ii.unit_price'}`,
-    itemParams
-  );
-  const item = itemRows[0];
-  const untrackedQty = Math.max(0, Number(item?.qty_on_hand || 0) - Number(item?.fifo_remaining || 0));
-  if (untrackedQty > 0.0001) {
-    await addStockLot(client, {
-      itemId,
-      storeId,
-      receivedDate: new Date(),
-      unitPrice: Number(item.unit_price || 0),
-      qty: untrackedQty,
-      sourceRef: 'SYSTEM-QUANTITY-ADJUSTMENT'
-    });
-  }
-
-  const { rows: lots } = await client.query(
-    `SELECT id, unit_price, qty_remaining
-     FROM stock_lots sl
-     WHERE item_id = $1 AND qty_remaining > 0${storeClause}
-     ORDER BY received_date ASC, id ASC
-     FOR UPDATE`,
-    itemParams
-  );
-
-  let remainingToConsume = Number(qty);
-  let totalCost = 0;
-  let totalConsumed = 0;
-
-  for (const lot of lots) {
-    if (remainingToConsume <= 0) break;
-    const take = Math.min(Number(lot.qty_remaining), remainingToConsume);
-    await client.query('UPDATE stock_lots SET qty_remaining = qty_remaining - $1 WHERE id = $2', [
-      take,
-      lot.id
-    ]);
-    totalCost += take * Number(lot.unit_price);
-    totalConsumed += take;
-    remainingToConsume -= take;
-  }
-
-  if (remainingToConsume > 0.0001) {
-    throw new AppError(
-      `Insufficient stock to fulfil this request: short by ${remainingToConsume} unit(s).`,
-      400
-    );
-  }
-
-  return totalConsumed > 0 ? totalCost / totalConsumed : 0;
-}
+const { addStockLot, consumeFifo } = storeInventoryService;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
 async function getItemForUpdate(client, itemId, storeId = null) {
-  const { rows } = await client.query(
-    storeId == null
-      ? 'SELECT * FROM items WHERE id = $1 FOR UPDATE'
-      : `SELECT i.*, ii.qty_on_hand AS inventory_qty_on_hand, ii.bin AS inventory_bin,
-                ii.location_id AS inventory_location_id, ii.unit_price AS inventory_unit_price
-         FROM items i JOIN item_inventory ii ON ii.item_id = i.id AND ii.store_id = $2
-         WHERE i.id = $1 FOR UPDATE OF ii`,
-    storeId == null ? [itemId] : [itemId, storeId]
-  );
+  if (storeId != null) return storeInventoryService.getStoreItemForUpdate(client, itemId, storeId);
+  const { rows } = await client.query('SELECT * FROM items WHERE id = $1 FOR UPDATE', [itemId]);
   if (!rows[0]) throw new AppError(`Item ${itemId} not found.`, 404);
-  if (storeId != null) {
-    rows[0].qty_on_hand = rows[0].inventory_qty_on_hand;
-    rows[0].bin = rows[0].inventory_bin;
-    rows[0].location_id = rows[0].inventory_location_id;
-    rows[0].unit_price = rows[0].inventory_unit_price;
-    rows[0].store_id = storeId;
-  }
   return rows[0];
 }
 
-async function insertStockTransaction(client, { itemId, date, type, ref, qtyIn = 0, qtyOut = 0, unitPrice, balance, actorName = 'System', storeId = null, bin = null, reason = null, sourceType = null, sourceId = null }) {
-  await client.query(
+async function insertStockTransaction(client, { itemId, date, type, ref, qtyIn = 0, qtyOut = 0, unitPrice, balance, actorName = 'System', actorRole = null, storeId = null, bin = null, locationId = null, reason = null, sourceType = null, sourceId = null }) {
+  const { rows } = await client.query(
     `INSERT INTO stock_transactions (item_id, date, type, ref, qty_in, qty_out, unit_price, balance, actor_name, store_id, bin, reason, source_type, source_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     RETURNING id`,
     [itemId, date, type, ref, qtyIn, qtyOut, unitPrice, balance, actorName, storeId, bin, reason, sourceType, sourceId]
   );
+  await logAudit(client, {
+    userName: actorName,
+    userRole: actorRole,
+    action: `${type} stock transaction ${ref}`,
+    module: 'Stock Operations',
+    entityType: 'stock_transaction',
+    entityId: rows[0]?.id,
+    entityReference: ref,
+    afterData: { itemId, storeId, locationId, bin, qtyIn, qtyOut, balance, unitPrice, type },
+    metadata: { storeId, itemId, locationId, bin, transactionReference: ref, sourceType, sourceId }
+  });
 }
 
 async function upsertBinCard(client, { bin, storeId, itemId, delta, date, reference = 'SYSTEM', type = 'Movement', actorName = 'System', reason = null }) {
@@ -190,14 +113,17 @@ async function recordGoodsReceiptEvaluation(client, { grnId, decision, evaluatio
     throw new AppError('An accepted evaluation must include at least one positive accepted quantity.', 400);
   }
   for (const line of lines) {
-    const requested = Number(line.qty);
+    const received = Number(line.received_qty ?? line.qty);
     const submitted = items.find((entry) => entry.item === line.item_name || String(entry.itemId) === String(line.item_id));
     const acceptedInput = decision === 'Rejected' ? 0 : Number(submitted?.qtyAccepted);
-    if (!Number.isFinite(acceptedInput) || acceptedInput < 0 || acceptedInput > requested) {
+    if (!Number.isFinite(acceptedInput) || acceptedInput < 0 || acceptedInput > received) {
       throw new AppError(`Accepted quantity for "${line.item_name}" must be between zero and the received quantity.`, 400);
     }
     const accepted = decision === 'Rejected' ? 0 : acceptedInput;
-    await client.query('UPDATE goods_receipt_items SET qty_accepted = $1, qty_rejected = $2 WHERE id = $3', [accepted, requested - accepted, line.id]);
+    await client.query(
+      'UPDATE goods_receipt_items SET received_qty = COALESCE(received_qty, qty), qty_accepted = $1, qty_rejected = $2 WHERE id = $3',
+      [accepted, received - accepted, line.id]
+    );
   }
   await client.query(
     `UPDATE goods_receipts SET status = $1, evaluation_status = $2, evaluation_date = CURRENT_DATE,
@@ -236,8 +162,24 @@ async function generateGrn(client, { grnId, generatedBy, actorName, actorRole })
   if (!lines.some((line) => Number(line.qty_accepted ?? line.qty) > 0)) {
     throw new AppError('Cannot generate a GRN without at least one accepted item quantity.', 409);
   }
+  if (receipt.material_type === 'Fixed Asset') {
+    const { rows: uncategorized } = await client.query(
+      `SELECT i.name
+       FROM goods_receipt_items gri
+       JOIN items i ON i.id = gri.item_id
+       LEFT JOIN categories c ON c.id = i.category_id
+       WHERE gri.goods_receipt_id = $1
+         AND COALESCE(gri.qty_accepted, gri.qty) > 0
+         AND c.id IS NULL
+       LIMIT 1`,
+      [grnId]
+    );
+    if (uncategorized[0]) {
+      throw new AppError(`Assign a category to fixed asset item "${uncategorized[0].name}" before generating the GRN.`, 409);
+    }
+  }
   for (const line of lines) {
-    const accepted = Number(line.qty_accepted ?? line.qty);
+    const accepted = Number(line.qty_accepted ?? line.received_qty ?? line.qty);
     if (accepted <= 0) continue;
     await client.query('INSERT INTO grn_items (grn_id, item_id, qty, unit_price) VALUES ($1, $2, $3, $4)', [grnRows[0].id, line.item_id, accepted, line.unit_price]);
   }
@@ -259,18 +201,35 @@ async function postGrn(client, { grnId, actorName, actorRole }) {
   const { rows: receiptRows } = await client.query('SELECT * FROM goods_receipts WHERE id = $1 FOR UPDATE', [grnId]);
   const receipt = receiptRows[0];
   if (!receipt) throw new AppError('Goods receipt not found.', 404);
+  const { rows: storeRows } = await client.query('SELECT type FROM stores WHERE id = $1 AND active = TRUE', [receipt.store_id]);
+  if (storeRows[0]?.type !== 'Main Store') {
+    throw new AppError('External goods receipts can only be posted into the Main Store.', 403);
+  }
   assertTransition('goodsReceipt', receipt.status, 'Posted');
   const { rows: grnRows } = await client.query('SELECT * FROM grns WHERE goods_receipt_id = $1 FOR UPDATE', [grnId]);
   if (!grnRows[0]) throw new AppError('Generate the GRN before posting stock.', 409);
-  const { rows: lines } = await client.query('SELECT * FROM grn_items WHERE grn_id = $1', [grnRows[0].id]);
+  const { rows: lines } = await client.query(
+    `SELECT gi.*, gri.id AS receipt_item_id
+     FROM grn_items gi
+     JOIN grns gr ON gr.id = gi.grn_id
+     JOIN goods_receipt_items gri ON gri.goods_receipt_id = gr.goods_receipt_id AND gri.item_id = gi.item_id
+     WHERE gi.grn_id = $1`,
+    [grnRows[0].id]
+  );
   for (const line of lines) {
     const item = await getItemForUpdate(client, line.item_id, receipt.store_id);
     const accepted = Number(line.qty);
-    const newQty = Number(item.qty_on_hand) + accepted;
-    await client.query('UPDATE item_inventory SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE item_id = $3 AND store_id = $4', [newQty, line.unit_price, item.id, receipt.store_id]);
-    if (Number(item.store_id) === Number(receipt.store_id)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE id = $3', [newQty, line.unit_price, item.id]);
+    if (Number(line.posted_qty || 0) > 0) {
+      throw new AppError(`Receipt line ${line.item_id} has already been posted.`, 409);
     }
+    const newQty = Number(item.qty_on_hand) + accepted;
+    await storeInventoryService.setStoreQuantity(client, {
+      itemId: item.id,
+      storeId: receipt.store_id,
+      qty: newQty,
+      unitPrice: line.unit_price
+    });
+    await client.query('UPDATE goods_receipt_items SET posted_qty = $1 WHERE id = $2', [accepted, line.receipt_item_id]);
     await addStockLot(client, { itemId: item.id, storeId: receipt.store_id, receivedDate: receipt.received_date, unitPrice: line.unit_price, qty: accepted, sourceRef: grnRows[0].grn_number });
     await insertStockTransaction(client, { itemId: item.id, date: receipt.received_date, type: 'Receipt', ref: grnRows[0].grn_number, qtyIn: accepted, unitPrice: line.unit_price, balance: newQty, actorName, storeId: receipt.store_id, bin: item.bin, sourceType: 'GRN', sourceId: grnRows[0].grn_number });
     await upsertBinCard(client, { bin: item.bin, storeId: receipt.store_id, itemId: item.id, delta: accepted, date: receipt.received_date, reference: grnRows[0].grn_number, type: 'Receipt', actorName });
@@ -413,13 +372,12 @@ async function postIssueVoucher(client, { voucherId, actorName, actorRole }) {
     if (Number(item.qty_on_hand) < issueQty) throw new AppError(`Not enough stock of "${item.name}" to issue ${issueQty} ${item.unit}(s).`, 400);
     const fifoUnitPrice = await consumeFifo(client, item.id, issueQty, issuingStoreId);
     const newQty = Number(item.qty_on_hand) - issueQty;
-    await client.query(
-      'UPDATE item_inventory SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE item_id = $3 AND store_id = $4',
-      [newQty, fifoUnitPrice, item.id, issuingStoreId]
-    );
-    if (Number(item.store_id) === Number(issuingStoreId)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE id = $3', [newQty, fifoUnitPrice, item.id]);
-    }
+    await storeInventoryService.setStoreQuantity(client, {
+      itemId: item.id,
+      storeId: issuingStoreId,
+      qty: newQty,
+      unitPrice: fifoUnitPrice
+    });
     await client.query('UPDATE issue_voucher_items SET unit_price = $1 WHERE id = $2', [fifoUnitPrice, line.id]);
     await insertStockTransaction(client, { itemId: item.id, date: voucher.date, type: 'Issue', ref: voucher.siv_ref, qtyOut: issueQty, unitPrice: fifoUnitPrice, balance: newQty, actorName, storeId: issuingStoreId, bin: item.bin, sourceType: 'SIV', sourceId: voucher.siv_ref });
     await upsertBinCard(client, { bin: item.bin, storeId: issuingStoreId, itemId: item.id, delta: -issueQty, date: voucher.date, reference: voucher.siv_ref, type: 'Issue', actorName });
@@ -578,10 +536,11 @@ async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty,
 
   if (accepted > 0) {
     if (returnStoreId) {
-      await client.query('UPDATE item_inventory SET qty_on_hand = $1, updated_at = NOW() WHERE item_id = $2 AND store_id = $3', [newQty, item.id, returnStoreId]);
-    }
-    if (!returnStoreId || Number(item.store_id) === Number(returnStoreId)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
+      await storeInventoryService.setStoreQuantity(client, {
+        itemId: item.id,
+        storeId: returnStoreId,
+        qty: newQty
+      });
     }
     await addStockLot(client, {
       itemId: item.id,
@@ -635,10 +594,25 @@ async function receiveMaterialReturn(client, { returnId, actualQty, acceptedQty,
 // §6.4 Material Transfer (store-to-store) approval -> dual stock update
 // ---------------------------------------------------------------------------
 
-async function decideMaterialTransfer(client, { transferId, decision, actorName, actorRole }) {
+async function decideMaterialTransfer(client, { transferId, decision, destinationBin, destinationLocationId, actorName, actorRole }) {
   const { rows } = await client.query('SELECT * FROM material_transfers WHERE id = $1 FOR UPDATE', [transferId]);
   const transfer = rows[0];
   if (!transfer) throw new AppError('Material transfer not found.', 404);
+  const { rows: storeRows } = await client.query(
+    `SELECT source.id AS source_id, source.type AS source_type, source.active AS source_active,
+            destination.id AS destination_id, destination.active AS destination_active
+     FROM stores source
+     JOIN stores destination ON destination.id = $2
+     WHERE source.id = $1`,
+    [transfer.from_store_id, transfer.to_store_id]
+  );
+  const stores = storeRows[0];
+  if (!stores || stores.source_type !== 'Main Store' || !stores.source_active || !stores.destination_active) {
+    throw new AppError('Material transfers require an active Main Store source and active destination store.', 403);
+  }
+  if (Number(transfer.from_store_id) === Number(transfer.to_store_id)) {
+    throw new AppError('Material transfer source and destination stores must be different.', 400);
+  }
   assertTransition('materialTransfer', transfer.status, decision);
 
   if (decision === 'Dispatched') {
@@ -649,10 +623,11 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
 
     const fifoUnitPrice = await consumeFifo(client, sourceItem.id, transfer.qty, transfer.from_store_id);
     const newSourceQty = Number(sourceItem.qty_on_hand) - Number(transfer.qty);
-    await client.query('UPDATE item_inventory SET qty_on_hand = $1, updated_at = NOW() WHERE item_id = $2 AND store_id = $3', [newSourceQty, sourceItem.id, transfer.from_store_id]);
-    if (Number(sourceItem.store_id) === Number(transfer.from_store_id)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newSourceQty, sourceItem.id]);
-    }
+    await storeInventoryService.setStoreQuantity(client, {
+      itemId: sourceItem.id,
+      storeId: transfer.from_store_id,
+      qty: newSourceQty
+    });
     await ensureSourceBinCard(client, {
       bin: sourceItem.bin,
       storeId: transfer.from_store_id,
@@ -692,25 +667,33 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
     const { rows: sourceRows } = await client.query('SELECT * FROM items WHERE id = $1', [transfer.item_id]);
     const sourceItem = sourceRows[0];
     if (!sourceItem) throw new AppError('Source item for this transfer was not found.', 404);
-    const requestedBin = String(transfer.destination_bin || '').trim();
+    const requestedBin = String(destinationBin || transfer.destination_bin || '').trim();
+    const parsedLocationId = Number(destinationLocationId || transfer.destination_location_id);
+    const requestedLocationId = Number.isInteger(parsedLocationId) && parsedLocationId > 0 ? parsedLocationId : null;
+    if (!requestedLocationId && !requestedBin) {
+      throw new AppError('The destination Storekeeper must select a destination BIN when receiving.', 400);
+    }
     const { rows: locationRows } = await client.query(
       `SELECT l.id, l.store_id, l.code, l.name
        FROM locations l
-       JOIN stores destination_store ON destination_store.id = $1
-       JOIN stores location_store ON location_store.id = l.store_id
-       WHERE (l.store_id = $1 OR location_store.name = destination_store.name)
+       WHERE l.store_id = $1
          AND l.type = 'BIN' AND l.active = TRUE
-         AND (LOWER(TRIM(l.code)) = LOWER(TRIM($2)) OR LOWER(TRIM(l.name)) = LOWER(TRIM($2)))
-       ORDER BY CASE WHEN l.store_id = $1 THEN 0 ELSE 1 END,
-                CASE WHEN LOWER(TRIM(l.code)) = LOWER(TRIM($2)) THEN 0 ELSE 1 END, l.id
+         AND (
+           ($2::int IS NOT NULL AND l.id = $2::int)
+           OR ($2::int IS NULL AND (LOWER(TRIM(l.code)) = LOWER(TRIM($3)) OR LOWER(TRIM(l.name)) = LOWER(TRIM($3))))
+         )
        LIMIT 1`,
-      [transfer.to_store_id, requestedBin]
+      [transfer.to_store_id, requestedLocationId || null, requestedBin]
     );
     if (!locationRows[0]) {
       throw new AppError(`Destination bin "${requestedBin}" does not exist in the destination store.`, 400);
     }
     const destinationLocation = locationRows[0];
-    const destinationStoreId = destinationLocation.store_id;
+    const destinationStoreId = transfer.to_store_id;
+    await client.query(
+      'UPDATE material_transfers SET destination_bin = $1, destination_location_id = $2 WHERE id = $3',
+      [destinationLocation.code, destinationLocation.id, transferId]
+    );
 
     const { rows: destRows } = await client.query(
       `SELECT ii.*, i.name, i.code, i.unit, i.category_id, i.id AS item_id
@@ -731,19 +714,16 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
     }
 
     const transferUnitPrice = transfer.transfer_unit_price == null ? Number(sourceItem.unit_price) : Number(transfer.transfer_unit_price);
-    const destinationBin = destinationLocation.code;
+    const resolvedDestinationBin = destinationLocation.code;
     const newDestQty = Number(destItem.qty_on_hand) + Number(transfer.qty);
-    await client.query('UPDATE item_inventory SET qty_on_hand = $1, unit_price = $2, bin = $3, location_id = $4, updated_at = NOW() WHERE item_id = $5 AND store_id = $6', [
-      newDestQty,
-      transferUnitPrice,
-      destinationBin,
-      destinationLocation.id,
-      sourceItem.id,
-      destinationStoreId
-    ]);
-    if (Number(sourceItem.store_id) === Number(destinationStoreId)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, bin = $3, location_id = $4, updated_at = NOW() WHERE id = $5', [newDestQty, transferUnitPrice, destinationBin, destinationLocation.id, sourceItem.id]);
-    }
+    await storeInventoryService.updateStoreInventory(client, {
+      itemId: sourceItem.id,
+      storeId: destinationStoreId,
+      qty: newDestQty,
+      unitPrice: transferUnitPrice,
+      bin: resolvedDestinationBin,
+      locationId: destinationLocation.id
+    });
 
     await addStockLot(client, {
       itemId: sourceItem.id,
@@ -764,12 +744,12 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
       balance: newDestQty,
       actorName,
       storeId: destinationStoreId,
-      bin: destinationBin,
+      bin: resolvedDestinationBin,
       sourceType: 'Transfer',
       sourceId: transfer.transfer_ref
     });
     await upsertBinCard(client, {
-      bin: destinationBin,
+      bin: resolvedDestinationBin,
       storeId: destinationStoreId,
       itemId: sourceItem.id,
       delta: Number(transfer.qty),
@@ -828,43 +808,40 @@ async function decideMaterialTransfer(client, { transferId, decision, actorName,
 // §6.5 Bin Transfer (within one store) -> immediate bin_cards update
 // ---------------------------------------------------------------------------
 
-async function createBinTransfer(client, { itemId, fromBin, toBin, qty, transferredBy, actorName }) {
-  const item = await getItemForUpdate(client, itemId);
-  const sourceBinCode = String(fromBin || '').trim();
-  const destinationBinCode = String(toBin || '').trim();
-  if (sourceBinCode.toLowerCase() === destinationBinCode.toLowerCase()) throw new AppError('Source and destination bins must be different.', 400);
+async function createBinTransfer(client, { itemId, storeId, fromLocationId, toLocationId, fromBin, toBin, qty, transferredBy, actorName }) {
   if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) throw new AppError('Bin transfer quantity must be positive.', 400);
-  if (!item.bin || sourceBinCode.toLowerCase() !== String(item.bin).trim().toLowerCase()) {
-    throw new AppError(`The source bin must match the item's current bin (${item.bin || 'not assigned'}).`, 400);
-  }
+  const item = await getItemForUpdate(client, itemId, storeId);
+  const effectiveStoreId = storeId || item.store_id;
+  const locationParams = fromLocationId && toLocationId
+    ? [fromLocationId, toLocationId, effectiveStoreId]
+    : [effectiveStoreId, String(fromBin || '').trim(), String(toBin || '').trim()];
+  const locationQuery = fromLocationId && toLocationId
+    ? `SELECT id, store_id, code, name FROM locations WHERE id IN ($1, $2) AND store_id = $3 AND type = 'BIN' AND active = TRUE FOR UPDATE`
+    : `SELECT id, store_id, code, name FROM locations
+       WHERE store_id = $1 AND type = 'BIN' AND active = TRUE
+         AND (LOWER(code) = LOWER($2) OR LOWER(name) = LOWER($2)
+           OR LOWER(code) = LOWER($3) OR LOWER(name) = LOWER($3))
+       FOR UPDATE`;
+  const { rows: locations } = await client.query(locationQuery, locationParams);
+  const sourceLocation = locations.find((location) => String(location.id) === String(fromLocationId) || location.code.toLowerCase() === String(fromBin || '').trim().toLowerCase() || location.name.toLowerCase() === String(fromBin || '').trim().toLowerCase());
+  const destinationLocation = locations.find((location) => String(location.id) === String(toLocationId) || location.code.toLowerCase() === String(toBin || '').trim().toLowerCase() || location.name.toLowerCase() === String(toBin || '').trim().toLowerCase());
+  if (!sourceLocation || !destinationLocation) throw new AppError('Both BIN locations must be active and belong to the selected store.', 400);
+  if (sourceLocation.id === destinationLocation.id) throw new AppError('Source and destination bins must be different.', 400);
 
-  const { rows: sourceBin } = await client.query('SELECT id, balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE', [item.bin, item.store_id, item.id]);
-  if (!sourceBin[0]) {
-    await client.query(
-      `INSERT INTO bin_cards (bin, store_id, item_id, last_movement, balance)
-       VALUES ($1, $2, $3, CURRENT_DATE, $4)`,
-      [item.bin, item.store_id, item.id, item.qty_on_hand]
-    );
-  } else if (Number(sourceBin[0].balance) < Number(qty)) {
-    throw new AppError(`Source bin has only ${sourceBin[0].balance} ${item.unit}(s) available.`, 400);
-  }
+  const { rows: sourceBin } = await client.query(
+    'SELECT id, balance FROM bin_cards WHERE bin = $1 AND store_id = $2 AND item_id = $3 FOR UPDATE',
+    [sourceLocation.code, effectiveStoreId, item.id]
+  );
+  if (!sourceBin[0]) throw new AppError('The selected source BIN does not contain this item.', 400);
+  if (Number(sourceBin[0].balance) < Number(qty)) throw new AppError(`Source bin has only ${sourceBin[0].balance} ${item.unit}(s) available.`, 400);
   const transferDate = new Date();
   const { nextRef } = require('../utils/refGenerator');
   const transferRef = await nextRef(client, 'BTR');
-  await upsertBinCard(client, { bin: item.bin, storeId: item.store_id, itemId: item.id, delta: -Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-Out', actorName });
+  await upsertBinCard(client, { bin: sourceLocation.code, storeId: effectiveStoreId, itemId: item.id, delta: -Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-Out', actorName });
 
-  const { rows: destinationLocations } = await client.query(
-    `SELECT id, code
-     FROM locations
-     WHERE store_id = $1 AND type = 'BIN' AND active = TRUE
-       AND (LOWER(code) = LOWER($2) OR LOWER(name) = LOWER($2))
-     ORDER BY CASE WHEN LOWER(code) = LOWER($2) THEN 0 ELSE 1 END, id
-     LIMIT 1`,
-    [item.store_id, destinationBinCode]
-  );
-  const resolvedDestinationBin = destinationLocations[0]?.code || destinationBinCode;
-  const resolvedDestinationLocationId = destinationLocations[0]?.id || null;
-  await upsertBinCard(client, { bin: resolvedDestinationBin, storeId: item.store_id, itemId: item.id, delta: Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-In', actorName });
+  const resolvedDestinationBin = destinationLocation.code;
+  const resolvedDestinationLocationId = destinationLocation.id;
+  await upsertBinCard(client, { bin: resolvedDestinationBin, storeId: effectiveStoreId, itemId: item.id, delta: Number(qty), date: transferDate, reference: transferRef, type: 'Transfer-In', actorName });
   const transferBalance = Number(item.qty_on_hand);
   await insertStockTransaction(client, {
     itemId: item.id,
@@ -875,8 +852,8 @@ async function createBinTransfer(client, { itemId, fromBin, toBin, qty, transfer
     unitPrice: item.unit_price,
     balance: transferBalance,
     actorName,
-    storeId: item.store_id,
-    bin: item.bin,
+    storeId: effectiveStoreId,
+    bin: sourceLocation.code,
     sourceType: 'Bin Transfer',
     sourceId: transferRef
   });
@@ -889,31 +866,26 @@ async function createBinTransfer(client, { itemId, fromBin, toBin, qty, transfer
     unitPrice: item.unit_price,
     balance: transferBalance,
     actorName,
-    storeId: item.store_id,
+    storeId: effectiveStoreId,
     bin: resolvedDestinationBin,
     sourceType: 'Bin Transfer',
     sourceId: transferRef
   });
   await client.query(
-    'UPDATE items SET bin = $1, location_id = COALESCE($2, location_id), updated_at = NOW() WHERE id = $3',
-    [resolvedDestinationBin, resolvedDestinationLocationId, item.id]
-  );
-  await client.query(
-    `UPDATE item_inventory
-     SET bin = $1, location_id = COALESCE($2, location_id), updated_at = NOW()
+    `UPDATE item_inventory SET bin = $1, location_id = $2, updated_at = NOW()
      WHERE item_id = $3 AND store_id = $4`,
-    [resolvedDestinationBin, resolvedDestinationLocationId, item.id, item.store_id]
+    [resolvedDestinationBin, resolvedDestinationLocationId, item.id, effectiveStoreId]
   );
 
   const { rows } = await client.query(
-    `INSERT INTO bin_transfers (item_id, from_bin, to_bin, qty, date, transferred_by)
-     VALUES ($1, $2, $3, $4, CURRENT_DATE, $5) RETURNING *`,
-    [itemId, item.bin, resolvedDestinationBin, qty, transferredBy]
+    `INSERT INTO bin_transfers (item_id, store_id, from_location_id, to_location_id, from_bin, to_bin, qty, date, transferred_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, $8) RETURNING *`,
+    [itemId, effectiveStoreId, sourceLocation.id, resolvedDestinationLocationId, sourceLocation.code, resolvedDestinationBin, qty, transferredBy]
   );
 
   await logAudit(client, {
     userName: actorName,
-    action: `Transferred ${qty} unit(s) of item ${item.code} from ${item.bin} to ${resolvedDestinationBin}`,
+    action: `Transferred ${qty} unit(s) of item ${item.code} from ${sourceLocation.code} to ${resolvedDestinationBin}`,
     module: 'Stock Transfer'
   });
 
@@ -993,16 +965,25 @@ async function postStockTaking(client, { sessionId, actorName }) {
       await consumeFifo(client, item.id, Math.abs(variance), session.store_id);
     }
     const newQty = Number(item.qty_on_hand) + variance;
-    await client.query('UPDATE item_inventory SET qty_on_hand = $1, updated_at = NOW() WHERE item_id = $2 AND store_id = $3', [newQty, item.id, session.store_id]);
-    if (Number(line.legacy_store_id) === Number(session.store_id)) {
-      await client.query('UPDATE items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2', [newQty, item.id]);
-    }
+    await storeInventoryService.setStoreQuantity(client, {
+      itemId: item.id,
+      storeId: session.store_id,
+      qty: newQty
+    });
     await insertStockTransaction(client, { itemId: item.id, date: session.count_date, type: 'Adjustment', ref: reference, qtyIn: variance > 0 ? variance : 0, qtyOut: variance < 0 ? Math.abs(variance) : 0, unitPrice: item.unit_price, balance: newQty, actorName, storeId: session.store_id, bin: line.bin || item.bin, reason: line.reason, sourceType: 'Stock Taking', sourceId: String(sessionId) });
     await upsertBinCard(client, { bin: line.bin || item.bin, storeId: session.store_id, itemId: item.id, delta: variance, date: session.count_date, reference, type: 'Adjustment', actorName, reason: line.reason });
     await client.query('UPDATE stock_taking_items SET adjustment_ref = $1 WHERE id = $2', [reference, line.id]);
   }
   await client.query("UPDATE stock_taking_sessions SET status = 'Closed', closed_by = $1, closed_at = NOW(), updated_at = NOW() WHERE id = $2", [actorName, sessionId]);
-  await logAudit(client, { userName: actorName, action: `Posted stock-taking ${session.session_ref}`, module: 'Stock Taking', entityType: 'stock_taking_session', entityId: sessionId, entityReference: session.session_ref });
+  await logAudit(client, {
+    userName: actorName,
+    action: `Posted stock-taking ${session.session_ref}`,
+    module: 'Stock Taking',
+    entityType: 'stock_taking_session',
+    entityId: sessionId,
+    entityReference: session.session_ref,
+    metadata: { storeId: session.store_id, itemIds: lines.map((line) => line.item_id) }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,13 +1024,12 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
 
   const fifoUnitPrice = await consumeFifo(client, item.id, disposal.qty, disposal.store_id);
   const newQty = Number(item.qty_on_hand) - Number(disposal.qty);
-  await client.query(
-    'UPDATE item_inventory SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE item_id = $3 AND store_id = $4',
-    [newQty, fifoUnitPrice, item.id, disposal.store_id]
-  );
-  if (Number(item.store_id) === Number(disposal.store_id)) {
-    await client.query('UPDATE items SET qty_on_hand = $1, unit_price = $2, updated_at = NOW() WHERE id = $3', [newQty, fifoUnitPrice, item.id]);
-  }
+  await storeInventoryService.setStoreQuantity(client, {
+    itemId: item.id,
+    storeId: disposal.store_id,
+    qty: newQty,
+    unitPrice: fifoUnitPrice
+  });
 
   await insertStockTransaction(client, {
     itemId: item.id,
@@ -1083,7 +1063,15 @@ async function executeDisposal(client, { disposalId, actorName, disposalDate, di
      WHERE id = $5`,
     [actorName, disposalDate || null, disposalMethod || null, witness || null, disposalId, executedStatus]
   );
-  await logAudit(client, { userName: actorName, action: `Executed disposal ${disposal.disposal_ref}`, module: 'Disposal Management' });
+  await logAudit(client, {
+    userName: actorName,
+    action: `Executed disposal ${disposal.disposal_ref}`,
+    module: 'Disposal Management',
+    entityType: 'disposal',
+    entityId: disposalId,
+    entityReference: disposal.disposal_ref,
+    metadata: { storeId: disposal.store_id, itemId: disposal.item_id, bin: item.bin }
+  });
 }
 
 async function completeDisposal(client, { disposalId, actorName }) {

@@ -156,7 +156,7 @@ export const ROLE_PERMISSIONS = {
 
     [ROLES.DISPOSAL_COMMITTEE]: {
         name: 'Disposal Committee',
-        canAccessPages: ['/', '/disposal', '/reports'],
+        canAccessPages: ['/', '/disposal'],
         canCreate: [],
         canEdit: [],
         canDelete: [],

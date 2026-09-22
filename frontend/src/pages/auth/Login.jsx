@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { LogIn, Mail, Lock, CircleHelp, X } from 'lucide-react'
+import { LogIn, Mail, Lock, CircleHelp } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
@@ -13,7 +13,8 @@ const DEMO_ACCOUNTS = [
   'tec',
   'depthead',
   'accountant',
-  'security'
+  'security',
+  'disposal'
 ]
 
 export default function Login() {
@@ -24,7 +25,6 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showDemo, setShowDemo] = useState(false)
-  const [showHelp, setShowHelp] = useState(false)
 
   if (isAuthenticated) return <Navigate to="/" replace />
 
@@ -126,11 +126,11 @@ export default function Login() {
           <div className="mt-5 flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setShowHelp(true)}
+              onClick={() => navigate('/forgot-password')}
               className="inline-flex items-center gap-1.5 text-sm text-[var(--brand-600)] hover:text-[var(--brand-700)] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             >
               <CircleHelp size={15} />
-              Need help signing in?
+              Forgot password?
             </button>
             {import.meta.env.DEV && (
               <button
@@ -142,27 +142,6 @@ export default function Login() {
               </button>
             )}
           </div>
-
-          {showHelp && (
-            <div className="mt-4 rounded border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-4 text-sm text-[var(--text-secondary)]">
-              <div className="mb-2 flex items-start justify-between gap-4">
-                <h2 className="font-medium text-[var(--text-primary)]">Need help signing in?</h2>
-                <button
-                  type="button"
-                  aria-label="Close sign-in help"
-                  onClick={() => setShowHelp(false)}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                >
-                  <X size={17} />
-                </button>
-              </div>
-              <p>
-                Contact your system administrator or IT office to reset your account. You may need to provide your
-                username and staff identity for verification.
-              </p>
-              <p className="mt-2 text-xs text-[var(--text-muted)]">Never share your password with anyone.</p>
-            </div>
-          )}
 
           {import.meta.env.DEV && showDemo && (
             <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">

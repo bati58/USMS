@@ -37,6 +37,7 @@ test('transaction cards preserve printable source document references', () => {
         balance: 1,
         source_type: 'GRN',
         source_id: 'GRN-2026-0001',
+        official_grn_ref: 'GRN-2026-0101',
         actor_name: 'Sara Alemu',
         store_name: 'Main Store',
         store_id: 1,

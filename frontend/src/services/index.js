@@ -8,12 +8,14 @@ export const itemService = createEntityService('items')
 itemService.listMaster = () => api.raw('/items?catalog=master')
 itemService.listRequisitionCatalog = () => api.raw('/items?catalog=master')
 itemService.listInventory = () => api.raw('/items?inventory=true')
-export const itemInventoryService = { list: () => itemService.listInventory() }
+itemService.listInventoryByStore = (storeId) => api.raw(`/items?inventory=true&storeId=${encodeURIComponent(storeId)}`)
+export const itemInventoryService = { list: () => itemService.listInventory(), listByStore: (storeId) => itemService.listInventoryByStore(storeId) }
 export const goodsReceiptService = createEntityService('goodsReceipts')
 export const stockTransactionService = createEntityService('stockTransactions')
 export const binCardService = {
     ...createEntityService('binCards'),
-    movements: (id) => api.nestedList('binCards', id, 'movements')
+    movements: (id) => api.nestedList('binCards', id, 'movements'),
+    listByItem: (itemId) => api.raw(`/bin-cards?itemId=${encodeURIComponent(itemId)}`)
 }
 export const requisitionService = createEntityService('requisitions')
 export const issueVoucherService = createEntityService('issueVouchers')
@@ -21,10 +23,14 @@ export const fixedAssetService = createEntityService('fixedAssets')
 export const userService = {
     ...createEntityService('users'),
     listStockClerks: () => api.raw('/users/stock-clerks'),
-    listAssetCustodians: () => api.raw('/users/fixed-asset-custodians')
+    listAssetCustodians: () => api.raw('/users/fixed-asset-custodians'),
+    resetPassword: (id) => api.raw(`/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({}) })
 }
 export const authService = {
-    changePassword: (payload) => api.raw('/auth/password', { method: 'PUT', body: JSON.stringify(payload) })
+    changePassword: (payload) => api.raw('/auth/password', { method: 'PUT', body: JSON.stringify(payload) }),
+    completeForcedPasswordChange: (newPassword) => api.raw('/auth/force-password', { method: 'PUT', body: JSON.stringify({ newPassword }) }),
+    forgotPassword: (identifier) => api.raw('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ identifier }) }),
+    resetPassword: (token, newPassword) => api.raw('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) })
 }
 export const materialReturnService = {
     ...createEntityService('materialReturns'),

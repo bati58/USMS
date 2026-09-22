@@ -25,13 +25,14 @@ export default function StoreList() {
       title="Stores"
       subtitle="Manage the main store and each department / cafe store."
       service={storeService}
-      addLabel="Add Store" entityType="stores" searchKeys={['name', 'code', 'type', 'location']}
+      addLabel="Add Store" entityType="stores" searchKeys={['name', 'code', 'type', 'category', 'location']}
       emptyTitle="No stores yet"
       emptyMessage="Register the main store and department stores to get started."
       columns={[
         { key: 'code', header: 'Code' },
         { key: 'name', header: 'Store Name' },
-        { key: 'type', header: 'Type' },
+        { key: 'category', header: 'Category' },
+        { key: 'type', header: 'Operational Type' },
         { key: 'location', header: 'Location' },
         { key: 'headOfStore', header: 'Store Head' },
         { key: 'storekeeper', header: 'Storekeeper' },
@@ -48,11 +49,12 @@ export default function StoreList() {
         { name: 'code', label: 'Store Code', required: true, placeholder: 'e.g. STR-EEE' },
         {
           name: 'type',
-          label: 'Store Type',
+          label: 'Operational Type',
           type: 'select',
           required: true,
-          options: ['Main Store', 'Department Store', 'Cafe Store', 'Specialized/Laboratory']
+          options: ['Main Store', 'Other Store']
         },
+        { name: 'category', label: 'Store Category', required: true, placeholder: 'e.g. Pharmacy' },
         { name: 'location', label: 'Physical Location', required: true, placeholder: 'e.g. Central Warehouse' },
         { name: 'contactInfo', label: 'Contact Info', placeholder: 'e.g. +251 11 123 4567 or store@example.com' },
         { name: 'headOfStore', label: 'Store Head', type: 'select', options: storeHeadOptions, required: true, placeholder: 'Select a store head...' },

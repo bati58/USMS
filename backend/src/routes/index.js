@@ -29,15 +29,19 @@ const departmentsController = require('../controllers/departments.controller');
 const stockTakingController = require('../controllers/stockTaking.controller');
 const businessRulesController = require('../controllers/businessRules.controller');
 const notificationsController = require('../controllers/notifications.controller');
+const passwordRecoveryController = require('../controllers/passwordRecovery.controller');
 
 // ---------------------------------------------------------------------------
 // Auth (no requireAuth on login; requireAuth only on /me)
 // ---------------------------------------------------------------------------
 router.post('/auth/login', authController.login);
+router.post('/auth/forgot-password', passwordRecoveryController.forgotPassword);
+router.post('/auth/reset-password', passwordRecoveryController.resetPassword);
 router.post('/auth/refresh', authController.refreshToken);
 router.get('/auth/me', requireAuth, authController.me);
 router.post('/auth/logout', requireAuth, authController.logout);
 router.put('/auth/password', requireAuth, authController.changePassword);
+router.put('/auth/force-password', requireAuth, authController.completeForcedPasswordChange);
 
 // Every route below requires a valid session.
 router.use(requireAuth);
@@ -70,6 +74,7 @@ router.get('/users/:id', requireRole('users'), usersController.getOne);
 router.post('/users', requireRole('users'), usersController.create);
 router.put('/users/:id', requireRole('users'), usersController.update);
 router.delete('/users/:id', requireRole('users'), usersController.remove);
+router.post('/users/:id/reset-password', requireRole('users', 'action'), usersController.resetPassword);
 
 // User material cards
 router.get('/user-cards', requireRole('user-cards'), userCardsController.list);

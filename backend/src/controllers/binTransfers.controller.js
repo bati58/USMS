@@ -13,7 +13,7 @@ const list = asyncHandler(async (req, res) => {
   `;
   const params = [];
   if (visibility.storeFilter && !visibility.canViewAllStores) {
-    sql += ' WHERE i.store_id = $1';
+    sql += ' WHERE COALESCE(bt.store_id, i.store_id) = $1';
     params.push(visibility.storeFilter.id);
   }
   sql += ' ORDER BY bt.id DESC';
@@ -23,9 +23,9 @@ const list = asyncHandler(async (req, res) => {
 
 // POST /api/bin-transfers — Backend-SRS §6.5, immediate effect, no approval step
 const create = asyncHandler(async (req, res) => {
-  const { item, fromBin, toBin, qty, transferredBy } = req.body;
-  if (!item || !fromBin || !toBin || !qty) {
-    throw new AppError('item, fromBin, toBin, and qty are required.', 400);
+  const { item, itemId, fromLocationId, toLocationId, fromBin, toBin, qty, transferredBy } = req.body;
+  if ((!item && !itemId) || (!fromLocationId && !fromBin) || (!toLocationId && !toBin) || !qty) {
+    throw new AppError('item or itemId, source and destination BIN locations, and qty are required.', 400);
   }
 
   const result = await withTransaction(async (client) => {
@@ -34,15 +34,18 @@ const create = asyncHandler(async (req, res) => {
       throw new AppError('Your account is not assigned to a store.', 403);
     }
 
-    const itemId = await resolveItemId(
+    const resolvedItemId = itemId || await resolveItemId(
       item,
       client,
       visibility.canViewAllStores ? null : visibility.assignedStoreId
     );
-    if (!itemId) throw new AppError(`Unknown item: "${item}".`, 400);
+    if (!resolvedItemId) throw new AppError(`Unknown item: "${item || itemId}".`, 400);
 
     const row = await stockService.createBinTransfer(client, {
-      itemId,
+      itemId: resolvedItemId,
+      storeId: visibility.canViewAllStores ? null : visibility.assignedStoreId,
+      fromLocationId,
+      toLocationId,
       fromBin,
       toBin,
       qty,

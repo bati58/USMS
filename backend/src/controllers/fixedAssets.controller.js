@@ -60,6 +60,9 @@ const create = asyncHandler(async (req, res) => {
     if (!receiptRows[0]) throw new AppError('Select a posted Fixed Asset GRN before registering the asset.', 400);
 
     const receipt = receiptRows[0];
+    if (!receipt.category_name) {
+      throw new AppError(`Assign a category to fixed asset item "${receipt.item_name}" before registering the asset.`, 409);
+    }
     const storeId = receipt.store_id;
     await assertUserCanAccessStoreRecord(req.user, storeId, client);
     const generatedAssetTag = assetTag?.trim() || await nextRef(client, 'FA');

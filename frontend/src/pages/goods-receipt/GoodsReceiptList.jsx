@@ -17,7 +17,7 @@ import { formatDate, formatCurrency } from '../../utils/formatters'
 import { GRN_STATUS, ROLES } from '../../utils/constants'
 import { uniqueItemsByName } from '../../utils/itemOptions'
 
-const EMPTY_LINE = { item: '', qty: '', unitPrice: '' }
+const EMPTY_LINE = { item: '', expectedQty: '', qty: '', unitPrice: '' }
 
 export default function GoodsReceiptList() {
   const { push } = useToast()
@@ -41,18 +41,12 @@ export default function GoodsReceiptList() {
   const isStorekeeper = user?.role === ROLES.STOREKEEPER
   const isStoreHead = user?.role === ROLES.STORE_HEAD
   const userAssignedStore = user?.store || ''
-  const isScopedStoreUser = (isStorekeeper || isStoreHead) && !!userAssignedStore
-  const isMainStoreHead = isStoreHead && !userAssignedStore
   const assignedStoreNames = user?.assignedStores?.length ? user.assignedStores : [userAssignedStore].filter(Boolean)
   const hasMainStoreAssignment = assignedStoreNames.some((storeName) =>
     stores.some((store) => store.name === storeName && store.type === 'Main Store')
   )
-  const receiptCatalogItems = useMemo(() => {
-    const selectedStore = stores.find((store) => store.name === header.store)
-    if (!selectedStore || selectedStore.type !== 'Main Store') return []
-
-    return uniqueItemsByName(items)
-  }, [items, stores, header.store])
+  const mainStore = stores.find((store) => store.type === 'Main Store')
+  const receiptCatalogItems = useMemo(() => uniqueItemsByName(items), [items])
   const canManage = isStorekeeper && hasMainStoreAssignment
   const canPost = canManage
   const showPermissionState = !loading
@@ -90,8 +84,7 @@ export default function GoodsReceiptList() {
       push('You do not have permission to record goods receipts.', 'error')
       return
     }
-    const defaultStore = isScopedStoreUser ? userAssignedStore : ''
-    setHeader({ supplier: '', poRef: '', store: defaultStore, receivedDate: '', type: 'Consumable', docRef: '', condition: 'New' })
+    setHeader({ supplier: '', poRef: '', store: mainStore?.name || '', receivedDate: '', type: 'Consumable', docRef: '', condition: 'New' })
     setLines([{ ...EMPTY_LINE }])
     setModalOpen(true)
   }
@@ -99,6 +92,10 @@ export default function GoodsReceiptList() {
   function updateLine(idx, patch) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)))
     setFieldErrors((prev) => ({ ...prev }))
+  }
+
+  function selectedCatalogItem(itemName) {
+    return receiptCatalogItems.find((item) => item.name === itemName)
   }
 
   function removeLine(idx) {
@@ -116,7 +113,8 @@ export default function GoodsReceiptList() {
 
     lines.forEach((line, idx) => {
       if (!line.item) nextErrors[`line_${idx}_item`] = `Line ${idx + 1}: Item is required.`
-      if (!line.qty || Number(line.qty) <= 0) nextErrors[`line_${idx}_qty`] = `Line ${idx + 1}: Quantity must be greater than zero.`
+      if (!line.expectedQty || Number(line.expectedQty) < 0) nextErrors[`line_${idx}_expectedQty`] = `Line ${idx + 1}: Expected quantity is required.`
+      if (!line.qty || Number(line.qty) <= 0) nextErrors[`line_${idx}_qty`] = `Line ${idx + 1}: Received quantity must be greater than zero.`
       if (!line.unitPrice || Number(line.unitPrice) < 0) nextErrors[`line_${idx}_unitPrice`] = `Line ${idx + 1}: Unit Price is required.`
     })
 
@@ -349,16 +347,16 @@ export default function GoodsReceiptList() {
             <Select label="Supplier" required error={fieldErrors.supplier} options={suppliers.filter((s) => s.active).map((s) => s.name)} value={header.supplier} onChange={(e) => { setHeader((h) => ({ ...h, supplier: e.target.value })); setFieldErrors((prev) => ({ ...prev, supplier: '' })) }} />
             <Input label="PO / Donation Ref" required error={fieldErrors.poRef} value={header.poRef} onChange={(e) => { setHeader((h) => ({ ...h, poRef: e.target.value })); setFieldErrors((prev) => ({ ...prev, poRef: '' })) }} />
             <Input label="Supporting Document Ref" placeholder="e.g. Waybill-123" value={header.docRef} onChange={(e) => setHeader((h) => ({ ...h, docRef: e.target.value }))} />
-            {isScopedStoreUser && !isMainStoreHead ? (
+            {mainStore ? (
               <div>
                 <label className="block text-sm font-medium text-ink-700 mb-1">Receiving Store</label>
                 <div className="w-full px-3 py-2 border border-ink-300 rounded-md bg-ink-50 text-ink-700">
-                  {userAssignedStore}
+                  {mainStore.name}
                 </div>
-                <input type="hidden" value={userAssignedStore} onChange={(e) => setHeader((h) => ({ ...h, store: e.target.value }))} />
+                <input type="hidden" value={mainStore.name} readOnly />
               </div>
             ) : (
-              <Select label="Receiving Store" required error={fieldErrors.store} options={stores.map((s) => s.name)} value={header.store} onChange={(e) => { setHeader((h) => ({ ...h, store: e.target.value })); setFieldErrors((prev) => ({ ...prev, store: '' })) }} />
+              <p className="text-sm text-danger-700">No active Main Store is configured.</p>
             )}
             <Input label="Received Date" type="date" required error={fieldErrors.receivedDate} value={header.receivedDate} onChange={(e) => { setHeader((h) => ({ ...h, receivedDate: e.target.value })); setFieldErrors((prev) => ({ ...prev, receivedDate: '' })) }} />
             <Select label="Material Type" required error={fieldErrors.type} options={['Consumable', 'Fixed Asset']} value={header.type} onChange={(e) => { setHeader((h) => ({ ...h, type: e.target.value })); setFieldErrors((prev) => ({ ...prev, type: '' })) }} />
@@ -374,7 +372,7 @@ export default function GoodsReceiptList() {
             </div>
             <div className="space-y-2">
               {lines.map((line, idx) => (
-                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-3 bg-ink-50">
+                <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-ink-100 p-3 sm:grid-cols-5 bg-ink-50">
                   <div className="sm:col-span-1">
                     <Select
                       label="Item"
@@ -388,7 +386,20 @@ export default function GoodsReceiptList() {
                     />
                   </div>
                   <div className="sm:col-span-1">
-                    <Input label="Quantity" type="number" error={fieldErrors[`line_${idx}_qty`]} value={line.qty} onChange={(e) => {
+                    <Input
+                      label="Category"
+                      value={selectedCatalogItem(line.item)?.category || 'Category required'}
+                      disabled
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <Input label="Expected Qty" type="number" min="0" error={fieldErrors[`line_${idx}_expectedQty`]} value={line.expectedQty} onChange={(e) => {
+                      updateLine(idx, { expectedQty: e.target.value })
+                      setFieldErrors((prev) => ({ ...prev, [`line_${idx}_expectedQty`]: '' }))
+                    }} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <Input label="Received Qty" type="number" min="0" error={fieldErrors[`line_${idx}_qty`]} value={line.qty} onChange={(e) => {
                       updateLine(idx, { qty: e.target.value })
                       setFieldErrors((prev) => ({ ...prev, [`line_${idx}_qty`]: '' }))
                     }} />
@@ -437,7 +448,8 @@ export default function GoodsReceiptList() {
                 <thead className="text-ink-500 border-b border-ink-100">
                   <tr>
                     <th className="py-2">Item</th>
-                    <th className="py-2">Qty</th>
+                    <th className="py-2">Expected</th>
+                    <th className="py-2">Received</th>
                     <th className="py-2">Accepted</th>
                     <th className="py-2">Rejected</th>
                     <th className="py-2">Unit Price</th>
@@ -448,11 +460,12 @@ export default function GoodsReceiptList() {
                   {viewing.items?.map((l, i) => (
                     <tr key={i} className="border-b border-ink-50">
                       <td className="py-2">{l.item}</td>
-                      <td className="py-2">{l.qty}</td>
+                      <td className="py-2">{l.expectedQty}</td>
+                      <td className="py-2">{l.receivedQty ?? l.qty}</td>
                       <td className="py-2">{l.qtyAccepted == null ? '-' : l.qtyAccepted}</td>
                       <td className="py-2">{l.qtyRejected == null ? '-' : l.qtyRejected}</td>
                       <td className="py-2">{formatCurrency(l.unitPrice)}</td>
-                      <td className="py-2">{formatCurrency(l.qty * l.unitPrice)}</td>
+                      <td className="py-2">{formatCurrency((l.receivedQty ?? l.qty) * l.unitPrice)}</td>
                     </tr>
                   ))}
                 </tbody>
