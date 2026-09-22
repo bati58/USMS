@@ -51,7 +51,7 @@ for a quick liveness check.
 Every seeded user's password is **`sms@1234`**:
 
 ```
-admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant
+admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security | disposal
 ```
 
 ## 5. Project structure
@@ -82,8 +82,8 @@ src/
   controllers/             One file per resource; _helpers.js holds
                            shared name<->ID resolution and DB row ->
                            camelCase JSON mappers
-  routes/index.js          Every endpoint, each wrapped in
-                           requireAuth + requireRole(resource)
+  routes/index.js          Protected endpoints use requireAuth and
+               requireRole(resource) or requireRole(action, 'action')
 ```
 
 ## 6. Design notes worth knowing before you modify this
@@ -107,7 +107,16 @@ src/
   upsert in `refGenerator.js`), specifically because a client-generated
   number can't be trusted not to collide under concurrent users.
 - **Authorization lives in exactly one file** (`utils/permissions.js`).
-  Every route in `routes/index.js` is wrapped in `requireRole(resource)`,
-  which reads that file. Don't add `if (req.user.role === ...)` checks
-  inside controllers — extend the matrix instead, so the frontend's
-  `permissions.js` and this file can be kept in sync by inspection.
+  Protected routes require authentication. Resource and action routes use
+  `requireRole`; the dashboard-summary endpoint is authenticated and performs
+  role-scoped aggregation in its controller. Don't add role checks inside
+  controllers when the rule belongs in the permission matrix.
+- **Disposal workflow** is status-driven: quarantine and technical assessment
+  precede repair/return or disposal request; Store Head review and PAO/Disposal
+  Committee authorization precede Storekeeper execution; PAO or the Disposal
+  Committee confirms, posts the FIFO stock removal, completes, and closes the
+  record. The disposal routes expose these stages as separate actions.
+- **Audit actor identity** is stored in `audit_logs.actor_id`, `user_name`, and
+  `actor_role`, alongside the entity and before/after change data. Stock
+  transactions and bin-card movements persist actor names; `audit_logs` is the
+  authoritative source for actor identity and role filtering.

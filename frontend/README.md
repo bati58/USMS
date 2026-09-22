@@ -33,7 +33,7 @@ in your browser automatically. It connects to the backend API via the `VITE_API_
 All seeded demo users below use the password `sms@1234`:
 
 ```
-admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security
+admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security | disposal
 ```
 
 ### Other scripts
@@ -79,7 +79,7 @@ src/
 | Material Transfers | `/material-transfer` | UC21-22 Initiate/Approve Transfer |
 | Disposal | `/disposal` | UC23-26 Shelf-life monitor, flag, manage disposal |
 | Reports | `/reports` | Report Management (inventory, low-stock, movement, GRN & SR status) |
-| Audit Log | `/audit-log` | Audit Management |
+| Audit Log | `/audit-log` | Audit Management — searchable, filterable, immutable audit events |
 
 ## 5. Design notes
 
@@ -87,3 +87,8 @@ src/
 - The sidebar/nav is entirely config-driven from `src/components/layout/navConfig.js`.
 - Every list page follows the same shape: search box, table with pagination, a modal form for create/edit, and a confirm dialog for delete.
 - Status vocabulary (`Draft/Pending/Under Evaluation/Approved/Rejected/...`) and its colors are centralized in `src/utils/constants.js`.
+- The **Disposal Committee** role has disposal-only navigation and participates
+  in disposal authorization, confirmation, posting, completion, and closure.
+- Audit events expose actor ID/name/role, entity references, outcomes, and
+  before/after changes. The Audit Log supports search, action-category,
+  module, role, outcome, date-range, sorting, CSV export, and detail views.

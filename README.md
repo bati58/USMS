@@ -150,7 +150,9 @@ Four helper functions resolve access at runtime:
 
 ### 4.2 Layer 2 — Authorization Middleware (`backend/src/middleware/authorize.js`)
 
-The `requireRole(resource, mode)` middleware sits on **every protected route** in `routes/index.js`:
+The `requireRole(resource, mode)` middleware sits on protected resource and
+action routes in `routes/index.js`. The dashboard-summary endpoint is
+authenticated and performs role-scoped aggregation in its controller:
 
 ```javascript
 // From the actual middleware:
@@ -219,28 +221,28 @@ User clicks "Post GRN"
 
 ### 5.1 Read Permissions
 
-| Resource | Administrator | PAO | Store Head | Storekeeper | Stock Clerk | TEC | Dept Head | Accountant | Security |
-|----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| stores | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| categories | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| items | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| locations | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-| suppliers | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| departments | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| goods-receipts | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| stock-transactions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| bin-cards | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — |
-| requisitions | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | — |
-| issue-vouchers | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ |
-| material-returns | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| material-transfers | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | — |
-| fixed-assets | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ | — |
-| disposals | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — |
-| stock-taking | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-| users | ✅ | — | — | — | — | — | — | — | — |
-| audit-logs | ✅ | ✅ | — | — | — | — | — | ✅ | ✅ |
-| reports | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| business-rules | ✅ | — | — | — | — | — | — | — | — |
+| Resource | Administrator | PAO | Store Head | Storekeeper | Stock Clerk | TEC | Dept Head | Accountant | Security | Disposal Committee |
+|----------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| stores | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| categories | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| items | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
+| locations | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
+| suppliers | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
+| departments | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| goods-receipts | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | — |
+| stock-transactions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
+| bin-cards | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — | — |
+| requisitions | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | — | — |
+| issue-vouchers | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
+| material-returns | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
+| material-transfers | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | — | — |
+| fixed-assets | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ | — | — |
+| disposals | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | ✅ |
+| stock-taking | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
+| users | ✅ | — | — | — | — | — | — | — | — | — |
+| audit-logs | ✅ | ✅ | — | — | — | — | — | ✅ | ✅ | — |
+| reports | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| business-rules | ✅ | — | — | — | — | — | — | — | — | — |
 
 ### 5.2 Write Permissions (Create / Update)
 
@@ -292,9 +294,11 @@ User clicks "Post GRN"
 | **Disposal: send for repair** | Storekeeper |
 | **Disposal: request** | Store Head |
 | **Disposal: review / recommend** | Store Head |
-| **Disposal: authorize / confirm** | PAO, Disposal Committee |
+| **Disposal: authorize** | PAO, Disposal Committee |
+| **Disposal: confirm** | PAO, Disposal Committee |
 | **Disposal: execute** | Storekeeper |
 | **Disposal: post** | PAO, Disposal Committee |
+| **Disposal: complete / close** | PAO, Disposal Committee |
 | **Gate Pass: verify** | Security Officer |
 | **Business Rules: configure** | Administrator |
 
@@ -408,9 +412,16 @@ Flagged → Quarantined → Under Technical Assessment
 | Technical assessment | TEC |
 | Request disposal | Store Head |
 | Review / recommend | Store Head |
-| Authorize / confirm | PAO / Disposal Committee |
-| Execute | Storekeeper |
-| Post (stock out) | PAO / Disposal Committee — FIFO consumption → decreases qty → Disposal `stock_transactions` → bin cards → audit |
+| Authorize | PAO / Disposal Committee (`POST /api/disposals/:id/authorize`) |
+| Execute | Storekeeper (`POST /api/disposals/:id/execute`) — records the physical disposal method and witness |
+| Confirm | PAO / Disposal Committee (`POST /api/disposals/:id/confirm`) |
+| Post (stock out) | PAO / Disposal Committee (`POST /api/disposals/:id/post`) — FIFO consumption → decreases qty → Disposal `stock_transactions` → bin cards → audit |
+| Complete / close | PAO / Disposal Committee (`POST /api/disposals/:id/complete`, then `/close`) |
+
+The workflow also exposes separate `quarantine`, `start-assessment`, `assess`,
+`repair`, `reassess`, `request`, `review`, `recommend`,
+`submit-authorization`, and `submit-confirmation` actions. The legacy
+`approve` action is PAO-only and is retained for compatible approval paths.
 
 ### 6.7 Stock-Taking & Reconciliation Workflow
 
@@ -586,6 +597,11 @@ Audit visibility is role-scoped:
 - **PAO**: property/approval-related modules
 - **Accountant**: financial-related modules
 - **Security**: gate and authentication activity
+- **Disposal Committee**: disposal records and disposal workflow activity
+
+Audit records expose actor ID, actor name, and actor role. Stock transactions
+and bin-card movements currently persist actor names; `audit_logs` is the
+authoritative source for actor identity and role filtering.
 
 ---
 
@@ -631,7 +647,7 @@ npm run dev                    # Vite dev server at http://localhost:5174
 All seeded users share the password **`sms@1234`**:
 
 ```
-admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security
+admin | pao | storehead | storekeeper | clerk | tec | depthead | accountant | security | disposal
 ```
 
 ### Database Commands
