@@ -294,6 +294,24 @@ export default function Reports() {
     ].map((record) => record.status).filter(Boolean))).sort().map((status) => ({ value: status, label: status }))
   ]
 
+  const filterSupport = useMemo(() => ({
+    store: !['department-consumption', 'supplier-transactions'].includes(reportType),
+    category: ['inventory-summary', 'stock-card-report', 'stock-movement', 'stock-variance', 'expiring-items', 'inventory-valuation', 'fifo-valuation'].includes(reportType),
+    status: ['grn-status', 'grn-report', 'material-evaluation', 'requisition-status', 'siv-report', 'transfer-report', 'material-return-report', 'asset-register', 'asset-assignment', 'disposal-report'].includes(reportType),
+    dates: !['inventory-summary', 'stock-card-report', 'bin-card-report', 'low-stock', 'stock-variance', 'inventory-valuation', 'fifo-valuation', 'department-consumption', 'supplier-transactions'].includes(reportType)
+  }), [reportType])
+
+  useEffect(() => {
+    setFilters((current) => ({
+      ...current,
+      store: filterSupport.store ? current.store : 'all',
+      category: filterSupport.category ? current.category : 'all',
+      status: filterSupport.status ? current.status : 'all',
+      startDate: filterSupport.dates ? current.startDate : '',
+      endDate: filterSupport.dates ? current.endDate : ''
+    }))
+  }, [filterSupport])
+
   const getFilterRange = () => {
     const start = filters.startDate ? new Date(filters.startDate) : null
     const end = filters.endDate ? new Date(filters.endDate) : null
@@ -306,7 +324,11 @@ export default function Reports() {
     const { start, end } = getFilterRange()
 
     if (q && !JSON.stringify(record).toLowerCase().includes(q)) return false
-    if (filters.store !== 'all' && record[storeKey] !== filters.store) return false
+    if (filters.store !== 'all') {
+      const storeValue = typeof storeKey === 'function' ? storeKey(record) : record[storeKey]
+      const storesForRecord = Array.isArray(storeValue) ? storeValue : [storeValue]
+      if (!storesForRecord.includes(filters.store)) return false
+    }
     if (filters.category !== 'all' && record.category !== filters.category) return false
     if (filters.status !== 'all' && record.status !== filters.status) return false
 
@@ -556,19 +578,11 @@ export default function Reports() {
     ]
     rows = filtered
   } else if (reportType === 'stock-movement') {
-    const filtered = transactions.filter((t) => {
-      if (query && !JSON.stringify(t).toLowerCase().includes(query.toLowerCase())) return false
-      if (filters.startDate && new Date(t.date) < new Date(filters.startDate)) return false
-      if (filters.endDate) {
-        const end = new Date(filters.endDate)
-        end.setHours(23, 59, 59, 999)
-        if (new Date(t.date) > end) return false
-      }
-      return true
-    })
+    const filtered = transactions.filter((t) => matchesFilter(t, 'date', 'store'))
     columns = [
       { key: 'date', header: 'Date', render: (r) => formatDate(r.date) },
       { key: 'item', header: 'Item' },
+      { key: 'store', header: 'Store' },
       { key: 'type', header: 'Type' },
       { key: 'ref', header: 'Reference' },
       { key: 'qtyIn', header: 'Qty In', render: (r) => formatNumber(r.qtyIn) },
@@ -640,18 +654,11 @@ export default function Reports() {
     ]
     rows = filtered
   } else if (reportType === 'stock-movement-value') {
-    const filtered = transactions.filter((t) => {
-      if (filters.startDate && new Date(t.date) < new Date(filters.startDate)) return false
-      if (filters.endDate) {
-        const end = new Date(filters.endDate)
-        end.setHours(23, 59, 59, 999)
-        if (new Date(t.date) > end) return false
-      }
-      return true
-    })
+    const filtered = transactions.filter((t) => matchesFilter(t, 'date', 'store'))
     columns = [
       { key: 'date', header: 'Date', render: (r) => formatDate(r.date) },
       { key: 'item', header: 'Item' },
+      { key: 'store', header: 'Store' },
       { key: 'type', header: 'Type' },
       { key: 'ref', header: 'Reference' },
       { key: 'qtyIn', header: 'Qty In' },
@@ -694,10 +701,13 @@ export default function Reports() {
       'material-return-report': 'date',
       'transfer-report': 'date',
       'asset-register': 'acquisitionDate',
-      'disposal-report': 'date',
+      'disposal-report': 'dateFlagged',
       'stock-movement': 'date'
     }[reportType]
-    rows = serverReportRows.filter((record) => matchesFilter(record, serverDateKey))
+    const serverStoreKey = reportType === 'transfer-report'
+      ? (record) => [record.fromStore, record.toStore]
+      : 'store'
+    rows = serverReportRows.filter((record) => matchesFilter(record, serverDateKey, serverStoreKey))
 
     const summaryDefinitions = {
       'grn-status': [
@@ -772,15 +782,15 @@ export default function Reports() {
           </div>
           <div>
             <label className="label">Store</label>
-            <Select value={filters.store} onChange={(e) => setFilters((p) => ({ ...p, store: e.target.value }))} options={storeOptions} />
+            <Select value={filters.store} disabled={!filterSupport.store} onChange={(e) => setFilters((p) => ({ ...p, store: e.target.value }))} options={storeOptions} />
           </div>
           <div>
             <label className="label">Category</label>
-            <Select value={filters.category} onChange={(e) => setFilters((p) => ({ ...p, category: e.target.value }))} options={categoryOptions} />
+            <Select value={filters.category} disabled={!filterSupport.category} onChange={(e) => setFilters((p) => ({ ...p, category: e.target.value }))} options={categoryOptions} />
           </div>
           <div>
             <label className="label">Status</label>
-            <Select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} options={statusOptions} />
+            <Select value={filters.status} disabled={!filterSupport.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} options={statusOptions} />
           </div>
         </div>
 
@@ -788,11 +798,11 @@ export default function Reports() {
           <SearchInput value={query} onChange={setQuery} placeholder="Search..." />
           <div>
             <label className="label">From date</label>
-            <input type="date" className="input" value={filters.startDate} onChange={(e) => setFilters((p) => ({ ...p, startDate: e.target.value }))} />
+            <input type="date" className="input" disabled={!filterSupport.dates} value={filters.startDate} onChange={(e) => setFilters((p) => ({ ...p, startDate: e.target.value }))} />
           </div>
           <div>
             <label className="label">To date</label>
-            <input type="date" className="input" value={filters.endDate} onChange={(e) => setFilters((p) => ({ ...p, endDate: e.target.value }))} />
+            <input type="date" className="input" disabled={!filterSupport.dates} value={filters.endDate} onChange={(e) => setFilters((p) => ({ ...p, endDate: e.target.value }))} />
           </div>
           <div className="flex items-end gap-2">
           </div>

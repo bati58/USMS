@@ -135,9 +135,11 @@ const stockMovement = asyncHandler(async (req, res) => {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await query(
-    `SELECT st.date, i.name AS item, st.type, st.ref, st.qty_in, st.qty_out, st.balance
+    `SELECT st.date, i.name AS item, c.name AS category, s.name AS store,
+    st.type, st.ref, st.qty_in, st.qty_out, st.balance
      FROM stock_transactions st
      JOIN items i ON i.id = st.item_id
+     LEFT JOIN categories c ON c.id = i.category_id
     JOIN stores s ON s.id = st.store_id
      ${where}
      ORDER BY st.date DESC, st.id DESC`,
@@ -147,6 +149,8 @@ const stockMovement = asyncHandler(async (req, res) => {
     rows.map((r) => ({
       date: r.date,
       item: r.item,
+      category: r.category,
+      store: r.store,
       type: r.type,
       ref: r.ref,
       qtyIn: Number(r.qty_in),
@@ -166,7 +170,7 @@ const grnStatus = asyncHandler(async (req, res) => {
     FROM goods_receipts g JOIN stores s ON s.id = g.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY g.received_date DESC
-  `, params);
+    `, params);
   res.json(
     rows.map((r) => ({
       grnRef: r.grn_ref,
@@ -195,12 +199,13 @@ const requisitionStatus = asyncHandler(async (req, res) => {
     FROM requisitions r JOIN stores s ON s.id = r.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY r.date DESC
-  `, params);
+    `, params);
   res.json(rows.map((r) => ({
     srRef: r.sr_ref,
     department: r.department,
     requestedBy: r.requested_by,
     date: r.date,
+    store: r.store,
     status: r.status
   })));
 });
@@ -218,33 +223,33 @@ const dashboardSummary = asyncHandler(async (req, res) => {
   if (role === ROLES.ADMIN) {
     const overviewQ = await query(`
       SELECT
-        (SELECT COUNT(*) FROM users) AS total_users,
-        (SELECT COUNT(*) FROM users WHERE active = TRUE) AS active_users,
-        (SELECT COUNT(*) FROM users WHERE active = FALSE) AS inactive_users,
-        (SELECT COUNT(*) FROM users WHERE active = FALSE) AS pending_user_activations,
-        (SELECT COUNT(DISTINCT role) FROM users) AS total_roles,
-        (SELECT COUNT(*) FROM departments WHERE active = TRUE) AS total_departments,
-        (SELECT COUNT(*) FROM stores WHERE active = TRUE) AS total_stores,
+      (SELECT COUNT(*) FROM users) AS total_users,
+    (SELECT COUNT(*) FROM users WHERE active = TRUE) AS active_users,
+  (SELECT COUNT(*) FROM users WHERE active = FALSE) AS inactive_users,
+(SELECT COUNT(*) FROM users WHERE active = FALSE) AS pending_user_activations,
+  (SELECT COUNT(DISTINCT role) FROM users) AS total_roles,
+    (SELECT COUNT(*) FROM departments WHERE active = TRUE) AS total_departments,
+      (SELECT COUNT(*) FROM stores WHERE active = TRUE) AS total_stores,
         (SELECT COUNT(*) FROM categories WHERE active = TRUE) AS total_categories,
-        (SELECT COUNT(*) FROM locations WHERE active = TRUE) AS total_locations,
-        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE) AS total_items,
-        (SELECT COUNT(*) FROM suppliers WHERE active = TRUE) AS total_suppliers,
-        (SELECT COUNT(*) FROM goods_receipts g JOIN stores s ON s.id = g.store_id WHERE s.active = TRUE AND g.status IN ('Pending Evaluation', 'Under Evaluation')) AS pending_technical_evaluations,
-        (SELECT COUNT(*) FROM goods_receipts g JOIN stores s ON s.id = g.store_id WHERE s.active = TRUE AND g.status IN ('Accepted', 'GRN Generated', 'Posted')) AS pending_grns,
-        (SELECT COUNT(*) FROM issue_vouchers WHERE status IN ('Preliminary', 'Pending Approval')) AS pending_siv_approvals,
-        (SELECT COUNT(*) FROM material_returns WHERE status IN ('Submitted', 'Pending', 'Pending Review')) AS pending_returns,
-        (SELECT COUNT(*) FROM material_transfers WHERE status IN ('Submitted', 'Pending', 'Pending Approval')) AS pending_material_transfers,
-        (SELECT COUNT(*) FROM stock_taking_sessions WHERE status IN ('Submitted', 'Pending Approval', 'Approved')) AS pending_stock_taking,
-        (SELECT COUNT(*) FROM stock_taking_items sti JOIN stock_taking_sessions st ON st.id = sti.session_id WHERE sti.variance <> 0 AND st.status IN ('Submitted', 'Pending Approval', 'Approved')) AS pending_reconciliation,
-        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction')) AS pending_disposal_requests,
-        (SELECT COUNT(*) FROM goods_receipts WHERE gate_verified = FALSE AND status IN ('GRN Generated', 'Posted')) AS pending_gate_verification,
-        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE) AS expiring_items,
-        (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE) AS expired_items,
-        (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%damaged%') AS damaged_items,
-        (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%quarantine%') AS quarantine_items,
-        (SELECT COUNT(*) FROM disposals WHERE status IN ('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction', 'Approved', 'Executed', 'Completed', 'Closed')) AS disposal_flags,
-        (SELECT COUNT(*) FROM audit_logs WHERE outcome = 'FAILED' AND created_at >= NOW() - INTERVAL '7 days') AS failed_operations
-    `);
+          (SELECT COUNT(*) FROM locations WHERE active = TRUE) AS total_locations,
+            (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE) AS total_items,
+              (SELECT COUNT(*) FROM suppliers WHERE active = TRUE) AS total_suppliers,
+                (SELECT COUNT(*) FROM goods_receipts g JOIN stores s ON s.id = g.store_id WHERE s.active = TRUE AND g.status IN('Pending Evaluation', 'Under Evaluation')) AS pending_technical_evaluations,
+                  (SELECT COUNT(*) FROM goods_receipts g JOIN stores s ON s.id = g.store_id WHERE s.active = TRUE AND g.status IN('Accepted', 'GRN Generated', 'Posted')) AS pending_grns,
+                    (SELECT COUNT(*) FROM issue_vouchers WHERE status IN('Preliminary', 'Pending Approval')) AS pending_siv_approvals,
+                      (SELECT COUNT(*) FROM material_returns WHERE status IN('Submitted', 'Pending', 'Pending Review')) AS pending_returns,
+                        (SELECT COUNT(*) FROM material_transfers WHERE status IN('Submitted', 'Pending', 'Pending Approval')) AS pending_material_transfers,
+                          (SELECT COUNT(*) FROM stock_taking_sessions WHERE status IN('Submitted', 'Pending Approval', 'Approved')) AS pending_stock_taking,
+                            (SELECT COUNT(*) FROM stock_taking_items sti JOIN stock_taking_sessions st ON st.id = sti.session_id WHERE sti.variance <> 0 AND st.status IN('Submitted', 'Pending Approval', 'Approved')) AS pending_reconciliation,
+                              (SELECT COUNT(*) FROM disposals WHERE status IN('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction')) AS pending_disposal_requests,
+                                (SELECT COUNT(*) FROM goods_receipts WHERE gate_verified = FALSE AND status IN('GRN Generated', 'Posted')) AS pending_gate_verification,
+                                  (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date >= CURRENT_DATE) AS expiring_items,
+                                    (SELECT COUNT(*) FROM items i JOIN stores s ON s.id = i.store_id WHERE s.active = TRUE AND i.expiry_tracked = TRUE AND i.expiry_date IS NOT NULL AND i.expiry_date < CURRENT_DATE) AS expired_items,
+                                      (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%damaged%') AS damaged_items,
+                                        (SELECT COUNT(*) FROM items WHERE LOWER(COALESCE(item_condition, '')) LIKE '%quarantine%') AS quarantine_items,
+                                          (SELECT COUNT(*) FROM disposals WHERE status IN('Flagged', 'Quarantined', 'Under Technical Assessment', 'Repairable', 'Unusable', 'Send for Repair', 'Requested', 'Pending Review', 'Returned for Correction', 'Approved', 'Executed', 'Completed', 'Closed')) AS disposal_flags,
+                                            (SELECT COUNT(*) FROM audit_logs WHERE outcome = 'FAILED' AND created_at >= NOW() - INTERVAL '7 days') AS failed_operations
+                                              `);
     const overview = overviewQ.rows[0];
     summary.systemOverview = {
       totalUsers: Number(overview.total_users),
@@ -281,7 +286,7 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     FROM items i
     JOIN stores s ON s.id = i.store_id
     WHERE ${itemStoreCondition}
-  `, itemStoreParams);
+`, itemStoreParams);
   summary.totalInventoryValue = Number(totalValueQ.rows[0].total);
 
   const lowStockQ = await query(`
@@ -312,16 +317,16 @@ const dashboardSummary = asyncHandler(async (req, res) => {
     SELECT COUNT(*) AS count
     FROM goods_receipts g
     JOIN stores s ON s.id = g.store_id
-    WHERE s.active = TRUE AND g.status IN ('Pending','Under Evaluation')${assignedStoreScope === null ? '' : ' AND g.store_id = ANY($1::int[])'}
-  `, itemStoreParams);
+    WHERE s.active = TRUE AND g.status IN('Pending', 'Under Evaluation')${assignedStoreScope === null ? '' : ' AND g.store_id = ANY($1::int[])'}
+`, itemStoreParams);
   summary.pendingGoodsReceipts = Number(pendingGrnQ.rows[0].count);
 
   if (role === ROLES.ADMIN) {
     const adminActivityQ = await query(`
-      SELECT
-        (SELECT COUNT(*) FROM audit_logs WHERE created_at >= NOW() - INTERVAL '7 days') AS recent_audit_events,
-        (SELECT COUNT(*) FROM audit_logs WHERE created_at >= NOW() - INTERVAL '7 days' AND actor_role IS NOT NULL) AS recent_user_activity,
-        (SELECT COUNT(*) FROM audit_logs WHERE outcome = 'FAILED' AND created_at >= NOW() - INTERVAL '7 days') AS failed_operations
+SELECT
+  (SELECT COUNT(*) FROM audit_logs WHERE created_at >= NOW() - INTERVAL '7 days') AS recent_audit_events,
+    (SELECT COUNT(*) FROM audit_logs WHERE created_at >= NOW() - INTERVAL '7 days' AND actor_role IS NOT NULL) AS recent_user_activity,
+      (SELECT COUNT(*) FROM audit_logs WHERE outcome = 'FAILED' AND created_at >= NOW() - INTERVAL '7 days') AS failed_operations
     `);
     const activity = adminActivityQ.rows[0];
     summary.recentAuditEvents = Number(activity.recent_audit_events);
@@ -375,10 +380,11 @@ const issueStatus = asyncHandler(async (req, res) => {
   const departmentScope = scopeForDepartmentHead(req, 'r.department');
   if (departmentScope) {
     params.push(departmentScope.value);
-    conditions.push(`${departmentScope.column} = $${params.length}`);
+    conditions.push(`${departmentScope.column} = $${params.length} `);
   }
   const { rows } = await query(`
-    SELECT iv.siv_ref, iv.type, iv.sr_ref, iv.issued_to, iv.issued_by, iv.date, iv.status
+        SELECT iv.siv_ref, iv.type, iv.sr_ref, iv.issued_to, iv.issued_by, iv.date, iv.status,
+  s.name AS store
     FROM issue_vouchers iv
     LEFT JOIN requisitions r ON r.sr_ref = iv.sr_ref
     LEFT JOIN stores s ON s.id = r.store_id
@@ -386,7 +392,7 @@ const issueStatus = asyncHandler(async (req, res) => {
   `, params);
   res.json(rows.map((r) => ({
     sivRef: r.siv_ref, type: r.type, srRef: r.sr_ref, issuedTo: r.issued_to,
-    issuedBy: r.issued_by, date: r.date, status: r.status
+    issuedBy: r.issued_by, date: r.date, store: r.store, status: r.status
   })));
 });
 
@@ -398,19 +404,20 @@ const returnStatus = asyncHandler(async (req, res) => {
   const departmentScope = scopeForDepartmentHead(req, 'mr.department');
   if (departmentScope) {
     params.push(departmentScope.value);
-    conditions.push(`${departmentScope.column} = $${params.length}`);
+    conditions.push(`${departmentScope.column} = $${params.length} `);
   }
   const { rows } = await query(`
-    SELECT mr.srn_ref, mr.department, i.name AS item, mr.qty, mr.reason, mr.status, mr.date
+        SELECT mr.srn_ref, mr.department, i.name AS item, s.name AS store,
+  mr.qty, mr.reason, mr.status, mr.date
     FROM material_returns mr
     LEFT JOIN items i ON i.id = mr.item_id
-    LEFT JOIN stores s ON s.id = i.store_id
+        LEFT JOIN stores s ON s.id = mr.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY mr.date DESC
   `, params);
   res.json(rows.map((r) => ({
     srnRef: r.srn_ref, department: r.department, item: r.item,
-    qty: Number(r.qty), reason: r.reason, status: r.status, date: r.date
+    store: r.store, qty: Number(r.qty), reason: r.reason, status: r.status, date: r.date
   })));
 });
 
@@ -422,11 +429,11 @@ const transferStatus = asyncHandler(async (req, res) => {
   const departmentScope = scopeForDepartmentHead(req, 'mt.department');
   if (departmentScope) {
     params.push(departmentScope.value);
-    conditions.push(`${departmentScope.column} = $${params.length}`);
+    conditions.push(`${departmentScope.column} = $${params.length} `);
   }
   const { rows } = await query(`
     SELECT mt.transfer_ref, fs.name AS from_store, ts.name AS to_store,
-           i.name AS item, mt.qty, mt.requested_by, mt.status, mt.date
+  i.name AS item, mt.qty, mt.requested_by, mt.status, mt.date
     FROM material_transfers mt
     LEFT JOIN stores fs ON fs.id = mt.from_store_id
     LEFT JOIN stores ts ON ts.id = mt.to_store_id
@@ -436,7 +443,8 @@ const transferStatus = asyncHandler(async (req, res) => {
   `, params);
   res.json(rows.map((r) => ({
     transferRef: r.transfer_ref, fromStore: r.from_store, toStore: r.to_store,
-    item: r.item, qty: Number(r.qty), requestedBy: r.requested_by, status: r.status, date: r.date
+    store: r.from_store || r.to_store, item: r.item, qty: Number(r.qty),
+    requestedBy: r.requested_by, status: r.status, date: r.date
   })));
 });
 
@@ -447,7 +455,7 @@ const assetSummary = asyncHandler(async (req, res) => {
   await addStoreScope(req, conditions, params, 'fa.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT fa.asset_tag, fa.name, fa.category, s.name AS store, fa.assigned_to,
-           fa.status, fa.acquisition_date, fa.value
+  fa.status, fa.acquisition_date, fa.value
     FROM fixed_assets fa LEFT JOIN stores s ON s.id = fa.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY fa.acquisition_date DESC
@@ -466,10 +474,10 @@ const disposalStatus = asyncHandler(async (req, res) => {
   await addStoreScope(req, conditions, params, 'd.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT d.disposal_ref, i.name AS item, s.name AS store, d.qty, d.reason,
-           d.date_flagged, d.status
+  d.date_flagged, d.status
     FROM disposals d
     LEFT JOIN items i ON i.id = d.item_id
-    LEFT JOIN stores s ON s.id = i.store_id
+    LEFT JOIN stores s ON s.id = d.store_id
     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
     ORDER BY d.date_flagged DESC
   `, params);
@@ -486,8 +494,8 @@ const fifoValuation = asyncHandler(async (req, res) => {
   await addStoreScope(req, conditions, params, 'sl.store_id = ANY(?::int[])');
   const { rows } = await query(`
     SELECT i.code, i.name, i.unit, sl.unit_price, sl.qty_remaining,
-           (sl.unit_price * sl.qty_remaining) AS lot_value,
-           sl.received_date, sl.source_ref
+  (sl.unit_price * sl.qty_remaining) AS lot_value,
+    sl.received_date, sl.source_ref
     FROM stock_lots sl
     JOIN items i ON i.id = sl.item_id
     JOIN stores s ON s.id = sl.store_id
