@@ -19,7 +19,7 @@ const list = asyncHandler(async (req, res) => {
     params.push(req.user.role, modules);
     scope = `WHERE (actor_role = $1 OR module = ANY($2::text[]))`;
   }
-  const { rows } = await query(`SELECT * FROM audit_logs ${scope} ORDER BY created_at DESC LIMIT 500`, params);
+  const { rows } = await query(`SELECT * FROM audit_logs ${scope} ORDER BY created_at DESC`, params);
   res.json(rows.map(mapAuditLog));
 });
 

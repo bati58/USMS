@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Loader from './Loader'
 import EmptyState from './EmptyState'
 import Pagination from './Pagination'
@@ -7,6 +7,10 @@ import Pagination from './Pagination'
 // columns: [{ key, header, render?(row), className? }]
 export default function Table({ columns, rows = [], loading, emptyTitle, emptyMessage, pageSize = 8, rowKey = 'id' }) {
   const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    setPage(1)
+  }, [rows, pageSize])
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize

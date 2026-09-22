@@ -28,6 +28,10 @@ function OutcomeBadge({ value }) {
   return <Badge className={AUDIT_OUTCOME_COLOR[value] || 'bg-ink-100 text-ink-600'}>{value || 'SUCCESS'}</Badge>
 }
 
+function actionCategory(action = '') {
+  return action.trim().split(/\s+/)[0] || 'System'
+}
+
 export default function AuditLog() {
   const { user } = useAuth()
   const { push } = useToast()
@@ -41,6 +45,14 @@ export default function AuditLog() {
   const [selectedRow, setSelectedRow] = useState(null)
   const [showRaw, setShowRaw] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const hasFilters = query || Object.values(filters).some((value) => value !== 'all' && value !== '') || sortBy !== 'newest'
+
+  function clearFilters() {
+    setQuery('')
+    setSortBy('newest')
+    setFilters(DEFAULT_FILTERS)
+  }
 
   useEffect(() => {
     let active = true
@@ -64,7 +76,7 @@ export default function AuditLog() {
   }, [rows])
 
   const actionOptions = useMemo(() => {
-    const uniqueActions = [...new Set(rows.map((row) => row.action).filter(Boolean))]
+    const uniqueActions = [...new Set(rows.map((row) => actionCategory(row.action)).filter(Boolean))].sort()
     return [{ value: 'all', label: 'All Actions' }, ...uniqueActions.map((action) => ({ value: action, label: action }))]
   }, [rows])
 
@@ -81,7 +93,12 @@ export default function AuditLog() {
 
     return [...rows]
       .filter((row) => {
-        const searchText = [row.actorName, row.actorRole, row.action, row.module, row.entityId, row.entityReference, row.description, row.metadata?.department, row.metadata?.store]
+        const searchText = [
+          row.actorName, row.actorRole, row.action, actionCategory(row.action), row.module,
+          row.entityType, row.entityId, row.entityReference, row.description,
+          row.transactionReference, row.storeId, row.itemId, row.locationId, row.bin,
+          JSON.stringify(row.metadata), JSON.stringify(row.beforeData), JSON.stringify(row.afterData), JSON.stringify(row.changes)
+        ]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -89,7 +106,7 @@ export default function AuditLog() {
         const matchesSearch = !q || searchText.includes(q)
         const matchesRole = filters.role === 'all' || row.actorRole === filters.role
         const matchesModule = filters.module === 'all' || row.module === filters.module
-        const matchesAction = filters.action === 'all' || row.action === filters.action
+        const matchesAction = filters.action === 'all' || actionCategory(row.action) === filters.action
         const matchesOutcome = filters.outcome === 'all' || row.outcome === filters.outcome
         const matchesStart = !start || new Date(row.timestamp) >= start
         const matchesEnd = !end || new Date(row.timestamp) <= end
@@ -136,7 +153,7 @@ export default function AuditLog() {
     { key: 'actorRole', header: 'Role' },
     { key: 'action', header: 'Action' },
     { key: 'module', header: 'Module' },
-    { key: 'entityReference', header: 'Entity / Reference' },
+    { key: 'entityReference', header: 'Entity / Reference', render: (row) => row.entityReference || row.entityId || 'N/A' },
     { key: 'description', header: 'Description' },
     { key: 'outcome', header: 'Outcome', render: (row) => <OutcomeBadge value={row.outcome} /> },
     {
@@ -203,6 +220,11 @@ export default function AuditLog() {
           <Select label="Role" value={filters.role} onChange={(e) => setFilters((prev) => ({ ...prev, role: e.target.value }))} options={roleOptions} />
           <Select label="Module" value={filters.module} onChange={(e) => setFilters((prev) => ({ ...prev, module: e.target.value }))} options={moduleOptions} />
           <Select label="Outcome" value={filters.outcome} onChange={(e) => setFilters((prev) => ({ ...prev, outcome: e.target.value }))} options={[{ value: 'all', label: 'All Outcomes' }, { value: 'SUCCESS', label: 'SUCCESS' }, { value: 'FAILED', label: 'FAILED' }, { value: 'WARNING', label: 'WARNING' }]} />
+          <div className="flex items-end">
+            <Button variant="secondary" icon={X} onClick={clearFilters} disabled={!hasFilters}>
+              Clear filters
+            </Button>
+          </div>
         </div>
 
         <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -251,7 +273,7 @@ export default function AuditLog() {
               <div><p className="text-xs uppercase text-ink-400">Action</p><p className="mt-1 font-medium text-ink-900">{selectedRow.action}</p></div>
               <div><p className="text-xs uppercase text-ink-400">Module</p><p className="mt-1 font-medium text-ink-900">{selectedRow.module}</p></div>
               <div><p className="text-xs uppercase text-ink-400">Entity</p><p className="mt-1 font-medium text-ink-900">{selectedRow.entityType}</p></div>
-              <div><p className="text-xs uppercase text-ink-400">Reference</p><p className="mt-1 font-medium text-ink-900">{selectedRow.entityReference}</p></div>
+              <div><p className="text-xs uppercase text-ink-400">Reference</p><p className="mt-1 font-medium text-ink-900">{selectedRow.entityReference || selectedRow.entityId || 'N/A'}</p></div>
             </div>
 
             <div>
@@ -288,7 +310,7 @@ export default function AuditLog() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div><p className="text-xs uppercase text-ink-400">IP Address</p><p className="mt-1 font-medium text-ink-900">{selectedRow.ipAddress || 'N/A'}</p></div>
               <div><p className="text-xs uppercase text-ink-400">Device / Browser</p><p className="mt-1 font-medium text-ink-900">{selectedRow.userAgent || 'Frontend (Browser)'}</p></div>
-              <div><p className="text-xs uppercase text-ink-400">Store</p><p className="mt-1 font-medium text-ink-900">{selectedRow.metadata?.store || 'N/A'}</p></div>
+              <div><p className="text-xs uppercase text-ink-400">Store ID</p><p className="mt-1 font-medium text-ink-900">{selectedRow.storeId || selectedRow.metadata?.store || 'N/A'}</p></div>
               <div><p className="text-xs uppercase text-ink-400">Department</p><p className="mt-1 font-medium text-ink-900">{selectedRow.metadata?.department || 'N/A'}</p></div>
             </div>
 
