@@ -1,3 +1,4 @@
+# Summer Internship Project
 # Stock Management System — Complete System Overview
 
 A full-stack, role-based inventory and stock-control application for universities, campuses, or any multi-store organisation. The system manages the entire stock lifecycle — from goods receipt through technical evaluation, GRN generation, stock posting, departmental requisitions, issue vouchers, material returns, inter-store transfers, fixed-asset tracking, disposals, stock-taking, reconciliation, gate verification, audit logging, and operational/financial reporting.
